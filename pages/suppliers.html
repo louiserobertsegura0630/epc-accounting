@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suppliers - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="suppliers.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Suppliers</h1>
+      <p>Supplier directory and category management.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Suppliers</span>
+        <span class="section-subtitle">Manage your supplier contacts and categories.</span>
+      </div>
+      <div class="page-title-actions">
+        <button class="btn btn-primary" id="btn-add-supplier">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Supplier
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-row" id="sup-dir-summary"></div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title">Supplier Directory</span>
+        <input type="text" class="search-input" id="search-sup-dir" placeholder="Search name, category, contact, email…">
+        <button class="btn btn-outline-gray btn-sm" id="btn-clear-sup-filters">Clear Filters</button>
+      </div>
+
+      <!-- Bulk action bar -->
+      <div class="sup-bulk-bar" id="sup-bulk-bar">
+        <span class="sup-bulk-count" id="sup-bulk-count">0 suppliers selected</span>
+        <button class="btn btn-danger btn-sm" id="btn-delete-sup-selected">Delete Selected</button>
+        <button class="btn btn-outline-gray btn-sm" id="btn-deselect-sup">Clear Selection</button>
+      </div>
+      <div class="sup-select-all-banner" id="sup-select-all-banner">
+        <span id="sup-select-page-message"></span>
+        <button class="sup-select-all-link" type="button" id="btn-select-all-suppliers"></button>
+      </div>
+
+      <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="sup-select-col"><input type="checkbox" id="sup-select-all" aria-label="Select all visible suppliers" onchange="toggleAllVisibleSup(this.checked)"></th>
+            <th style="width:44px">Logo</th>
+            <th class="sortable" onclick="supSort('name')">Name<span id="sup-sort-name"></span></th>
+            <th class="sortable" onclick="supSort('category')">Category<span id="sup-sort-category"></span></th>
+            <th>Address</th>
+            <th class="sortable" onclick="supSort('contact')">Contact Person<span id="sup-sort-contact"></span></th>
+            <th class="sortable" onclick="supSort('phone')">Phone<span id="sup-sort-phone"></span></th>
+            <th class="sortable" onclick="supSort('email')">Email<span id="sup-sort-email"></span></th>
+            <th class="sortable" onclick="supSort('status')">Status<span id="sup-sort-status"></span></th>
+            <th>Actions</th>
+          </tr>
+          <tr>
+            <td class="sup-select-col"></td>
+            <td></td>
+            <td><input type="text" class="filter-input" id="filter-sup-name" placeholder="Filter…"></td>
+            <td>
+              <select class="filter-input" id="filter-sup-cat">
+                <option value="">All</option>
+              </select>
+            </td>
+            <td></td>
+            <td><input type="text" class="filter-input" id="filter-sup-contact" placeholder="Filter…"></td>
+            <td><input type="text" class="filter-input" id="filter-sup-phone" placeholder="Filter…"></td>
+            <td><input type="text" class="filter-input" id="filter-sup-email" placeholder="Filter…"></td>
+            <td>
+              <select class="filter-input" id="filter-sup-status">
+                <option value="">All</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </td>
+            <td></td>
+          </tr>
+        </thead>
+        <tbody id="sup-dir-tbody"></tbody>
+      </table>
+      </div>
+      <div class="pagination-bar" id="sup-dir-pagination"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Add/Edit Supplier Modal -->
+<div class="modal-overlay" id="modal-supplier">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-sup-title">Add Supplier</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="sup-edit-id">
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Supplier Name <span class="req">*</span></label>
+          <input type="text" class="form-input" id="sup-name" placeholder="Company or supplier name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select class="form-select" id="sup-cat"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Address</label>
+        <textarea class="form-textarea" id="sup-address" style="min-height:60px" placeholder="Full address"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Logo (optional)</label>
+        <input type="file" class="form-input" id="sup-logo" accept="image/*">
+        <span class="help-text">Image will be stored locally. Max recommended: 200×200px.</span>
+        <div id="sup-logo-preview" style="margin-top:8px"></div>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group">
+          <label class="form-label">Contact Person</label>
+          <input type="text" class="form-input" id="sup-contact" placeholder="Name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contact Number</label>
+          <input type="text" class="form-input" id="sup-phone" placeholder="09XX-XXX-XXXX">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" class="form-input" id="sup-email" placeholder="email@example.com">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea class="form-textarea" id="sup-notes" placeholder="Optional notes…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-supplier">Save Supplier</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Supplier Modal -->
+<div class="modal-overlay" id="modal-view-sup">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-sup-view-title">Supplier Details</span>
+      <button class="modal-close" onclick="closeModal('modal-view-sup')">✕</button>
+    </div>
+    <div class="modal-body" id="view-sup-body"></div>
+    <div class="modal-footer" id="view-sup-footer">
+      <button class="btn btn-outline-gray" onclick="closeModal('modal-view-sup')">Close</button>
+      <button class="btn btn-primary" onclick="enterEditMode()">Edit Info</button>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Products Modal -->
+<div class="modal-overlay" id="modal-assign-products">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="assign-products-title">Assign Products</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="assign-selection-view">
+        <input type="text" class="form-input" id="assign-product-search" placeholder="Search item code or product name…">
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12.5px;color:#64748b">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--text-primary)">
+            <input type="checkbox" id="assign-product-select-all" style="width:16px;height:16px;accent-color:var(--primary)"> Select all visible
+          </label>
+          <span id="assign-product-count">0 selected</span>
+        </div>
+        <div class="supplier-products-list" id="assign-product-list" style="max-height:420px"></div>
+        <div class="pagination-bar" id="assign-product-pagination" style="margin-top:10px;border:1px solid var(--card-border);border-radius:8px"></div>
+      </div>
+      <div id="assign-review-view" style="display:none">
+        <p id="assign-review-message" style="margin:0 0 12px;font-size:14px;font-weight:700;color:var(--text-primary)"></p>
+        <div class="supplier-products-list" id="assign-review-list" style="max-height:420px"></div>
+        <div class="pagination-bar" id="assign-review-pagination" style="margin-top:10px;border:1px solid var(--card-border);border-radius:8px"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-review-assign-products">Assign Products</button>
+      <button class="btn btn-outline-gray" id="btn-back-assign-selection" style="display:none">← Back to Selection</button>
+      <button class="btn btn-primary" id="btn-confirm-assign-products" style="display:none">Confirm & Assign</button>
+    </div>
+  </div>
+</div>
+
+<!-- Supplier Delete Confirmation Modal -->
+<div class="modal-overlay" id="modal-bulk-delete-sup">
+  <div class="modal-card" style="max-width:460px">
+    <div class="modal-header">
+      <span class="modal-title" id="sup-bulk-delete-title">Delete Suppliers?</span>
+      <button class="modal-close" type="button" id="btn-close-sup-delete" onclick="closeSupDeleteModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="sup-delete-warning-icon">⚠️</div>
+      <p id="sup-bulk-delete-body" style="margin:0;font-size:14px;color:var(--text-secondary)"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" id="btn-cancel-sup-bulk-delete" onclick="closeSupDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-sup-bulk-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="suppliers.js"></script>
+</body>
+</html>

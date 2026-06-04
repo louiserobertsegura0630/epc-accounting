@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Master - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="product-master.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Product Master</h1>
+      <p>Complete product catalog with pricing, costing, and reorder management.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Product Master</span>
+        <span class="section-subtitle">Manage all product codes, pricing, and supplier assignments.</span>
+      </div>
+      <div class="page-title-actions">
+        <button class="btn btn-primary" id="btn-add-product">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Product
+        </button>
+      </div>
+    </div>
+
+    <!-- Missing category warning -->
+    <div id="pm-cat-warning" class="pm-cat-warning">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.5" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span id="pm-cat-warning-text">⚠ Some items are missing a category. Please edit them to ensure accurate reporting.</span>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-row" id="prod-summary"></div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title">Product Catalog</span>
+        <input type="text" class="search-input" id="search-prod" placeholder="Search code, name, category, supplier…">
+        <button class="btn btn-outline-gray btn-sm" id="btn-clear-prod-filters" style="display:none">Clear Filters</button>
+      </div>
+      <div class="bulk-action-bar" id="prod-bulk-bar">
+        <span class="bulk-selected-count" id="prod-bulk-count">0 items selected</span>
+        <button class="btn btn-danger btn-sm" id="btn-delete-products">Delete Selected</button>
+        <button class="btn btn-outline-gray btn-sm" id="btn-clear-prod-selection">Clear Selection</button>
+      </div>
+      <div class="pm-select-all-banner" id="pm-select-all-banner">
+        <span id="pm-select-page-message"></span>
+        <button class="pm-select-all-link" type="button" id="btn-select-all-products"></button>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr class="header-row" id="prod-header-row"></tr>
+            <tr class="filter-row" id="prod-filter-row"></tr>
+          </thead>
+          <tbody id="prod-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="prod-pagination"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Add/Edit Product Modal -->
+<div class="modal-overlay" id="modal-product">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-prod-title">Add Product</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="prod-edit-id">
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Item Code <span class="req">*</span></label>
+          <input type="text" class="form-input" id="p-code" placeholder="e.g. GR-001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Product Name <span class="req">*</span></label>
+          <input type="text" class="form-input" id="p-name" placeholder="Product name">
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select class="form-select" id="p-category"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Unit of Measure</label>
+          <select class="form-select" id="p-uom"></select>
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Unit Cost (₱) <span class="req">*</span></label>
+          <input type="text" class="form-input" id="p-cost" data-currency placeholder="0.00">
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Supplier</label>
+          <input type="hidden" id="p-supplier">
+          <input type="text" class="form-input" id="p-supplier-search" placeholder="Search or add supplier..." autocomplete="off">
+          <div class="supplier-picker-results" id="p-supplier-results"></div>
+          <div class="help-text" id="p-supplier-empty" style="display:none">
+            No suppliers found. Add a supplier in the <a href="suppliers.html">Suppliers page</a>.
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reorder Point</label>
+          <input type="number" class="form-input" id="p-reorder" placeholder="0" min="0">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input type="text" class="form-input" id="p-notes" placeholder="Optional notes">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-product">Save Product</button>
+    </div>
+  </div>
+</div>
+
+<!-- Product Cost History Modal -->
+<div class="modal-overlay" id="modal-product-cost-history">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="pm-detail-title">Product Details</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="pm-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Products Modal -->
+<div class="modal-overlay" id="modal-delete-products">
+  <div class="modal-card" style="max-width:460px">
+    <div class="modal-header">
+      <span class="modal-title" id="delete-products-title">Delete items?</span>
+      <button class="modal-close" type="button" id="btn-close-delete-products" onclick="closeProductDeleteModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="pm-delete-warning-icon">⚠️</div>
+      <p>This will permanently remove these products from Product Master. This cannot be undone.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" type="button" id="btn-cancel-delete-products" onclick="closeProductDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" type="button" id="btn-confirm-delete-products">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/shared-utils.js"></script>
+<script src="product-master.js"></script>
+</body>
+</html>

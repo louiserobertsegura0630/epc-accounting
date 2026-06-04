@@ -1,0 +1,7 @@
+    @media print {
+      .no-print, .sidebar, .page-header, .tabs { display: none !important; }
+      .main-content { margin-left: 0 !important; width: 100% !important; }
+      .page-body { padding: 0; }
+      .print-header { display: block !important; }
+    }
+    .print-header { display: none; }

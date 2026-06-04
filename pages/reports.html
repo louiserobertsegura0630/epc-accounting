@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reports - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="reports.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Reports</h1>
+      <p>Financial reporting, operational analysis, and management summaries.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Reports</span>
+        <span class="section-subtitle">Financial reports and business insights</span>
+      </div>
+    </div>
+
+    <div class="tabs report-tabs">
+      <button class="tab-btn active" data-report-tab="income" onclick="setReportTab('income')">Income Statement</button>
+      <button class="tab-btn" data-report-tab="sales" onclick="setReportTab('sales')">Sales</button>
+      <button class="tab-btn" data-report-tab="purchases" onclick="setReportTab('purchases')">Purchases</button>
+      <button class="tab-btn" data-report-tab="tax" onclick="setReportTab('tax')">Tax Summary</button>
+      <button class="tab-btn" data-report-tab="inventory" onclick="setReportTab('inventory')">Inventory</button>
+      <button class="tab-btn" data-report-tab="cashflow" onclick="setReportTab('cashflow')">Cash Flow</button>
+      <button class="tab-btn" id="tab-btn-custom" data-report-tab="custom" onclick="setReportTab('custom')">Custom</button>
+    </div>
+
+    <div class="card report-controls">
+      <div class="report-preset-row">
+        <button class="btn btn-outline-gray btn-sm" type="button" onclick="setReportPreset('month')">This Month</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" onclick="setReportPreset('last-month')">Last Month</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" onclick="setReportPreset('quarter')">This Quarter</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" onclick="setReportPreset('year')">This Year</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" onclick="setReportPreset('custom')">Custom Range</button>
+      </div>
+      <div class="report-date-row">
+        <label>From <input type="date" class="form-input" id="report-start"></label>
+        <label>To <input type="date" class="form-input" id="report-end"></label>
+        <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Apply</button>
+        <div class="report-extra-filters" id="report-extra-filters"></div>
+      </div>
+      <div class="report-loading" id="report-loading" aria-live="polite">
+        <div class="report-loading-header">
+          <span id="report-loading-label">Generating report...</span>
+          <span id="report-loading-percent">0%</span>
+        </div>
+        <div class="report-loading-track">
+          <div class="report-loading-fill" id="report-loading-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <main class="report-output" id="report-output">
+      <div class="report-heading">
+        <div>
+          <h2 id="report-title">Income Statement</h2>
+          <p id="report-subtitle"></p>
+        </div>
+      </div>
+      <div class="tax-summary-content" id="tax-summary-content">
+        <section class="tax-report-section">
+          <div class="tax-section-heading"><span class="tax-section-letter">A</span><div><h3>Value Added Tax (VAT)</h3><p>Output VAT from E-Sales and input VAT from purchases</p></div></div>
+          <div class="tax-period-controls" id="tax-vat-controls"></div>
+          <div class="summary-row" id="tax-vat-summary"></div>
+          <div class="tax-charts-grid">
+            <div class="tax-chart-card"><canvas id="tax-vat-classification-chart"></canvas></div>
+            <div class="tax-chart-card"><canvas id="tax-vat-trend-chart"></canvas></div>
+          </div>
+        </section>
+
+        <section class="tax-report-section">
+          <div class="tax-section-heading"><span class="tax-section-letter">B</span><div><h3>Expanded Withholding Tax (EWT)</h3><p>Withholding tax obligations sourced from purchases</p></div></div>
+          <div class="tax-period-controls" id="tax-ewt-controls"></div>
+          <div class="summary-row" id="tax-ewt-summary"></div>
+          <div class="tax-charts-grid">
+            <div class="tax-chart-card"><canvas id="tax-ewt-monthly-chart"></canvas></div>
+            <div class="tax-chart-card"><canvas id="tax-ewt-suppliers-chart"></canvas></div>
+          </div>
+          <div class="tax-table-block">
+            <h3>Monthly Remittances</h3>
+            <div class="table-scroll"><table><thead><tr><th>Month</th><th>Total Purchases</th><th>EWT Rate</th><th>EWT Withheld</th><th>Status</th></tr></thead><tbody id="tax-ewt-remittance-body"></tbody></table></div>
+          </div>
+        </section>
+
+        <section class="tax-report-section">
+          <div class="tax-section-heading"><span class="tax-section-letter">C</span><div><h3>Income Tax (25%, Itemized)</h3><p>Taxable income after purchases, expenses, supplies, and tax credits</p></div></div>
+          <div class="tax-period-controls" id="tax-income-controls"></div>
+          <div class="summary-row" id="tax-income-summary"></div>
+          <div class="tax-income-grid">
+            <div class="tax-table-block"><h3>Income Tax Computation</h3><table class="is-table"><tbody id="tax-income-computation-body"></tbody></table></div>
+            <div class="tax-chart-card"><canvas id="tax-income-trend-chart"></canvas></div>
+          </div>
+        </section>
+
+        <section class="tax-liability-card tax-total-liability">
+          <h3>Total Tax Liability Summary</h3>
+          <div id="tax-liability-period-note"></div>
+          <div id="tax-dedicated-liability-body"></div>
+          <p class="tax-liability-note">Each section uses its own selected period. Adjust the filters above for accurate totals.</p>
+        </section>
+      </div>
+      <div class="card" id="cf-begin-section" style="display:none"></div>
+      <div class="summary-row" id="report-summary"></div>
+      <div class="report-top-n-control" id="report-top-n-control"></div>
+      <div class="custom-horizontal-scroll" id="custom-horizontal-scroll" aria-label="Scroll custom report chart sideways">
+        <div id="custom-horizontal-scroll-content"></div>
+      </div>
+      <div class="sales-charts-grid">
+        <section class="card report-chart-card" id="report-chart-card">
+          <div class="report-chart-canvas" id="sales-bar-container">
+            <canvas id="report-chart"></canvas>
+          </div>
+          <div class="income-chart-legend" aria-label="Income Statement chart legend">
+            <span><i class="legend-dot legend-green"></i>Revenue / Profit</span>
+            <span><i class="legend-dot legend-red"></i>Cost / Expense</span>
+            <span><i class="legend-dot legend-blue"></i>Gross Profit</span>
+            <span><i class="legend-dot legend-amber"></i>Supplies</span>
+          </div>
+        </section>
+        <section class="card report-chart-card" id="report-category-chart-card">
+          <div class="report-chart-canvas">
+            <canvas id="report-category-chart"></canvas>
+          </div>
+        </section>
+      </div>
+      <section class="card" id="report-primary-card">
+        <h3 id="report-primary-title"></h3>
+        <div class="inventory-movement-controls" id="inventory-movement-controls"></div>
+        <div class="table-scroll" id="report-primary-table-scroll">
+          <table id="report-primary-table">
+            <thead id="report-primary-head"></thead>
+            <tbody id="report-primary-body"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="card" id="report-secondary-card" style="display:none">
+        <h3 id="report-secondary-title"></h3>
+        <div class="table-scroll">
+          <table>
+            <thead id="report-secondary-head"></thead>
+            <tbody id="report-secondary-body"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="card" id="custom-report-controls" style="display:none">
+        <h3>Custom Report Builder</h3>
+        <div class="custom-grid">
+          <label>Data Source<select class="form-select" id="custom-source" onchange="onCustomSourceChange()">
+            <option value="sales">POS Sales</option><option value="esales">E-Sales</option>
+            <option value="purchases">Purchases</option>
+            <option value="expenses">Expenses</option><option value="inventory">Inventory</option>
+          </select></label>
+          <label>Measure<select class="form-select" id="custom-measure" onchange="saveCustomState()">
+            <option value="value">Total Value (₱)</option>
+          </select></label>
+          <label>Dimension<select class="form-select" id="custom-group-by" onchange="onCustomDimensionChange()">
+            <option value="month" selected>Month</option>
+          </select></label>
+          <label>Chart Type<select class="form-select" id="custom-chart-type" onchange="onCustomChartTypeChange()">
+            <option value="bar">Bar</option><option value="line">Line</option><option value="pie">Pie</option>
+            <option value="doughnut">Doughnut</option><option value="area">Area</option>
+          </select></label>
+        </div>
+        <div id="custom-chart-options"></div>
+        <div class="custom-actions">
+          <button class="btn btn-primary btn-sm" type="button" id="btn-build-custom">Render Chart</button>
+          <button class="btn btn-outline-gray btn-sm" type="button" id="btn-export-chart">Export Chart as PNG</button>
+          <button class="btn btn-outline-gray btn-sm" type="button" id="btn-export-custom-csv">Export Data as CSV</button>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-inventory-movement-detail">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="inventory-detail-title">Inventory Movement Details</span>
+      <button class="modal-close" type="button" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="inventory-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" type="button" data-close-modal>Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="reports.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Service account / Admin SDK keys — never commit these
+*serviceAccount*.json
+*service-account*.json
+firebase-adminsdk*.json
+*-firebase-adminsdk-*.json
+
+# Environment variable files
+.env
+.env.*
+.env.local
+
+# Firebase local emulator / cache
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Claude Code local tooling (not part of the app)
+.claude/
+
+# Editor folders
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Node (if build tools are ever added)
+node_modules/

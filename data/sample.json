@@ -1,0 +1,37 @@
+{
+  "_note": "This file documents the seed data structure. Actual data is seeded directly into localStorage by assets/app.js on first load.",
+  "suppliers": [
+    { "id": "s1", "name": "Agri-Fresh Distributors", "address": "123 Market St, Divisoria, Manila", "category": "Grains", "contact": "Mang Ramon", "phone": "0917-111-2233", "email": "agrifresh@email.com" },
+    { "id": "s2", "name": "Golden Sun Trading", "address": "45 Pampanga Highway, Angeles City", "category": "Cooking Essentials", "contact": "Ms. Tina Cruz", "phone": "0918-222-3344", "email": "goldensun@email.com" },
+    { "id": "s3", "name": "Prime Condiments Corp", "address": "78 Quezon Ave, Quezon City", "category": "Condiments", "contact": "Mr. Lito Santos", "phone": "0919-333-4455", "email": "primecond@email.com" },
+    { "id": "s4", "name": "Nestlé Philippines", "address": "10 Eugenio Lopez Dr, Makati", "category": "Instant Food", "contact": "Sales Desk", "phone": "02-8888-9999", "email": "phsales@nestle.com" },
+    { "id": "s5", "name": "Dairy Fresh Inc.", "address": "22 Batangas Road, Lipa City", "category": "Dairy & Eggs", "contact": "Ate Maria", "phone": "0920-444-5566", "email": "dairyfresh@email.com" }
+  ],
+  "products": [
+    { "id": "p1", "code": "GR-001", "name": "Premium White Rice", "category": "Grains", "uom": "kg", "cost": 52.00, "srp": 58.00, "markup": 11.54, "supplier": "Agri-Fresh Distributors", "reorderPoint": 100 },
+    { "id": "p2", "code": "CE-001", "name": "Refined Cooking Oil 1L", "category": "Cooking Essentials", "uom": "L", "cost": 68.00, "srp": 79.00, "markup": 16.18, "supplier": "Golden Sun Trading", "reorderPoint": 50 },
+    { "id": "p3", "code": "CO-001", "name": "Soy Sauce 350mL", "category": "Condiments", "uom": "mL", "cost": 25.00, "srp": 32.00, "markup": 28.00, "supplier": "Prime Condiments Corp", "reorderPoint": 80 },
+    { "id": "p4", "code": "IF-001", "name": "Lucky Me Pancit Canton", "category": "Instant Food", "uom": "pack", "cost": 12.00, "srp": 16.00, "markup": 33.33, "supplier": "Nestlé Philippines", "reorderPoint": 200 },
+    { "id": "p5", "code": "DE-001", "name": "Fresh Eggs (tray)", "category": "Dairy & Eggs", "uom": "tray", "cost": 195.00, "srp": 220.00, "markup": 12.82, "supplier": "Dairy Fresh Inc.", "reorderPoint": 20 }
+  ],
+  "purchases": [
+    { "id": "pur1", "supplier": "Agri-Fresh Distributors", "date": "2026-05-05", "total": 52000, "ewtRate": 2, "ewtAmount": 1040, "netPayable": 50460, "status": "Pending" },
+    { "id": "pur2", "supplier": "Golden Sun Trading", "date": "2026-05-10", "total": 38000, "ewtRate": 2, "ewtAmount": 760, "netPayable": 36040, "status": "Remitted", "remittanceDate": "2026-05-15" },
+    { "id": "pur3", "supplier": "Dairy Fresh Inc.", "date": "2026-05-12", "total": 19500, "ewtRate": 2, "ewtAmount": 390, "netPayable": 18910, "status": "Pending" }
+  ],
+  "expenses": [
+    { "id": "exp1", "name": "Electricity Bill", "date": "2026-05-03", "category": "Utilities", "classification": "Business", "amount": 18500 },
+    { "id": "exp2", "name": "Store Rent", "date": "2026-05-01", "category": "Rent", "classification": "Business", "amount": 35000 },
+    { "id": "exp3", "name": "Salaries — May Cutoff 1", "date": "2026-05-15", "category": "Salaries & Wages", "classification": "Business", "amount": 72000 },
+    { "id": "exp4", "name": "Office Supplies", "date": "2026-05-07", "category": "Administrative Expenses", "classification": "Business", "amount": 2800 }
+  ],
+  "esales": [
+    { "id": "es1", "date": "2026-05-03", "orNumber": "OR-20260503-001", "amount": 45000, "vat": 4821.43, "netOfVat": 40178.57, "customer": "Walk-in" },
+    { "id": "es2", "date": "2026-05-10", "orNumber": "OR-20260510-002", "amount": 62000, "vat": 6642.86, "netOfVat": 55357.14, "customer": "Savemore Metro" },
+    { "id": "es3", "date": "2026-05-17", "orNumber": "OR-20260517-003", "amount": 38500, "vat": 4125.00, "netOfVat": 34375.00, "customer": "Walk-in" }
+  ],
+  "pos_sales_structure": {
+    "_note": "6 months of POS data is seeded for 5 products × 6 months = 30 records",
+    "fields": ["id", "date", "itemCode", "productName", "category", "unitsSold", "unitCost", "totalCost", "sellingPrice", "totalRevenue", "grossProfit", "margin", "importedAt", "filename"]
+  }
+}

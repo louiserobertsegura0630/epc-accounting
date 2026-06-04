@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory Tracking - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="inventory-tracking.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Inventory Tracking</h1>
+      <p>Record inventory movements from suppliers to warehouse and from warehouse to store.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Inventory Tracking</span>
+        <span class="section-subtitle">Track incoming and outgoing inventory movements.</span>
+      </div>
+      <div class="page-title-actions">
+        <button class="btn btn-outline" id="btn-import-mis">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+          Import from MIS
+        </button>
+        <button class="btn btn-outline-gray" id="btn-export-inv">Export as CSV</button>
+        <button class="btn btn-primary" id="btn-add-inv">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Entry
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-row" id="inv-summary"></div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-all"      onclick="setTab('all')">All</button>
+      <button class="tab-btn"        id="tab-incoming" onclick="setTab('incoming')">Incoming</button>
+      <button class="tab-btn"        id="tab-outgoing" onclick="setTab('outgoing')">Outgoing</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title" id="tab-label">All Movements</span>
+        <input type="text" class="search-input" id="search-inv" placeholder="Search item, supplier, category…">
+        <button class="btn btn-outline-gray btn-sm" id="btn-clear-inv" onclick="invTable.clearAll()" style="display:none">Clear Filters</button>
+      </div>
+      <div class="bulk-action-bar" id="inv-bulk-bar">
+        <span class="bulk-selected-count" id="inv-bulk-count">0 rows selected</span>
+        <button class="btn btn-primary btn-sm" id="btn-make-outgoing">Make Outgoing</button>
+        <button class="btn btn-danger btn-sm" id="btn-delete-selected">Delete Selected</button>
+        <button class="bulk-deselect" id="btn-deselect-inv" type="button">Deselect All</button>
+      </div>
+      <div class="table-scroll">
+      <table>
+        <thead id="inv-thead"></thead>
+        <tbody id="inv-tbody"></tbody>
+      </table>
+      </div>
+      <div class="pagination-bar" id="inv-pagination"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Import Review Modal -->
+<div class="modal-overlay" id="modal-import-review">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">Import Review</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="review-section">
+        <h3 class="review-title">Summary</h3>
+        <div class="summary-row" id="review-summary"></div>
+      </div>
+      <div class="review-section">
+        <h3 class="review-title">New Items (will be added to Product Master)</h3>
+        <div class="review-table-wrap">
+          <table class="review-table">
+            <thead><tr><th>Item Code</th><th>Description</th><th>Supplier</th><th>Unit Cost</th><th>Status</th></tr></thead>
+            <tbody id="review-new-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="review-section">
+        <h3 class="review-title">Existing Items (new cost history appended)</h3>
+        <div class="review-table-wrap">
+          <table class="review-table">
+            <thead><tr><th>Item Code</th><th>Description</th><th>Supplier</th><th>Imported Cost</th><th>Saved Cost</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="review-existing-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="review-actions">
+        <button class="btn btn-primary" id="btn-review-update-all">Update All Changed Costs</button>
+        <button class="btn btn-outline-gray" id="btn-review-export">Export Review as CSV</button>
+        <button class="btn btn-outline-gray" id="btn-review-close">Close Review</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="modal-inv">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-inv-title">Add Inventory Entry</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="inv-edit-id">
+
+      <div class="form-group">
+        <label class="form-label">Type <span class="req">*</span></label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="inv-type" value="Incoming" id="r-incoming" checked>
+            Incoming (Supplier to Warehouse)
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="inv-type" value="Outgoing" id="r-outgoing">
+            Outgoing (Warehouse to Store)
+          </label>
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Item Code <span class="req">*</span></label>
+          <input type="text" class="form-input" id="inv-code" placeholder="e.g. GR-001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description <span class="req">*</span></label>
+          <input type="text" class="form-input" id="inv-desc" placeholder="Item description">
+        </div>
+      </div>
+      <div class="inv-product-search-results" id="inv-product-search-results"></div>
+      <button class="inv-change-product" type="button" id="btn-change-inv-product">
+        Change / clear selected product
+      </button>
+      <div class="inv-outgoing-detail" id="inv-outgoing-detail">
+        <div class="inv-balance-grid">
+          <div><span>Incoming Units</span><strong id="inv-balance-incoming">0</strong></div>
+          <div><span>Outgoing Units</span><strong id="inv-balance-outgoing">0</strong></div>
+          <div><span>Balance</span><strong id="inv-balance-current">0</strong></div>
+        </div>
+        <div class="inv-history-title">Incoming History</div>
+        <div class="inv-incoming-history" id="inv-incoming-history"></div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select class="form-select" id="inv-category"></select>
+        </div>
+        <div class="form-group" id="inv-supplier-group">
+          <label class="form-label">Supplier</label>
+          <input type="hidden" id="inv-supplier">
+          <input type="text" class="form-input" id="inv-supplier-search" placeholder="Search or add supplier..." autocomplete="off">
+          <div class="supplier-picker-results" id="inv-supplier-results"></div>
+        </div>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group" id="inv-unit-cost-group">
+          <label class="form-label">Unit Cost (₱) <span class="req">*</span></label>
+          <input type="text" class="form-input" id="inv-unit-cost" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label"><span id="inv-qty-label">Quantity</span> <span class="req">*</span></label>
+          <input type="number" class="form-input" id="inv-qty" placeholder="0" min="1">
+          <div class="inv-outgoing-warning" id="inv-outgoing-warning">
+            Outgoing exceeds available balance
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Total Cost</label>
+          <input type="text" class="form-input computed" id="inv-total-cost" readonly placeholder="Auto-computed">
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Date Delivered <span class="req">*</span></label>
+          <input type="date" class="form-input" id="inv-date">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea class="form-textarea" id="inv-notes" placeholder="Optional notes…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-inv">Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Make Outgoing Modal -->
+<div class="modal-overlay" id="modal-make-outgoing">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title">Make Selected Inventory Outgoing</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Outgoing date <span class="req">*</span></label>
+        <input type="date" class="form-input" id="bulk-outgoing-date">
+      </div>
+      <div class="bulk-outgoing-list" id="bulk-outgoing-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-confirm-make-outgoing">Save Outgoing</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Delete Confirmation Modal -->
+<div class="modal-overlay" id="modal-bulk-delete">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title" id="bulk-delete-title">Delete 0 entries?</span>
+      <button class="modal-close" id="btn-close-bulk-delete" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="bulk-delete-body" style="font-size:13.5px;color:var(--text-secondary);line-height:1.6;margin:0">
+        This will permanently remove 0 inventory records. This action cannot be undone.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" id="btn-cancel-bulk-delete">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-bulk-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- MIS Import Modal -->
+<div class="modal-overlay" id="modal-mis">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title">Import from MIS File (.xls / .xlsx / .csv)</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-info" style="font-size:12.5px">
+        Upload your MIS <strong>.xls, .xlsx, or .csv</strong> file. Columns are detected automatically.<br>
+        <strong>Item Code · Description · Category · Supplier · Qty · Unit Cost · Total Cost</strong><br>
+        All rows are imported as <strong>Incoming</strong>. Date is auto-detected from the file.
+      </div>
+
+      <div class="drop-zone" id="mis-drop-zone" style="padding:24px 20px">
+        <div class="drop-icon" style="font-size:26px">📂</div>
+        <h3 style="font-size:14px">Drag &amp; Drop Excel or CSV file here</h3>
+        <p>Click to browse. Accepted formats: .xls, .xlsx, .csv.</p>
+        <input type="file" id="mis-file-input" accept=".xls,.xlsx,.csv" style="display:none">
+      </div>
+
+      <!-- Parse progress (spinner + bar) -->
+      <div id="mis-parse-progress" style="display:none;margin-top:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div class="mis-spinner"></div>
+          <span id="mis-parse-status" style="font-size:12.5px;font-weight:600;color:var(--text-secondary)">Parsing file…</span>
+        </div>
+        <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden">
+          <div id="mis-parse-bar" style="height:100%;background:var(--primary);border-radius:3px;width:0%;transition:width 0.2s ease"></div>
+        </div>
+      </div>
+
+      <!-- Date banner -->
+      <div id="mis-date-banner" style="display:none;padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;color:#1e40af;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span id="mis-date-text" style="flex:1"></span>
+        <label style="font-size:11.5px;font-weight:600;color:#3b82f6;flex-shrink:0">Override:</label>
+        <input type="date" id="mis-date-override" class="filter-date-input" style="font-size:12px">
+      </div>
+
+      <!-- Preview with virtual scroll -->
+      <div id="mis-preview" style="display:none;margin-top:14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <span id="mis-preview-count" style="font-size:13px;font-weight:700;color:var(--text-primary)"></span>
+          <span id="mis-pm-warning" class="badge badge-amber" style="display:none;font-size:11px"></span>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+            <button class="btn btn-outline-gray btn-xs" id="mis-select-all-btn">All</button>
+            <button class="btn btn-outline-gray btn-xs" id="mis-deselect-all-btn">None</button>
+            <button class="btn btn-outline-gray btn-sm" id="mis-clear-file">Clear</button>
+          </div>
+        </div>
+        <!-- Virtual-scroll container — only the visible rows are rendered -->
+        <div id="mis-vs-scroll" style="height:280px;overflow:auto;border:1px solid var(--card-border);border-radius:8px">
+          <div class="mis-vgrid">
+            <div id="mis-vs-head" class="mis-vgrid-head"></div>
+            <div id="mis-vs-body" class="mis-vgrid-body"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import progress bar (shown while saving) -->
+      <div id="mis-import-progress" style="display:none;padding:14px 0 4px">
+        <div style="font-size:12.5px;font-weight:600;color:var(--text-secondary);margin-bottom:7px" id="mis-import-status">Importing…</div>
+        <div style="height:10px;background:#f1f5f9;border-radius:5px;overflow:hidden">
+          <div id="mis-import-bar" style="height:100%;background:var(--primary);border-radius:5px;width:0%;transition:width 0.15s ease"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" id="mis-cancel-btn" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-confirm-mis" disabled>Import Records</button>
+    </div>
+  </div>
+</div>
+
+<!-- Worker source — not executed by browser (type is non-JS) -->
+<script type="text/worker-template" id="mis-worker-src">
+importScripts('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+
+var MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+
+function parseDateStr(s) {
+  if (!s && s !== 0) return null;
+  s = String(s).trim(); if (!s) return null;
+  s = s.replace(/^date\s*covered\s*:\s*/i, '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var mdy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (mdy) {
+    var yy = mdy[3].length === 2 ? '20' + mdy[3] : mdy[3];
+    return yy+'-'+('0'+mdy[1]).slice(-2)+'-'+('0'+mdy[2]).slice(-2);
+  }
+  var my = s.match(/^([A-Za-z]+)[\s,\-]+(\d{4})$/);
+  if (my) { var mi=MONTHS.indexOf(my[1].toLowerCase()); if (mi>=0) return my[2]+'-'+('0'+(mi+1)).slice(-2)+'-01'; }
+  var ym = s.match(/^(\d{4})[-\/](\d{1,2})$/);
+  if (ym) return ym[1]+'-'+('0'+ym[2]).slice(-2)+'-01';
+  var full = s.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (full) { var mf=MONTHS.indexOf(full[1].toLowerCase()); if (mf>=0) return full[3]+'-'+('0'+(mf+1)).slice(-2)+'-'+('0'+full[2]).slice(-2); }
+  return null;
+}
+function detectDate(ws, sheetName) {
+  var d = parseDateStr(sheetName);
+  if (d) return { date:d, source:'sheet name "'+sheetName+'"' };
+  var headerRow = 7;
+  for (var c=0; c<30; c++) {
+    var v = cellText(ws, headerRow, c);
+    if (!v && v!==0) continue;
+    var pd = parseDateStr(String(v));
+    if (pd) return { date:pd, source:'row 8 of the file' };
+  }
+  for (var r=0; r<12; r++) {
+    for (var c2=0; c2<10; c2++) {
+      var v2=cellText(ws, r, c2); if (!v2 && v2!==0) continue;
+      var pd2=parseDateStr(String(v2)); if (pd2) return { date:pd2, source:'row '+(r+1)+' of the file' };
+    }
+  }
+  return { date:new Date().toISOString().slice(0,10), source:'today (no date found)' };
+}
+function cellText(ws, r, c) {
+  var cell = ws[XLSX.utils.encode_cell({ r:r, c:c })];
+  return cell ? XLSX.utils.format_cell(cell) : '';
+}
+function rowFromSheet(ws, r, maxC) {
+  var row = [];
+  for (var c=0; c<=maxC; c++) row.push(cellText(ws, r, c));
+  return row;
+}
+function rowHasValue(ws, r, maxC) {
+  for (var c=0; c<=maxC; c++) {
+    var v = cellText(ws, r, c);
+    if (v != null && v !== '') return true;
+  }
+  return false;
+}
+function numCell(ws, r, c) {
+  var v = cellText(ws, r, c);
+  return parseFloat(String(v).replace(/[,\s]/g,'').replace(/[^\d.-]/g,'')) || 0;
+}
+function intCell(ws, r, c) {
+  var v = cellText(ws, r, c);
+  return parseInt(String(v).replace(/[,\s]/g,'').replace(/[^\d.-]/g,''), 10) || 0;
+}
+function rawCellText(ws, r, c) {
+  var cell = ws[XLSX.utils.encode_cell({ r:r, c:c })];
+  if (!cell) return '';
+  return cell.v != null ? String(cell.v) : XLSX.utils.format_cell(cell);
+}
+function numericItemCode(ws, r, c) {
+  var s = String(rawCellText(ws, r, c) || '').trim().replace(/\s+/g, '');
+  return /^\d+$/.test(s) ? s : '';
+}
+
+self.onmessage = function(e) {
+  var buffer = e.data;
+  try {
+    self.postMessage({ type:'status', text:'Reading workbook…' });
+    var wb  = XLSX.read(buffer, { type:'array', cellDates:true, dateNF:'YYYY-MM-DD' });
+    var sn  = wb.SheetNames[0];
+    var ws  = wb.Sheets[sn];
+    var range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+
+    self.postMessage({ type:'status', text:'Extracting rows…' });
+    var dateInfo = detectDate(ws, sn);
+    var total = 0;
+    for (var tr=0; tr<=range.e.r; tr++) {
+      if (numericItemCode(ws, tr, 1)) total++;
+    }
+    self.postMessage({ type:'meta', detectedDate:dateInfo.date, dateSource:dateInfo.source, total:total });
+
+    var CHUNK=500, parsed=[], done=0;
+    for (var i=0; i<=range.e.r; i++) {
+      var itemCode = numericItemCode(ws, i, 1);
+      if (!itemCode) continue;
+      var unitCost = numCell(ws, i, 10);
+      var qty = intCell(ws, i, 13);
+      var tcRaw = numCell(ws, i, 21);
+      var row = {
+        itemCode: itemCode,
+        description: String(cellText(ws, i, 2) || '').trim(),
+        documentNo: String(cellText(ws, i, 4) || '').trim(),
+        rowDate: parseDateStr(cellText(ws, i, 7) || ''),
+        supplier: String(cellText(ws, i, 9) || '').trim(),
+        unitCost: unitCost,
+        qty: qty,
+        uom: String(cellText(ws, i, 16) || '').trim(),
+        totalCost: tcRaw>0?tcRaw:unitCost*qty,
+        category: ''
+      };
+      parsed.push(row);
+      done++;
+      if (parsed.length >= CHUNK) {
+        self.postMessage({ type:'chunk', rows:parsed, done:done, total:total });
+        self.postMessage({ type:'progress', done:done, total:total });
+        parsed = [];
+      }
+    }
+    if (parsed.length) self.postMessage({ type:'chunk', rows:parsed, done:done, total:total });
+    self.postMessage({ type:'progress', done:done, total:total });
+    self.postMessage({ type:'done', detectedDate:dateInfo.date, dateSource:dateInfo.source, total:total });
+  } catch(err) {
+    self.postMessage({ type:'error', message:err.message });
+  }
+};
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/shared-utils.js"></script>
+<script src="inventory-tracking.js"></script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>EPC Commercial Corporation</h1>
+      <p>Daily operations summary. Select a date to review recorded activity.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <!-- Date control -->
+    <div class="snap-datebar">
+      <div>
+        <h1 class="snap-headline" id="snap-headline">Daily Operations Summary</h1>
+        <p class="snap-tagline">All figures are for the selected day only.</p>
+      </div>
+      <div class="snap-datebar-rhs">
+        <input type="date" id="snap-date" class="filter-date-input snap-date-input">
+        <button class="dash-preset" onclick="setSnapToday()">Today</button>
+        <button class="btn btn-primary btn-sm" onclick="generateDayReport()">Generate</button>
+      </div>
+    </div>
+
+    <div class="snap-blocks">
+
+      <!-- Block 1: Income Summary -->
+      <div class="snap-block">
+        <div class="snap-block-hd">
+          <span class="snap-block-title">Income Summary</span>
+          <a href="income-statement.html" class="snap-block-link">Open income statement</a>
+        </div>
+        <div id="snap-is"></div>
+      </div>
+
+      <!-- Block 2: Cash Flow -->
+      <div class="snap-block">
+        <div class="snap-block-hd">
+          <span class="snap-block-title">Cash Flow</span>
+          <a href="reports.html" class="snap-block-link">Open cash flow report</a>
+        </div>
+        <div id="snap-cf"></div>
+      </div>
+
+      <!-- Block 3: Tax -->
+      <div class="snap-block">
+        <div class="snap-block-hd">
+          <span class="snap-block-title">Tax Summary</span>
+          <a href="tax-monitoring.html" class="snap-block-link">Open tax monitoring</a>
+        </div>
+        <div id="snap-tax"></div>
+      </div>
+
+      <!-- Block 4: Inventory Movement -->
+      <div class="snap-block">
+        <div class="snap-block-hd">
+          <span class="snap-block-title">Inventory Summary</span>
+          <a href="inventory-tracking.html" class="snap-block-link">Open inventory tracking</a>
+        </div>
+        <div id="snap-inv"></div>
+      </div>
+
+      <!-- Block 5: Activity -->
+      <div class="snap-block snap-block-wide">
+        <div class="snap-block-hd">
+          <span class="snap-block-title">Transaction Counts</span>
+        </div>
+        <div id="snap-act" class="snap-act-grid"></div>
+      </div>
+
+    </div>
+
+    <!-- Product Performance -->
+    <div class="prod-perf-section">
+      <div class="prod-perf-hd">
+        <span class="prod-perf-title" id="prod-window-label">Product Performance</span>
+        <div class="prod-window-controls">
+          <select id="prod-window-sel" class="filter-date-input" style="width:auto;min-width:160px" onchange="setProdWindow(this.value)">
+            <option value="month">Current Month</option>
+            <option value="last30">Last 30 Days</option>
+            <option value="last90">Last 90 Days</option>
+            <option value="ytd">Year to Date</option>
+            <option value="custom">Custom Range</option>
+          </select>
+          <select id="prod-measure-sel" class="filter-date-input" style="width:auto;min-width:110px" aria-label="Product performance measure" onchange="setProdMeasure(this.value)">
+            <option value="units">Units</option>
+            <option value="pesos">Pesos (₱)</option>
+          </select>
+          <div id="prod-custom-row" class="prod-custom-row" style="display:none">
+            <input type="date" id="prod-from" class="filter-date-input">
+            <span style="color:var(--text-muted);font-size:12px">–</span>
+            <input type="date" id="prod-to" class="filter-date-input">
+            <button class="dash-preset" onclick="setProdCustomRange()">Apply</button>
+          </div>
+        </div>
+      </div>
+      <div class="prod-charts-grid">
+        <div class="prod-chart-card">
+          <div class="prod-chart-title">Best-Selling Products</div>
+          <div class="prod-chart-caption" id="prod-top-caption">Top 5 by units sold</div>
+          <div class="prod-chart-wrap">
+            <canvas id="prod-top-chart"></canvas>
+            <div class="prod-empty" id="prod-top-empty">No sales data for this window.</div>
+          </div>
+        </div>
+        <div class="prod-chart-card">
+          <div class="prod-chart-title">Slowest-Moving Products</div>
+          <div class="prod-chart-caption" id="prod-slow-caption">Lowest 5 by units sold</div>
+          <div class="prod-chart-wrap">
+            <canvas id="prod-slow-chart"></canvas>
+            <div class="prod-empty" id="prod-slow-empty">No sales data for this window.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /page-body -->
+</div><!-- /main-content -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>

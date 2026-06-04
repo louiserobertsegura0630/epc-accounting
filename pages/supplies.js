@@ -1,0 +1,428 @@
+
+initSidebar('supplies');
+
+const expandedSupplyRows = new Set();
+
+function supplyUsageHistory(row) {
+  if (Array.isArray(row.usageHistory)) return row.usageHistory;
+  if (Number(row.totalUsed || 0) > 0) {
+    return [{
+      unitsUsed:Number(row.totalUsed || 0),
+      dateUsed:row.lastUsedDate || row.datePurchased || '',
+      issuedTo:row.lastIssuedTo || row.whoReceived || ''
+    }];
+  }
+  return [];
+}
+
+function supplyUsedTotal(row) {
+  return supplyUsageHistory(row).reduce((sum, item) => sum + (Number(item.unitsUsed) || 0), 0);
+}
+
+function supplyOriginalQty(row) {
+  return Number(row.originalQty ?? (Number(row.qty || 0) + supplyUsedTotal(row))) || 0;
+}
+
+function supplyOnHand(row) {
+  return Math.max(0, supplyOriginalQty(row) - supplyUsedTotal(row));
+}
+
+function supplyVATAmount(row) {
+  return Number(row.vatAmount ?? row.inputVAT ?? row.vat ?? 0) || 0;
+}
+
+function supplyGrossAmount(row) {
+  const explicit = Number(row.grossAmount ?? row.totalIncomingValue ?? row.purchaseTotalCost);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  if (row.type === 'Incoming') return supplyOriginalQty(row) * (Number(row.unitCost) || 0);
+  return Number(row.totalCost ?? row.amount ?? 0) || 0;
+}
+
+function supplyNetAmount(row) {
+  const explicit = Number(row.netAmount);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  return Math.max(0, supplyGrossAmount(row) - supplyVATAmount(row));
+}
+
+function toggleSupplyHistory(id) {
+  if (expandedSupplyRows.has(id)) expandedSupplyRows.delete(id);
+  else expandedSupplyRows.add(id);
+  supTable.render();
+}
+
+function cleanSupplyFirestoreRow(row) {
+  const clean = { ...row };
+  delete clean._firestoreId;
+  return clean;
+}
+
+async function upsertSupplyInFirestore(row) {
+  const db = getFirestoreDB();
+  if (!db) return;
+  const docId = row._firestoreId || row.id;
+  await db.collection('suppliesData').doc(docId).set(cleanSupplyFirestoreRow(row), { merge: true });
+  row._firestoreId = docId;
+}
+
+async function deleteSupplyFromFirestore(row) {
+  const db = getFirestoreDB();
+  if (!db || !row) return;
+  await db.collection('suppliesData').doc(row._firestoreId || row.id).delete();
+}
+
+async function loadSuppliesFromFirestore() {
+  const localRows = DB.get('supplies_movements');
+  const db = getFirestoreDB();
+  if (!db) return localRows;
+  const snapshot = await db.collection('suppliesData').get();
+  const firestoreRows = snapshot.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  if (firestoreRows.length) {
+    DB.set('supplies_movements', firestoreRows);
+    return firestoreRows;
+  }
+  for (const row of localRows) await upsertSupplyInFirestore(row);
+  return localRows;
+}
+
+function calcSupTotal() {
+  const cost = parsePeso(document.getElementById('s-unit-cost').value) || 0;
+  const qty  = parseInt(document.getElementById('s-qty').value) || 0;
+  const total = cost * qty;
+  document.getElementById('s-total').value = formatNum(total);
+  document.getElementById('s-gross-amount').value = total ? formatNum(total) : '';
+  syncSupplyAmountFields('gross');
+}
+document.getElementById('s-unit-cost').addEventListener('input', calcSupTotal);
+document.getElementById('s-qty').addEventListener('input', calcSupTotal);
+document.getElementById('s-net-amount').addEventListener('input', () => syncSupplyAmountFields('net'));
+document.getElementById('s-vat').addEventListener('input', () => syncSupplyAmountFields('vat'));
+document.getElementById('s-gross-amount').addEventListener('input', () => syncSupplyAmountFields('gross'));
+
+function syncSupplyAmountFields(source) {
+  const grossEl = document.getElementById('s-gross-amount');
+  const netEl = document.getElementById('s-net-amount');
+  const vatEl = document.getElementById('s-vat');
+  const gross = parsePeso(grossEl.value);
+  const net = parsePeso(netEl.value);
+  const vat = parsePeso(vatEl.value);
+
+  if (source === 'net' || source === 'vat') {
+    if (net || vat) {
+      grossEl.value = formatNum(net + vat);
+      document.getElementById('s-total').value = formatNum(net + vat);
+    }
+    return;
+  }
+
+  if (source === 'gross' && gross) {
+    if (vat && gross >= vat) netEl.value = formatNum(gross - vat);
+    else if (net && gross >= net) vatEl.value = formatNum(gross - net);
+    document.getElementById('s-total').value = formatNum(gross);
+  }
+}
+
+function setTab(tab) {
+  ['all','incoming','outgoing'].forEach(t => {
+    document.getElementById('stab-'+t).classList.toggle('active', t===tab);
+  });
+  const labels = { all:'All Supply Movements', incoming:'Incoming Supplies', outgoing:'Outgoing Supplies' };
+  document.getElementById('stab-label').textContent = labels[tab];
+  supTable.setTab(tab);
+}
+
+function resetForm() {
+  document.getElementById('sup-edit-id').value = '';
+  document.getElementById('modal-sup-title').textContent = 'Add Supply Entry';
+  ['s-item-code','s-name','s-desc','s-unit-cost','s-net-amount','s-vat','s-gross-amount','s-who','s-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('s-qty').value = '';
+  document.getElementById('s-total').value = '';
+  document.getElementById('s-date').value = todayISO();
+  document.getElementById('rs-incoming').checked = true;
+  if (supTable.activeTab === 'outgoing') document.getElementById('rs-outgoing').checked = true;
+}
+
+function renderSummary() {
+  const movs = DB.get('supplies_movements');
+  const inVal = movs.filter(m => m.type === 'Incoming').reduce((sum, row) => {
+    return sum + supplyGrossAmount(row);
+  }, 0);
+  const outVal = movs.reduce((sum, row) => {
+    const used = supplyUsedTotal(row);
+    if (used > 0) return sum + used * (Number(row.unitCost) || 0);
+    return sum + (row.type === 'Outgoing' ? (Number(row.totalCost) || 0) : 0);
+  }, 0);
+  document.getElementById('sup-summary').innerHTML = `
+    <div class="summary-card">
+      <div class="kpi-label">Total Incoming Value</div>
+      <div class="kpi-value green">${formatPeso(inVal)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="kpi-label">Total Issued Value</div>
+      <div class="kpi-value red">${formatPeso(outVal)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="kpi-label">Net on Hand</div>
+      <div class="kpi-value">${formatPeso(inVal - outVal)}</div>
+    </div>`;
+}
+
+async function saveSupply() {
+  const itemCode = document.getElementById('s-item-code').value.trim();
+  const name = document.getElementById('s-name').value.trim();
+  const date = document.getElementById('s-date').value;
+  const cost = parsePeso(document.getElementById('s-unit-cost').value);
+  const qty  = parseInt(document.getElementById('s-qty').value) || 0;
+  let grossAmount = parsePeso(document.getElementById('s-gross-amount').value);
+  let netAmount = parsePeso(document.getElementById('s-net-amount').value);
+  let vatAmount = parsePeso(document.getElementById('s-vat').value);
+  const who  = document.getElementById('s-who').value.trim();
+  const type = document.querySelector('input[name="sup-type"]:checked')?.value;
+
+  if (!name||!date||!cost||!qty||!who) { alert('Please fill all required fields.'); return; }
+
+  if (!grossAmount && (netAmount || vatAmount)) grossAmount = netAmount + vatAmount;
+  if (!grossAmount) grossAmount = cost * qty;
+  if (!netAmount && grossAmount) netAmount = Math.max(0, grossAmount - vatAmount);
+  if (!vatAmount && grossAmount && netAmount && grossAmount >= netAmount) vatAmount = grossAmount - netAmount;
+
+  const editId = document.getElementById('sup-edit-id').value;
+  const existing = editId ? DB.get('supplies_movements').find(row => row.id === editId) : null;
+  const usageHistory = existing ? supplyUsageHistory(existing) : [];
+  const totalUsed = usageHistory.reduce((sum, item) => sum + (Number(item.unitsUsed) || 0), 0);
+  const originalQty = existing ? supplyOriginalQty(existing) : (type === 'Incoming' ? qty : 0);
+  const currentQty = type === 'Incoming' ? Math.max(0, Number(originalQty || 0) - totalUsed) : qty;
+  const record = {
+    type, itemCode, name, description:document.getElementById('s-desc').value,
+    unitCost:cost, qty:currentQty, totalCost:cost*currentQty, whoReceived:who,
+    originalQty,
+    purchaseTotalCost:grossAmount,
+    totalIncomingValue:type === 'Incoming' ? grossAmount : 0,
+    grossAmount,
+    netAmount,
+    vatAmount,
+    inputVAT:vatAmount,
+    vatCreditable:vatAmount > 0,
+    usageHistory,
+    totalUsed,
+    datePurchased:date, notes:document.getElementById('s-notes').value
+  };
+
+  if (editId) {
+    Object.assign(record, { id: editId, _firestoreId: existing?._firestoreId });
+    DB.update('supplies_movements', editId, record);
+  } else {
+    record.id = genId();
+    DB.push('supplies_movements', record);
+  }
+
+  closeModal('modal-supply');
+  supTable.render();
+  renderSummary();
+  try {
+    await upsertSupplyInFirestore(record);
+    logAudit(editId ? 'Edit' : 'Create', 'Supplies',
+      `${editId ? 'Edited' : 'Added'} ${type.toLowerCase()} supply - ${qty} units of ${name} on ${formatDate(date)}`);
+  } catch (err) {
+    console.error('[Supplies] Firestore save failed:', err);
+    alert('Supply entry was saved locally but could not be synced to the database. Please try again.');
+  }
+}
+
+function editSup(id) {
+  const m = DB.get('supplies_movements').find(x=>x.id===id);
+  if (!m) return;
+  document.getElementById('sup-edit-id').value  = m.id;
+  document.getElementById('modal-sup-title').textContent = 'Edit Supply Entry';
+  document.getElementById(m.type==='Incoming'?'rs-incoming':'rs-outgoing').checked = true;
+  document.getElementById('s-item-code').value  = m.itemCode || '';
+  document.getElementById('s-name').value       = m.name;
+  document.getElementById('s-desc').value       = m.description||'';
+  document.getElementById('s-unit-cost').value  = formatNum(m.unitCost);
+  document.getElementById('s-qty').value        = m.qty;
+  document.getElementById('s-net-amount').value = formatNum(supplyNetAmount(m));
+  document.getElementById('s-vat').value        = formatNum(supplyVATAmount(m));
+  document.getElementById('s-gross-amount').value = formatNum(supplyGrossAmount(m));
+  document.getElementById('s-who').value        = m.whoReceived;
+  document.getElementById('s-date').value       = m.datePurchased;
+  document.getElementById('s-notes').value      = m.notes||'';
+  calcSupTotal();
+  openModal('modal-supply');
+}
+
+function deleteSup(id) {
+  const m = DB.get('supplies_movements').find(x=>x.id===id);
+  confirmDelete(`Delete supply entry for <strong>${m?.name}</strong>?`, async () => {
+    try {
+      await deleteSupplyFromFirestore(m);
+      DB.remove('supplies_movements', id); supTable.render(); renderSummary();
+      logAudit('Delete', 'Supplies', `Deleted supply entry ${m?.name || id}`);
+    } catch (err) {
+      console.error('[Supplies] Firestore delete failed:', err);
+      alert('Could not delete the supply entry. Please try again.');
+    }
+  });
+}
+
+function openSupplyUsage(id) {
+  const row = DB.get('supplies_movements').find(item => item.id === id);
+  if (!row || row.type !== 'Incoming') return;
+  const totalUsed = supplyUsedTotal(row);
+  const onHand = supplyOnHand(row);
+  document.getElementById('usage-supply-id').value = row.id;
+  document.getElementById('usage-date').value = todayISO();
+  document.getElementById('usage-qty').value = '';
+  document.getElementById('usage-who').value = '';
+  document.getElementById('usage-supply-summary').innerHTML = `
+    <div style="padding:12px;border:1px solid var(--card-border);border-radius:8px;background:#f8fafc">
+      <div style="font-weight:800;margin-bottom:4px">${row.name || 'Supply'}</div>
+      <div class="mono" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${row.itemCode || 'No item code'}</div>
+      <div>Current quantity on hand: <strong>${onHand.toLocaleString()}</strong></div>
+      <div>Total used so far: <strong>${totalUsed.toLocaleString()}</strong></div>
+    </div>`;
+  openModal('modal-supply-usage');
+}
+
+async function saveSupplyUsage() {
+  const id = document.getElementById('usage-supply-id').value;
+  const used = Number(document.getElementById('usage-qty').value) || 0;
+  const date = document.getElementById('usage-date').value || todayISO();
+  const who = document.getElementById('usage-who').value.trim();
+  const row = DB.get('supplies_movements').find(item => item.id === id);
+  const available = row ? supplyOnHand(row) : 0;
+  if (!row || used <= 0 || used > available) {
+    alert('Please enter usage greater than 0 and within current quantity on hand.');
+    return;
+  }
+
+  const usageHistory = [
+    ...supplyUsageHistory(row),
+    { unitsUsed:used, dateUsed:date, issuedTo:who }
+  ];
+  const totalUsed = usageHistory.reduce((sum, item) => sum + (Number(item.unitsUsed) || 0), 0);
+  const originalQty = supplyOriginalQty(row);
+  const qty = Math.max(0, originalQty - totalUsed);
+
+  const updated = {
+    ...row,
+    originalQty,
+    usageHistory,
+    totalUsed,
+    qty,
+    totalCost: qty * (Number(row.unitCost) || 0),
+    lastUsedDate: date,
+    lastIssuedTo: who
+  };
+
+  DB.update('supplies_movements', id, updated);
+  try {
+    await upsertSupplyInFirestore(updated);
+    closeModal('modal-supply-usage');
+    supTable.render();
+    renderSummary();
+    if (typeof logAudit === 'function') {
+      logAudit('Edit', 'Supplies',
+        `Used ${used.toLocaleString()} of '${row.name}' [${row.itemCode || 'no code'}] on ${formatDate(date)}${who ? ` - issued to ${who}` : ''}`);
+    }
+  } catch (err) {
+    console.error('[Supplies] Usage save failed:', err);
+    alert('Usage was saved locally but could not be synced to the database. Please try again.');
+  }
+}
+
+document.getElementById('btn-add-supply').addEventListener('click', () => { resetForm(); openModal('modal-supply'); });
+document.getElementById('btn-save-supply').addEventListener('click', saveSupply);
+document.getElementById('btn-save-supply-usage').addEventListener('click', saveSupplyUsage);
+renderSummary();
+
+// ─── TrackingTable ────────────────────────────────────────────────────────────
+function supplyHistoryHtml(row) {
+  const history = supplyUsageHistory(row)
+    .slice()
+    .sort((a, b) => String(b.dateUsed || '').localeCompare(String(a.dateUsed || '')));
+
+  if (!history.length) {
+    return `<tr class="supply-history-row"><td colspan="13">
+      <div class="empty-state" style="padding:16px"><p>No usage history recorded for this supply.</p></div>
+    </td></tr>`;
+  }
+
+  return `<tr class="supply-history-row"><td colspan="13">
+    <div style="padding:10px 14px;background:#f8fafc;border-top:1px solid var(--card-border);border-bottom:1px solid var(--card-border)">
+      <table style="width:100%;min-width:420px">
+        <thead>
+          <tr>
+            <th>Units Used</th>
+            <th>Date Used</th>
+            <th>Issued To</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${history.map(item => `<tr>
+            <td class="mono">${Number(item.unitsUsed || 0).toLocaleString()}</td>
+            <td>${item.dateUsed ? formatDate(item.dateUsed) : '—'}</td>
+            <td>${item.issuedTo || '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </td></tr>`;
+}
+
+const supTable = new TrackingTable({
+  id: 'sup',
+  storageKey: 'supplies_movements',
+  dateField: 'datePurchased',
+  theadId: 'sup-thead',
+  tbodyId: 'sup-tbody',
+  clearBtnId: 'btn-clear-sup',
+  quickSearchId: 'search-sup',
+  paginationId: 'sup-pagination',
+  columns: [
+    { key:'itemCode',      label:'Item Code',    sortable:true, filterable:true,  filterType:'text', filterPlaceholder:'Filter…' },
+    { key:'datePurchased', label:'Date',         sortable:true, filterable:true,  filterType:'date-range' },
+    { key:'type',          label:'Type',         sortable:true, filterable:true,  filterType:'dropdown',
+      filterOptions:['Incoming','Outgoing'] },
+    { key:'name',          label:'Name',         sortable:true, filterable:true,  filterType:'text', filterPlaceholder:'Filter…' },
+    { key:'description',   label:'Description',  sortable:true, filterable:true,  filterType:'text', filterPlaceholder:'Filter…' },
+    { key:'qty',           label:'Qty',          sortable:true, filterable:true,  filterType:'num-range', sortVal:r=>r.qty },
+    { key:'unitCost',      label:'Unit Cost',    sortable:true, filterable:true,  filterType:'num-range', sortVal:r=>r.unitCost },
+    { key:'totalCost',     label:'Total',        sortable:true, filterable:true,  filterType:'num-range', sortVal:r=>r.totalCost },
+    { key:'netAmount',     label:'Net Amount',   sortable:true, filterable:true,  filterType:'num-range', sortVal:supplyNetAmount },
+    { key:'vatAmount',     label:'Input VAT',    sortable:true, filterable:true,  filterType:'num-range', sortVal:supplyVATAmount },
+    { key:'grossAmount',   label:'Gross Amount', sortable:true, filterable:true,  filterType:'num-range', sortVal:supplyGrossAmount },
+    { key:'whoReceived',   label:'Who Received', sortable:true, filterable:true,  filterType:'text', filterPlaceholder:'Filter…' },
+    { key:'_actions',      label:'Actions',      sortable:false, filterable:false },
+  ],
+  renderRow: m => {
+    const used = supplyUsedTotal(m);
+    const onHand = m.type === 'Incoming' ? supplyOnHand(m) : Number(m.qty || 0);
+    const expanded = expandedSupplyRows.has(m.id);
+    return `<tr>
+      <td class="mono">${m.itemCode || '—'}</td>
+      <td>${formatDate(m.datePurchased)}</td>
+      <td><span class="badge ${m.type==='Incoming'?'badge-green':'badge-red'}">${m.type}</span></td>
+      <td><strong>${m.name}</strong></td>
+      <td>${m.description||'—'}</td>
+      <td class="mono">${onHand.toLocaleString()}<div style="font-size:11px;color:#64748b">Total used: ${used.toLocaleString()}</div></td>
+      <td class="mono">${formatPeso(m.unitCost)}</td>
+      <td class="mono"><strong>${formatPeso(m.totalCost)}</strong></td>
+      <td class="mono">${formatPeso(supplyNetAmount(m))}</td>
+      <td class="mono">${formatPeso(supplyVATAmount(m))}</td>
+      <td class="mono"><strong>${formatPeso(supplyGrossAmount(m))}</strong></td>
+      <td>${m.whoReceived}</td>
+      <td>
+        <div class="action-btns">
+          ${m.type === 'Incoming' ? `<button class="btn btn-outline btn-xs" onclick="toggleSupplyHistory('${m.id}')">${expanded ? 'Hide Usage' : 'Usage'}</button>` : ''}
+          ${m.type === 'Incoming' ? `<button class="btn btn-outline btn-xs" onclick="openSupplyUsage('${m.id}')">Record Usage</button>` : ''}
+          <button class="btn btn-outline btn-xs" onclick="event.stopPropagation();editSup('${m.id}')">Edit</button>
+          <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();deleteSup('${m.id}')">Delete</button>
+        </div>
+      </td>
+    </tr>${expanded ? supplyHistoryHtml(m) : ''}`;
+  },
+  emptyHtml: '<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">📋</div><p>No supply movements yet.</p></div></td></tr>',
+});
+supTable.render();
+loadSuppliesFromFirestore()
+  .then(() => { supTable.render(); renderSummary(); })
+  .catch(err => console.error('[Supplies] Firestore load failed:', err));

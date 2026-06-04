@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supplies Tracking - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Supplies Tracking</h1>
+      <p>Track supply movements. Recorded supply costs flow to the Income Statement.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Supplies Tracking</span>
+        <span class="section-subtitle">Monitor office and operational supply movements.</span>
+      </div>
+      <div class="page-title-actions">
+        <button class="btn btn-primary" id="btn-add-supply">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Entry
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-row" id="sup-summary"></div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" id="stab-all"      onclick="setTab('all')">All</button>
+      <button class="tab-btn"        id="stab-incoming" onclick="setTab('incoming')">Incoming</button>
+      <button class="tab-btn"        id="stab-outgoing" onclick="setTab('outgoing')">Outgoing</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title" id="stab-label">All Supply Movements</span>
+        <input type="text" class="search-input" id="search-sup" placeholder="Search name, description, recipient…">
+        <button class="btn btn-outline-gray btn-sm" id="btn-clear-sup" onclick="supTable.clearAll()" style="display:none">Clear Filters</button>
+      </div>
+      <div class="table-scroll">
+      <table>
+        <thead id="sup-thead"></thead>
+        <tbody id="sup-tbody"></tbody>
+      </table>
+      </div>
+      <div class="pagination-bar" id="sup-pagination"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="modal-supply">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-sup-title">Add Supply Entry</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="sup-edit-id">
+
+      <div class="form-group">
+        <label class="form-label">Type <span class="req">*</span></label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="sup-type" value="Incoming" id="rs-incoming" checked>
+            Incoming (Purchased)
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="sup-type" value="Outgoing" id="rs-outgoing">
+            Outgoing (Issued/Released)
+          </label>
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Item Code</label>
+          <input type="text" class="form-input" id="s-item-code" placeholder="e.g. SUP-001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Supply Name <span class="req">*</span></label>
+          <input type="text" class="form-input" id="s-name" placeholder="e.g. Bond Paper (ream)">
+        </div>
+      </div>
+
+      <div class="form-row form-row-1">
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <input type="text" class="form-input" id="s-desc" placeholder="e.g. A4 80gsm">
+        </div>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group">
+          <label class="form-label">Unit Cost (₱) <span class="req">*</span></label>
+          <input type="text" class="form-input" id="s-unit-cost" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Quantity <span class="req">*</span></label>
+          <input type="number" class="form-input" id="s-qty" placeholder="0" min="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Total Cost</label>
+          <input type="text" class="form-input computed" id="s-total" readonly placeholder="Auto-computed">
+        </div>
+      </div>
+
+      <div class="form-row form-row-3">
+        <div class="form-group">
+          <label class="form-label">Net Amount (₱)</label>
+          <input type="text" class="form-input" id="s-net-amount" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Input VAT (₱)</label>
+          <input type="text" class="form-input" id="s-vat" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Gross Amount (₱)</label>
+          <input type="text" class="form-input" id="s-gross-amount" data-currency placeholder="0.00">
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Who Received / Released <span class="req">*</span></label>
+          <input type="text" class="form-input" id="s-who" placeholder="Name of person">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date <span class="req">*</span></label>
+          <input type="date" class="form-input" id="s-date">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea class="form-textarea" id="s-notes" placeholder="Optional notes…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-supply">Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Record Usage Modal -->
+<div class="modal-overlay" id="modal-supply-usage">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">Record Supply Usage</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="usage-supply-id">
+      <div id="usage-supply-summary" style="margin-bottom:14px"></div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Quantity used <span class="req">*</span></label>
+          <input class="form-input" id="usage-qty" type="number" min="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date used</label>
+          <input class="form-input" id="usage-date" type="date">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Issued to / Used by</label>
+        <input class="form-input" id="usage-who" type="text" placeholder="Name of person">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-supply-usage" type="button">Save Usage</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="supplies.js"></script>
+</body>
+</html>

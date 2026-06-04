@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Income Statement - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="income-statement.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header no-print">
+    <div class="page-header-inner">
+      <h1>Income Statement</h1>
+      <p>Generated from POS sales and recorded business expenses.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <!-- Controls -->
+    <div class="page-title-row no-print">
+      <div class="title-area">
+        <span class="section-title">Income Statement</span>
+        <span class="section-subtitle">For the month ending the selected period.</span>
+      </div>
+      <div class="page-title-actions">
+        <div class="flex items-center gap-8">
+          <label class="form-label" style="margin:0;white-space:nowrap">Period:</label>
+          <input type="month" class="form-input" id="period-select" style="width:180px">
+        </div>
+        <button class="btn btn-danger" onclick="window.print()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Export PDF
+        </button>
+      </div>
+    </div>
+
+    <!-- Income Statement Document -->
+    <div class="is-document" id="is-doc">
+
+      <div class="is-header">
+        <h1>EPC Commercial Corporation</h1>
+        <h2>Income Statement</h2>
+        <p id="is-period">For the Month Ending</p>
+      </div>
+
+      <!-- Revenue -->
+      <div class="is-section">
+        <div class="is-section-label">Revenue</div>
+        <div class="is-line">
+          <span class="is-label">Sales Revenue</span>
+          <span class="is-amount" id="is-revenue">₱0.00</span>
+        </div>
+      </div>
+      <div id="is-review-note" style="display:none;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:9px 14px;margin:6px 0 10px;font-size:12.5px;color:#92400e"></div>
+
+      <hr class="is-divider">
+
+      <!-- COGS -->
+      <div class="is-section">
+        <div class="is-section-label">Cost of Goods Sold</div>
+        <div class="is-line">
+          <span class="is-label">Direct Cost of Inventory</span>
+          <span class="is-amount" id="is-cogs">₱0.00</span>
+        </div>
+      </div>
+
+      <!-- Gross Profit -->
+      <div class="is-total-line">
+        <span>Gross Profit</span>
+        <span class="is-amount" id="is-gross-profit">₱0.00</span>
+      </div>
+      <div class="is-line" style="padding:4px 0;margin-bottom:8px">
+        <span class="is-label" style="font-size:12px;color:#64748b">Gross Margin</span>
+        <span class="is-amount" style="font-size:12px;color:#64748b" id="is-gross-margin">0.0%</span>
+      </div>
+
+      <hr class="is-divider">
+
+      <!-- Operating Expenses -->
+      <div class="is-section">
+        <div class="is-section-label">Operating Expenses</div>
+        <div id="is-exp-lines"></div>
+        <div class="is-line is-subtotal" style="margin-top:10px">
+          <span class="is-label">Total Operating Expenses</span>
+          <span class="is-amount" id="is-total-exp">₱0.00</span>
+        </div>
+      </div>
+
+      <!-- Income Before Tax -->
+      <div class="is-total-line">
+        <span>Income Before Tax</span>
+        <span class="is-amount" id="is-ibt">₱0.00</span>
+      </div>
+
+      <hr class="is-divider" style="margin:16px 0">
+
+      <!-- Income Tax -->
+      <div class="is-section">
+        <div class="is-section-label">Income Tax (Corporate, Itemized, 25%)</div>
+        <div class="is-line">
+          <span class="is-label is-indent">Taxable Income</span>
+          <span class="is-amount" id="is-taxable">₱0.00</span>
+        </div>
+        <div class="is-line">
+          <span class="is-label is-indent">Income Tax Rate</span>
+          <span class="is-amount">25%</span>
+        </div>
+        <div class="is-line is-subtotal">
+          <span class="is-label">Income Tax Due</span>
+          <span class="is-amount" id="is-tax-due">₱0.00</span>
+        </div>
+      </div>
+
+      <!-- Net Income -->
+      <div class="is-total-line" id="is-net-line">
+        <span class="is-net-income">Net Income After Tax</span>
+        <span class="is-amount is-net-income" id="is-net-income">₱0.00</span>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="income-statement.js"></script>
+</body>
+</html>

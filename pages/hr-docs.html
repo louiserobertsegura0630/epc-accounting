@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HR Reference - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="hr-docs.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>HR Reference</h1>
+      <p>Field definitions, accepted values, and payroll logic for the Employees module.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">HR Reference</span>
+        <span class="section-subtitle">Accepted values, field definitions, and formula documentation.</span>
+      </div>
+    </div>
+
+    <!-- ── Section 1: Employee Fields ─────────────────────────────────────── -->
+    <div class="doc-section">
+      <div class="doc-section-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        <h2>Employee Fields</h2>
+      </div>
+      <div class="doc-section-body">
+        <table class="field-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>CSV Column</th>
+              <th>Type</th>
+              <th>Required</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Full Name</strong></td>
+              <td><code>name</code></td>
+              <td>Text</td>
+              <td><span class="badge badge-red">Yes</span></td>
+              <td>Employee's full name. Used as the display name across all payroll outputs.</td>
+            </tr>
+            <tr>
+              <td><strong>Department</strong></td>
+              <td><code>department</code></td>
+              <td>Text</td>
+              <td><span class="badge badge-red">Yes</span></td>
+              <td>Department or business unit (e.g. Operations, Admin, Sales). Free text — no fixed list.</td>
+            </tr>
+            <tr>
+              <td><strong>Position</strong></td>
+              <td><code>position</code></td>
+              <td>Text</td>
+              <td><span class="badge badge-gray">No</span></td>
+              <td>Job title or position (e.g. Staff, Supervisor, Clerk). Optional.</td>
+            </tr>
+            <tr>
+              <td><strong>Basic Salary</strong></td>
+              <td><code>basic_salary</code></td>
+              <td>Number (₱)</td>
+              <td><span class="badge badge-red">Yes</span></td>
+              <td>Monthly basic salary in Philippine pesos. Always prorated by days present ÷ working days.</td>
+            </tr>
+            <tr>
+              <td><strong>Meal Allowance</strong></td>
+              <td><code>meal_allowance</code></td>
+              <td>Number (₱)</td>
+              <td><span class="badge badge-gray">No</span></td>
+              <td>Monthly meal/subsistence allowance. Subject to proration if <em>Deduct on Absence</em> is enabled.</td>
+            </tr>
+            <tr>
+              <td><strong>Transportation Allowance</strong></td>
+              <td><code>transportation_allowance</code></td>
+              <td>Number (₱)</td>
+              <td><span class="badge badge-gray">No</span></td>
+              <td>Monthly transportation allowance. Subject to proration if <em>Deduct on Absence</em> is enabled.</td>
+            </tr>
+            <tr>
+              <td><strong>Other Allowance</strong></td>
+              <td><code>other_allowance</code></td>
+              <td>Number (₱)</td>
+              <td><span class="badge badge-gray">No</span></td>
+              <td>Any additional monthly allowance. Subject to proration if <em>Deduct on Absence</em> is enabled.</td>
+            </tr>
+            <tr>
+              <td><strong>Working Days / Month</strong></td>
+              <td><code>working_days_per_month</code></td>
+              <td>Integer</td>
+              <td><span class="badge badge-gray">No</span></td>
+              <td>Number of expected working days per month. Defaults to <strong>26</strong> if blank. Drives the proration denominator for both basic salary and allowances.</td>
+            </tr>
+            <tr>
+              <td><strong>Deduct Allowance on Absence</strong></td>
+              <td><code>deduct_allowance_on_absence</code></td>
+              <td>YES / NO</td>
+              <td><span class="badge badge-gray">No</span></td>
+              <td>Controls whether allowances are proportionally reduced for each day absent. Defaults to <strong>NO</strong>. See the full documentation below.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Section 2: Accepted Values & Departments ───────────────────────── -->
+    <div class="doc-section">
+      <div class="doc-section-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <h2>Accepted Values &amp; Departments</h2>
+      </div>
+      <div class="doc-section-body">
+
+        <!-- Department -->
+        <div class="doc-subsection">
+          <h3>Department</h3>
+          <p>The <span class="inline-code">department</span> field accepts any free-text string. There is no fixed enumeration — enter the department name exactly as your organization uses it. Values are case-sensitive in grouping on the Payroll Register.</p>
+          <p>Common examples used at EPC Commercial Corporation: <span class="inline-code">Operations</span>, <span class="inline-code">Admin</span>, <span class="inline-code">Sales</span>, <span class="inline-code">Warehouse</span>, <span class="inline-code">Finance</span>.</p>
+        </div>
+
+        <hr class="doc-divider">
+
+        <!-- Working Days -->
+        <div class="doc-subsection">
+          <h3>Working Days Per Month</h3>
+          <p>Accepted values: any positive integer from <strong>1</strong> to <strong>31</strong>. Blank or missing defaults to <strong>26</strong>.</p>
+          <p>This value is the denominator in all proration formulas. Common values:</p>
+          <table class="field-table" style="margin-top:8px;max-width:340px">
+            <thead><tr><th>Value</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>22</code></td><td>Weekdays only (approx.)</td></tr>
+              <tr><td><code>24</code></td><td>Mon–Sat schedule</td></tr>
+              <tr><td><code>26</code></td><td>Standard (default)</td></tr>
+              <tr><td><code>30</code></td><td>6 days/week, full month</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <hr class="doc-divider">
+
+        <!-- Allowance amounts -->
+        <div class="doc-subsection">
+          <h3>Allowance Amounts (Meal, Transportation, Other)</h3>
+          <p>All allowance fields accept a non-negative number in Philippine pesos. In the CSV, enter the raw number (e.g. <span class="inline-code">2000</span> or <span class="inline-code">2000.50</span>). Comma-formatted values and the ₱ symbol are also accepted by the parser. Blank or <span class="inline-code">0</span> means no allowance of that type.</p>
+        </div>
+
+        <hr class="doc-divider">
+
+        <!-- ── NEW SUBSECTION: Deduct allowance on absence ─────────────────── -->
+        <div class="doc-subsection is-new">
+          <h3>
+            Deduct allowance on absence
+            <span class="new-badge">NEW</span>
+          </h3>
+
+          <p style="margin-bottom:14px">
+            This setting controls whether an employee's allowances are reduced when they are absent.
+            It can be set per employee — individually on the employee form, or in bulk via the CSV column
+            <span class="inline-code">deduct_allowance_on_absence</span>.
+          </p>
+
+          <!-- Where to find in the individual form -->
+          <p style="font-weight:600;color:var(--text-primary);margin-bottom:4px">Where to find it (individual form)</p>
+          <p>On the <a href="employees.html" style="color:var(--primary);font-weight:600">Add / Edit Employee</a> page, open any employee record. Scroll to the <strong>"Absence &amp; Allowance Settings"</strong> section at the bottom of the form. Toggle the <strong>"Deduct allowances on absence"</strong> switch to YES or NO and save.</p>
+
+          <hr class="doc-divider">
+
+          <!-- CSV column -->
+          <p style="font-weight:600;color:var(--text-primary);margin-bottom:4px">CSV column</p>
+          <table class="field-table" style="max-width:420px;margin-bottom:12px">
+            <thead>
+              <tr><th>Column Name</th><th>Accepted Values</th><th>Blank / Missing</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>deduct_allowance_on_absence</code></td>
+                <td><code>YES</code> or <code>NO</code> (case-insensitive)</td>
+                <td>Defaults to <strong>NO</strong></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <hr class="doc-divider">
+
+          <!-- Behavior cards -->
+          <p style="font-weight:600;color:var(--text-primary);margin-bottom:0">Behavior for each value</p>
+          <div class="behavior-grid">
+            <div class="behavior-card" style="border-color:#bfdbfe;background:#eff6ff">
+              <div class="bcard-label" style="color:var(--primary)">
+                <span class="badge badge-blue" style="margin-right:6px">YES</span> Prorate allowances
+              </div>
+              <div class="bcard-body">
+                Each allowance (meal, transportation, other) is multiplied by the fraction
+                <strong>days present ÷ working days per month</strong>. An employee absent for 2 days out of 26
+                receives 24/26 of each allowance.
+              </div>
+            </div>
+            <div class="behavior-card" style="border-color:#e2e8f0">
+              <div class="bcard-label" style="color:var(--text-secondary)">
+                <span class="badge badge-gray" style="margin-right:6px">NO</span> Full allowances always
+              </div>
+              <div class="bcard-body">
+                All allowances are released in full regardless of the number of absences.
+                Only the <strong>basic salary</strong> is prorated for absences (standard practice).
+              </div>
+            </div>
+          </div>
+
+          <hr class="doc-divider">
+
+          <!-- Formula -->
+          <p style="font-weight:600;color:var(--text-primary);margin-bottom:4px">Proration formula (when YES)</p>
+          <div class="formula-box">
+            allowance_paid = (allowance_amount ÷ working_days_per_month) × days_present
+            <div class="formula-note">
+              Applied independently to each allowance field: meal, transportation, and other.<br>
+              <strong>working_days_per_month</strong> is taken from the employee's own record (default: 26).
+            </div>
+          </div>
+
+          <!-- Worked example -->
+          <p style="font-weight:600;color:var(--text-primary);margin-bottom:4px">Worked example</p>
+          <div class="example-box">
+            <div class="ex-label">Example</div>
+            <div class="ex-line">Meal allowance: ₱2,500 / month</div>
+            <div class="ex-line">Working days per month: 26</div>
+            <div class="ex-line">Days absent: 2 &nbsp;→&nbsp; Days present: 24</div>
+            <div class="ex-line" style="margin-top:8px">allowance_paid = (₱2,500 ÷ 26) × 24</div>
+            <div class="ex-line">             = ₱96.1538… × 24</div>
+            <div class="ex-result">             = ₱2,307.69</div>
+          </div>
+
+          <!-- Working days note -->
+          <div class="alert alert-info" style="margin-top:12px;font-size:13px">
+            <strong>Note:</strong> The <em>Working Days Per Month</em> field on each employee record is the denominator
+            for this formula. Ensure it is set accurately per employee before running payroll. Changing it after payroll
+            computation will affect future runs but not already-generated registers.
+          </div>
+        </div>
+        <!-- end is-new subsection -->
+
+      </div>
+    </div>
+    <!-- end Section 2 -->
+
+    <!-- ── Section 3: CSV Import Notes ────────────────────────────────────── -->
+    <div class="doc-section">
+      <div class="doc-section-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+        <h2>CSV Import Notes</h2>
+      </div>
+      <div class="doc-section-body">
+        <div class="doc-subsection">
+          <h3>General Rules</h3>
+          <p>The importer auto-detects column positions from the header row. Column names are matched case-insensitively. Extra or unknown columns are ignored silently. Rows where <strong>name</strong> is blank are skipped.</p>
+          <p>After upload, all rows are shown in an <strong>editable batch table</strong> where every cell can be modified before saving. The <span class="inline-code">deduct_allowance_on_absence</span> column is exposed as a YES/NO dropdown in the batch table.</p>
+        </div>
+        <hr class="doc-divider">
+        <div class="doc-subsection">
+          <h3>Download the Template</h3>
+          <p>Use the <strong>CSV Template</strong> button on the <a href="employees.html" style="color:var(--primary);font-weight:600">Employees</a> page to download a pre-formatted template with all required columns and two sample rows. The last column in the template is <span class="inline-code">deduct_allowance_on_absence</span>.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="hr-docs.js"></script>
+</body>
+</html>

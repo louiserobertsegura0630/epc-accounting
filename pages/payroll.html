@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payroll - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="payroll.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Payroll</h1>
+      <p>Compute monthly gross pay with absence-based allowance proration per employee.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Payroll Computation</span>
+        <span class="section-subtitle">Enter absences per employee, then click Compute.</span>
+      </div>
+      <div class="page-title-actions no-print">
+        <button class="btn btn-danger" onclick="window.print()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Export PDF
+        </button>
+      </div>
+    </div>
+
+    <!-- Pay Period + Compute -->
+    <div class="card mb-24 no-print">
+      <div class="flex items-center gap-16 flex-wrap">
+        <div class="flex items-center gap-8">
+          <label class="form-label" style="margin:0;white-space:nowrap">Pay Period:</label>
+          <select class="form-select" id="pay-month" style="width:160px"></select>
+          <select class="form-select" id="pay-year"  style="width:100px"></select>
+        </div>
+        <button class="btn btn-success" id="btn-compute">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Compute Payroll
+        </button>
+      </div>
+    </div>
+
+    <!-- Absence Input Table -->
+    <div class="card mb-24 no-print">
+      <div style="font-size:14px;font-weight:700;margin-bottom:14px">Enter Absences</div>
+      <div id="no-emp-notice" class="alert alert-info" style="display:none">
+        No employees found. <a href="employees.html" style="color:var(--primary);font-weight:600">Add employees</a> first.
+      </div>
+      <div id="absence-table-wrap">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Department</th>
+                <th>Working Days/Mo.</th>
+                <th>Days Absent</th>
+                <th>Days Present</th>
+                <th>Deduct Allowance on Absence</th>
+              </tr>
+            </thead>
+            <tbody id="absence-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="payroll-results" style="display:none">
+
+      <!-- Print Header -->
+      <div class="print-header" style="text-align:center;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #0f172a">
+        <div style="font-size:20px;font-weight:800">EPC Commercial Corporation</div>
+        <div style="font-size:15px;font-weight:600;color:#64748b;margin-top:4px">Payroll Register</div>
+        <div id="print-period" style="font-size:13px;color:#94a3b8;margin-top:3px"></div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="summary-row" id="payroll-summary"></div>
+
+      <!-- Payroll Table -->
+      <div class="table-container">
+        <div class="table-toolbar no-print">
+          <span class="table-toolbar-title" id="payroll-table-title">Payroll Register</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Department</th>
+                <th>Days Present / WD</th>
+                <th>Basic Paid</th>
+                <th>Meal Allow.</th>
+                <th>Transport Allow.</th>
+                <th>Other Allow.</th>
+                <th>Total Allowances</th>
+                <th>Gross Pay</th>
+              </tr>
+            </thead>
+            <tbody id="payroll-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="payroll.js"></script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Log - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="audit-log.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Audit Log</h1>
+      <p>Review important changes across the accounting portal</p>
+    </div>
+  </header>
+  <div class="page-body">
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Audit Log</span>
+        <span class="section-subtitle">Newest activity appears first.</span>
+      </div>
+    </div>
+    <div class="audit-toolbar">
+      <select class="form-select" id="audit-action"><option value="">All Actions</option></select>
+      <input class="form-input" type="date" id="audit-from" aria-label="From date">
+      <input class="form-input" type="date" id="audit-to" aria-label="To date">
+      <input class="form-input audit-search" type="text" id="audit-search" placeholder="Search details...">
+      <button class="btn btn-outline-gray btn-sm" id="audit-clear" type="button">Clear Filters</button>
+    </div>
+    <div class="table-container">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
+          <tbody id="audit-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="audit-pagination"></div>
+    </div>
+  </div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="audit-log.js"></script>
+</body>
+</html>

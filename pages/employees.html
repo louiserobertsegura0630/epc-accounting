@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employees - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Employees</h1>
+      <p>Manage employee records, salary, allowances, and payroll settings.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Employee Management</span>
+        <span class="section-subtitle">Add, edit, and manage all employee records.</span>
+      </div>
+      <div class="page-title-actions">
+        <button class="btn btn-outline-gray" id="btn-dl-template">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          CSV Template
+        </button>
+        <button class="btn btn-outline" id="btn-open-csv">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+          Upload CSV
+        </button>
+        <button class="btn btn-primary" id="btn-add-emp">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Employee
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-row" id="emp-summary"></div>
+
+    <!-- CSV Upload Panel -->
+    <div id="csv-panel" class="card mb-24" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700">Batch CSV Upload</div>
+        <button class="btn btn-outline-gray btn-sm" id="btn-close-csv">✕ Close</button>
+      </div>
+      <div class="alert alert-info mb-16">
+        CSV columns: <strong>name, department, position, basic_salary, meal_allowance, transportation_allowance, other_allowance, working_days_per_month, deduct_allowance_on_absence</strong><br>
+        <code>deduct_allowance_on_absence</code> accepts <strong>YES</strong> or <strong>NO</strong> (case-insensitive; blank defaults to NO).
+      </div>
+      <div class="drop-zone" id="emp-drop-zone">
+        <div class="drop-icon">⬆</div>
+        <h3>Drag &amp; Drop CSV file here</h3>
+        <p>or click to browse</p>
+        <input type="file" id="emp-file-input" accept=".csv" style="display:none">
+      </div>
+      <div id="csv-batch-wrap" style="display:none;margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span style="font-size:13px;font-weight:700" id="csv-batch-count"></span>
+          <div class="flex gap-8">
+            <button class="btn btn-outline-gray btn-sm" id="btn-clear-batch">Clear</button>
+            <button class="btn btn-success btn-sm" id="btn-save-batch">Save All Employees</button>
+          </div>
+        </div>
+        <div class="table-scroll" style="max-height:340px;border:1px solid var(--card-border);border-radius:8px">
+          <table style="font-size:12.5px">
+            <thead id="batch-thead"></thead>
+            <tbody id="batch-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Employee Table -->
+    <div class="table-container">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title">All Employees</span>
+        <input type="text" class="search-input" id="search-emp" placeholder="Search name, department…">
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Department</th>
+              <th>Position</th>
+              <th>Basic Salary</th>
+              <th>Meal Allow.</th>
+              <th>Transport Allow.</th>
+              <th>Other Allow.</th>
+              <th>Working Days/Mo.</th>
+              <th>Deduct on Absence</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="emp-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Add / Edit Employee Modal -->
+<div class="modal-overlay" id="modal-emp">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-emp-title">Add Employee</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="emp-edit-id">
+
+      <!-- Basic Info -->
+      <div class="form-section-header" style="border-top:none;margin-top:0;padding-top:0">Basic Information</div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Full Name <span class="req">*</span></label>
+          <input type="text" class="form-input" id="emp-name" placeholder="e.g. Juan dela Cruz">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Department <span class="req">*</span></label>
+          <input type="text" class="form-input" id="emp-dept" placeholder="e.g. Operations">
+        </div>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Position</label>
+          <input type="text" class="form-input" id="emp-position" placeholder="e.g. Staff">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Working Days / Month <span class="req">*</span></label>
+          <input type="number" class="form-input" id="emp-wdm" value="26" min="1" max="31" placeholder="26">
+        </div>
+      </div>
+
+      <!-- Salary & Allowances -->
+      <div class="form-section-header">Salary &amp; Allowances</div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Basic Salary (₱) <span class="req">*</span></label>
+          <input type="text" class="form-input" id="emp-basic" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Meal Allowance (₱)</label>
+          <input type="text" class="form-input" id="emp-meal" data-currency placeholder="0.00">
+        </div>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Transportation Allowance (₱)</label>
+          <input type="text" class="form-input" id="emp-transp" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Other Allowance (₱)</label>
+          <input type="text" class="form-input" id="emp-other" data-currency placeholder="0.00">
+        </div>
+      </div>
+
+      <!-- Absence & Allowance Settings -->
+      <div class="form-section-header">Absence &amp; Allowance Settings</div>
+      <div class="form-group">
+        <label class="form-label">Deduct allowances on absence</label>
+        <div class="toggle-wrap" style="margin-top:6px">
+          <label class="toggle">
+            <input type="checkbox" id="emp-deduct-absence">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-status off" id="deduct-status-label">NO. Allowances are always paid in full.</span>
+        </div>
+        <span class="help-text" style="margin-top:8px">
+          When <strong>ON</strong>, all allowances are prorated: <em>(allowance ÷ working days) × days present</em>.
+          When <strong>OFF</strong>, allowances are released in full regardless of absences.
+        </span>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-emp">Save Employee</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="employees.js"></script>
+</body>
+</html>

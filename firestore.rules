@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper: read the caller's role from their users/{uid} document ────────
+    // This is evaluated server-side; the client cannot spoof it.
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // ── Deny everything by default ────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── users collection ──────────────────────────────────────────────────────
+    // Each user may read their own profile.
+    // Users may update their own name fields but CANNOT change their role.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null
+                    && request.auth.uid == uid
+                    && !('role' in request.resource.data.diff(resource.data).affectedKeys());
+    }
+
+    // ── Collections writable by accountant OR limited ─────────────────────────
+    // productMaster, suppliers, inventoryData, suppliesData, purchases
+    match /productMaster/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /suppliers/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /inventoryData/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /suppliesData/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /purchases/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+
+    // ── Collections writable by accountant only ───────────────────────────────
+    // salesData, underReviewData, eSalesRecords, expenses, ewtRemittances
+    match /salesData/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && userRole() == 'accountant';
+    }
+    match /underReviewData/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && userRole() == 'accountant';
+    }
+    match /eSalesRecords/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /expenses/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /ewtRemittances/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+
+  }
+}
+
+// ── Role values expected in users/{uid}.role ──────────────────────────────────
+//   accountant  — full read + write on all collections
+//   limited     — read all + write all EXCEPT salesData, underReviewData
+//   viewer      — read only on all collections (no writes)
+//
+// ── How to deploy ─────────────────────────────────────────────────────────────
+//   firebase deploy --only firestore:rules
+//   (requires firebase-tools: npm i -g firebase-tools && firebase login)
+//
+// ── Verify in the Firebase console ───────────────────────────────────────────
+//   Firestore → Rules → Rules Playground
+//   Test: authenticated UID with role=viewer trying to write → should DENY
+//   Test: authenticated UID with role=accountant trying to write → should ALLOW
+//   Test: unauthenticated read → should DENY

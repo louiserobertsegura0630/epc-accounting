@@ -1,0 +1,5 @@
+    @media print {
+      .no-print { display: none !important; }
+      .is-document { box-shadow: none; border: none; padding: 30px; max-width: 100%; }
+      body { background: white; }
+    }

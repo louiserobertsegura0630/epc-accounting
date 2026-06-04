@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>Login - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body style="visibility:hidden">
+<div class="main-content" style="margin-left:0;width:100%">
+  <div class="page-body" style="max-width:720px;margin:48px auto">
+    <div class="card" style="padding:28px">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px">
+        <img src="../logo.jpeg" alt="EPC Commercial Corporation" style="width:64px;height:64px;object-fit:contain;border:1px solid var(--card-border);border-radius:10px;background:white">
+        <div>
+          <h1 style="margin:0">EPC Commercial Corporation</h1>
+          <p style="margin:4px 0 0;color:var(--text-secondary)">Accounting Portal Login</p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="login-username">Username</label>
+        <input class="form-input" id="login-username" type="text" autocomplete="off" placeholder="Enter username" spellcheck="false" autocapitalize="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Password</label>
+        <input class="form-input" id="login-password" type="password" autocomplete="off" placeholder="Enter password">
+      </div>
+      <button class="btn btn-primary" id="btn-login" type="button">Login</button>
+      <p id="login-error" style="color:var(--danger);font-size:13px;margin-top:12px"></p>
+    </div>
+  </div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="login.js"></script>
+</body>
+</html>

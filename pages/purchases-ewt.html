@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purchases - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="purchases.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Purchases</h1>
+      <p>Track all purchase transactions</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Purchases</span>
+        <span class="section-subtitle">Track all purchase transactions</span>
+      </div>
+      <div class="page-title-actions">
+        <button class="btn btn-outline-gray" id="btn-import-purchases" type="button">
+          Import Ledger
+        </button>
+        <button class="btn btn-primary" id="btn-add-purchase">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Purchase
+        </button>
+        <input type="file" id="purchase-import-file" accept=".csv,.xls,.xlsx" style="display:none">
+      </div>
+    </div>
+
+    <div class="card purchase-import-card" id="purchase-import-dropzone">
+      <div>
+        <strong>Import supplier/purchase ledger</strong>
+        <p>Drop CSV, XLS, or XLSX files here, or use Import Ledger.</p>
+      </div>
+      <button class="btn btn-outline-gray btn-sm" type="button" id="btn-browse-purchase-import">Browse File</button>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-row" id="summary-row"></div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title">Purchase Records</span>
+        <input type="text" class="search-input" id="search-purchases" placeholder="Search CV, SI, check, supplier…">
+      </div>
+      <div class="table-toolbar filter-toolbar">
+        <span class="filter-label">Filter:</span>
+        <input type="date" id="filter-date-from" class="filter-date-input" title="Start date">
+        <span class="filter-sep">–</span>
+        <input type="date" id="filter-date-to" class="filter-date-input" title="End date">
+        <select id="filter-supplier-purchases" class="filter-select">
+          <option value="">All Suppliers</option>
+        </select>
+        <button id="btn-clear-filters-purchases" class="btn btn-outline-gray btn-sm">Clear Filters</button>
+        <span id="purchases-count" class="records-badge"></span>
+      </div>
+      <div class="purchase-bulk-toolbar" id="purchase-bulk-toolbar">
+        <span id="purchase-bulk-count">0 purchases selected</span>
+        <button class="btn btn-outline-gray btn-sm" type="button" id="btn-select-all-filtered-purchases" style="display:none">Select all matching purchases</button>
+        <button class="btn btn-danger btn-sm" type="button" id="btn-delete-selected-purchases">Delete Selected</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" id="btn-clear-purchase-selection">Clear Selection</button>
+      </div>
+      <div class="table-scroll">
+      <table id="purchases-table">
+        <thead id="purchases-thead"></thead>
+        <tbody id="purchases-tbody"></tbody>
+      </table>
+      </div>
+      <div class="purchase-pagination" id="purchase-pagination"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Import Preview Modal -->
+<div class="modal-overlay" id="modal-purchase-import">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title">Preview Purchase Ledger Import</span>
+      <button class="modal-close" id="btn-close-purchase-import" type="button">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-info" id="purchase-import-summary"></div>
+      <div class="table-scroll" style="max-height:420px">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>CV #</th>
+              <th>DR Date</th>
+              <th>SI #</th>
+              <th>Check #</th>
+              <th>Net Amount</th>
+              <th>Input VAT</th>
+              <th>Gross Amount</th>
+              <th>EWT</th>
+              <th>Net Payment</th>
+            </tr>
+          </thead>
+          <tbody id="purchase-import-preview-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" id="btn-cancel-purchase-import" type="button">Cancel</button>
+      <button class="btn btn-primary" id="btn-confirm-purchase-import" type="button">Import Rows</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Purchase Modal -->
+<div class="modal-overlay" id="modal-purchase">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-purchase-title">Add Purchase</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-id">
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Supplier <span class="req">*</span></label>
+          <select class="form-select" id="f-supplier"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date <span class="req">*</span></label>
+          <input type="date" class="form-input" id="f-date">
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Net Amount (Excl. VAT) (₱) <span class="req">*</span></label>
+          <input type="text" class="form-input" id="f-total" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Input VAT (₱)</label>
+          <input type="text" class="form-input" id="f-input-vat" data-currency placeholder="0.00">
+          <span class="form-hint">Auto = 12% of Net Amount. Editable.</span>
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Input VAT creditable?</label>
+          <select class="form-select" id="f-input-vat-creditable">
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:14px">
+        <label class="form-label">Gross Amount (₱) <span style="font-size:11px;color:var(--text-muted);font-weight:400">= Net Amount + Input VAT</span></label>
+        <input type="text" class="form-input computed" id="f-gross-amount" readonly
+          style="font-size:15px;font-weight:700;background:#eff6ff;color:var(--primary);font-family:'DM Mono',monospace;cursor:default">
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">EWT Rate</label>
+          <select class="form-select" id="f-ewt-rate">
+            <option value="0">None (0%)</option>
+            <option value="1">1%</option>
+            <option value="2" selected>2%</option>
+            <option value="5">5%</option>
+            <option value="10">10%</option>
+            <option value="15">15%</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">EWT Amount <span style="font-size:11px;color:var(--text-muted);font-weight:400">on Net Amount</span></label>
+          <input type="text" class="form-input computed" id="f-ewt-amount" readonly placeholder="Auto-computed">
+        </div>
+      </div>
+
+      <!-- DEDUCTIONS SECTION -->
+      <div class="form-section-header">Deductions</div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Bad Order (₱)</label>
+          <input type="text" class="form-input" id="f-bad-order" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lacking (₱)</label>
+          <input type="text" class="form-input" id="f-lacking" data-currency placeholder="0.00">
+        </div>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Returns (₱)</label>
+          <input type="text" class="form-input" id="f-returns" data-currency placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Other Deduction (₱)</label>
+          <input type="text" class="form-input" id="f-other-ded" data-currency placeholder="0.00">
+        </div>
+      </div>
+
+      <!-- ADDITIONS SECTION -->
+      <div class="form-section-header" style="color:var(--primary)">Additions</div>
+
+      <div id="additions-list"></div>
+
+      <button type="button" id="btn-add-addition"
+        style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:600;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;display:flex;align-items:center;gap:5px;padding:2px 0;margin-bottom:14px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Another Addition
+      </button>
+
+      <div class="form-row form-row-2" style="margin-bottom:4px">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Total Additions (₱)</label>
+          <input type="text" class="form-input" id="f-total-add" readonly placeholder="Auto-computed"
+            style="background:#eff6ff;color:var(--primary);font-family:'DM Mono',monospace;cursor:default">
+        </div>
+      </div>
+
+      <div class="form-row form-row-2" style="margin-top:14px">
+        <div class="form-group">
+          <label class="form-label">Total Deductions</label>
+          <input type="text" class="form-input computed" id="f-total-ded" readonly placeholder="Auto-computed">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cash Paid</label>
+          <input type="text" class="form-input computed" id="f-net-payable" readonly placeholder="Auto-computed">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea class="form-textarea" id="f-notes" placeholder="Optional notes…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-purchase">Save Purchase</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mark Remitted Modal -->
+<div class="modal-overlay" id="modal-remit">
+  <div class="modal-card" style="max-width:420px">
+    <div class="modal-header">
+      <span class="modal-title">Mark EWT as Remitted</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="remit-id">
+      <div class="form-group">
+        <label class="form-label">Remittance Date <span class="req">*</span></label>
+        <input type="date" class="form-input" id="remit-date">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-success" id="btn-confirm-remit">Confirm Remittance</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="purchases.js"></script>
+</body>
+</html>

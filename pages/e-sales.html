@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-Sales Records - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="tax-monitoring.css">
+  <link rel="stylesheet" href="e-sales.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>E-Sales Records</h1>
+      <p>Import and manage daily E-Sales reports from the POS system</p>
+    </div>
+  </header>
+  <div class="page-body">
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">E-Sales Records</span>
+        <span class="section-subtitle">Import and manage daily E-Sales reports from the POS system</span>
+      </div>
+    </div>
+
+    <div class="card mb-24">
+      <div class="section-heading">Import E-Sales Report</div>
+      <div class="esales-drop-zone" id="esales-drop-zone">
+        <div class="drop-icon">⬆</div>
+        <p><strong>Drag &amp; Drop XLS, XLSX, or CSV here</strong></p>
+        <p>or <button class="btn btn-primary btn-sm" id="btn-import-esales" type="button">Browse File</button></p>
+        <input type="file" id="esales-file-input" accept=".xls,.xlsx,.csv" style="display:none">
+      </div>
+      <div id="esales-import-status" style="display:none;margin-top:14px">
+        <div class="esales-progress-label" id="esales-import-label">Processing...</div>
+        <div class="esales-progress-wrap"><div class="esales-progress-fill" id="esales-import-fill"></div></div>
+      </div>
+    </div>
+
+    <div class="summary-row esales-summary-grid" id="esales-summary"></div>
+
+    <div class="card">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title">E-Sales Records</span>
+        <input type="text" class="search-input" id="search-esales" placeholder="Search date, OR, Z counter...">
+        <label class="date-filter-label">From <input type="date" class="form-input" id="esales-date-from"></label>
+        <label class="date-filter-label">To <input type="date" class="form-input" id="esales-date-to"></label>
+        <button class="btn btn-outline-gray btn-sm" id="btn-reset-esales-filter">Clear Filters</button>
+        <button class="btn btn-danger btn-sm" id="btn-clear-all-esales">Clear All</button>
+        <span id="esales-page-info" class="esales-page-info"></span>
+      </div>
+      <div class="es-bulk-toolbar" id="esales-bulk-toolbar">
+        <span id="esales-bulk-count">0 items selected</span>
+        <button class="btn btn-danger btn-sm" id="btn-delete-esales-selected">Delete Selected</button>
+        <button class="btn btn-outline-gray btn-sm" id="btn-deselect-esales">Deselect All</button>
+      </div>
+      <div class="es-select-all-banner" id="esales-select-all-banner">
+        <span id="esales-select-page-message"></span>
+        <button class="es-select-all-link" type="button" id="btn-select-all-esales"></button>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="es-select-col"><input type="checkbox" id="esales-select-page" aria-label="Select all visible E-Sales records"></th>
+              <th class="sortable" data-sort="date">Date <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="begOR">Beg OR <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="endOR">End OR <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="grossSales">Gross Sales <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="netAmount">Net Amount <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="vatableSales">VATable <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="vatAmount">VAT Amount <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="vatExempt">VAT Exempt <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="zeroRated">Zero Rated <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="scDiscount">SC Discount <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="pwdDiscount">PWD Discount <span class="sort-icon"></span></th>
+              <th class="sortable" data-sort="zCounter">Z Counter <span class="sort-icon"></span></th>
+            </tr>
+          </thead>
+          <tbody id="esales-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="esales-pagination"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-esales-import">
+  <div class="modal-card modal-lg" style="max-width:1040px;width:92vw">
+    <div class="modal-header"><span class="modal-title">Preview E-Sales Import</span><button class="modal-close" data-close-modal>✕</button></div>
+    <div class="modal-body">
+      <div class="alert alert-info" id="esales-preview-meta"></div>
+      <div class="table-scroll" style="max-height:420px"><table><thead><tr><th>Date</th><th>Beg OR</th><th>End OR</th><th>Gross Sales</th><th>Net Amount</th><th>VATable</th><th>VAT Amount</th><th>VAT Exempt</th><th>Zero Rated</th><th>SC Discount</th><th>PWD Discount</th><th>Z Counter</th></tr></thead><tbody id="esales-preview-tbody"></tbody></table></div>
+    </div>
+    <div id="esales-save-progress" style="display:none;padding:12px 20px 0"><div class="esales-progress-label" id="esales-save-label"></div><div class="esales-progress-wrap"><div class="esales-progress-fill" id="esales-save-fill"></div></div></div>
+    <div class="modal-footer"><button class="btn btn-outline-gray" data-close-modal>Cancel</button><button class="btn btn-primary" id="btn-confirm-esales-import">Confirm Import</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-delete-esales">
+  <div class="modal-card" style="max-width:460px">
+    <div class="modal-header"><span class="modal-title" id="delete-esales-title">Delete records?</span><button class="modal-close" id="btn-close-delete-esales" type="button">✕</button></div>
+    <div class="modal-body"><div style="font-size:32px;margin-bottom:10px">⚠️</div><p>This will permanently remove these records. This cannot be undone.</p></div>
+    <div class="modal-footer"><button class="btn btn-outline-gray" id="btn-cancel-delete-esales" type="button">Cancel</button><button class="btn btn-danger" id="btn-confirm-delete-esales" type="button">Delete</button></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="e-sales.js"></script>
+</body>
+</html>

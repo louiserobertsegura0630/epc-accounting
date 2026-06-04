@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tax Monitoring - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="tax-monitoring.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Tax Monitoring</h1>
+      <p>Detailed VAT, EWT, and income tax computations for the selected period.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Tax Monitoring</span>
+        <span class="section-subtitle">Review tax computations sourced from existing records.</span>
+      </div>
+    </div>
+
+    <div class="card tax-fiscal-card">
+      <div class="tax-controls-row" style="margin-bottom:10px">
+        <label class="form-label" style="margin:0">Fiscal Year starts in:</label>
+        <select class="form-select" id="tax-fy-start-month" style="width:150px"></select>
+
+        <label class="form-label" style="margin:0 0 0 12px">Period type:</label>
+        <select class="form-select" id="tax-period-type" style="width:130px">
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+          <option value="yearly">Yearly</option>
+          <option value="custom">Custom From/To</option>
+        </select>
+
+        <select class="form-select" id="tax-period-value" style="width:220px"></select>
+
+        <div id="tax-custom-range" class="tax-custom-range" style="display:none">
+          <input class="form-input" type="date" id="tax-custom-from">
+          <span class="filter-sep">–</span>
+          <input class="form-input" type="date" id="tax-custom-to">
+        </div>
+
+        <button class="btn btn-primary btn-sm" type="button" id="tax-generate-btn">Generate</button>
+      </div>
+      <div class="tax-period-label" id="tax-period-label"></div>
+      <div class="tax-period-note" id="tax-excluded-note"></div>
+    </div>
+
+    <div class="tabs tax-tabs">
+      <button class="tab-btn active" type="button" data-tax-tab="vat" onclick="switchTaxTab('vat')">VAT</button>
+      <button class="tab-btn" type="button" data-tax-tab="ewt" onclick="switchTaxTab('ewt')">EWT</button>
+      <button class="tab-btn" type="button" data-tax-tab="income" onclick="switchTaxTab('income')">Income Tax</button>
+    </div>
+
+    <div class="tax-computation-page">
+
+      <div id="tax-vat-panel" class="tax-tab-panel">
+        <div class="card mb-24">
+          <div class="tax-section-header">
+            <div class="tax-section-badge">A</div>
+            Value Added Tax (VAT)
+          </div>
+
+          <div class="tax-computation-sheet">
+            <div class="tax-sheet-section-title">Output VAT side</div>
+            <div class="tax-sheet-line"><span>Gross Sales</span><strong class="mono" id="vat-gross-sales">₱0.00</strong></div>
+            <div class="tax-sheet-line tax-sheet-less"><span>VAT-exempt Sales</span><strong class="mono" id="vat-exempt-sales">₱0.00</strong></div>
+            <div class="tax-sheet-line tax-sheet-less"><span>Zero-rated Sales</span><strong class="mono" id="vat-zero-rated-sales">₱0.00</strong></div>
+            <div class="tax-sheet-line tax-sheet-less"><span>SC/PWD Discounts</span><strong class="mono" id="vat-sc-pwd-discounts">₱0.00</strong></div>
+            <div class="tax-sheet-line tax-sheet-subtotal"><span>Net Taxable Sales</span><strong class="mono" id="vat-net-taxable-sales">₱0.00</strong></div>
+            <div class="tax-sheet-line"><span>Output VAT 12%</span><strong class="mono" id="vat-output">₱0.00</strong></div>
+
+            <div class="tax-sheet-section-title" style="margin-top:18px">Input VAT side</div>
+            <div class="tax-sheet-line"><span>Creditable Input VAT from Purchases</span><strong class="mono" id="vat-input-purchases">₱0.00</strong></div>
+            <div class="tax-sheet-line"><span>Creditable Input VAT from Expenses</span><strong class="mono" id="vat-input-expenses">₱0.00</strong></div>
+            <div class="tax-sheet-line"><span>Creditable Input VAT from Supplies</span><strong class="mono" id="vat-input-supplies">₱0.00</strong></div>
+            <div class="tax-sheet-line tax-sheet-subtotal"><span>Total Creditable Input VAT</span><strong class="mono" id="vat-input-total">₱0.00</strong></div>
+
+            <div class="tax-input-note">
+              <strong>Input VAT inclusion note:</strong>
+              Only records marked VAT-creditable are included below. Records can still show input VAT in their source page
+              but be excluded here when marked non-creditable.
+            </div>
+
+            <div class="table-scroll" style="margin-top:12px">
+              <table class="tax-computation-table">
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Included as Creditable</th>
+                    <th>Excluded as Non-creditable</th>
+                  </tr>
+                </thead>
+                <tbody id="vat-input-breakdown-body"></tbody>
+              </table>
+            </div>
+
+            <div class="tax-sheet-section-title" style="margin-top:18px">VAT payable computation</div>
+            <div class="tax-sheet-line">
+              <span id="vat-payable-formula">VAT Payable = Output VAT - Creditable Input VAT</span>
+              <strong class="mono" id="vat-payable">₱0.00</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tax-ewt-panel" class="tax-tab-panel" style="display:none">
+        <div class="card mb-24">
+          <div class="tax-section-header">
+            <div class="tax-section-badge">B</div>
+            Expanded Withholding Tax (EWT)
+          </div>
+
+          <div class="alert alert-info mb-16">
+            EWT is sourced from Purchases records. Each purchase contributes its recorded EWT rate and EWT amount.
+            <a class="btn btn-outline btn-sm" href="purchases-ewt.html" style="margin-left:10px">View Purchases</a>
+          </div>
+
+          <div class="tax-computation-sheet">
+            <div class="tax-sheet-section-title">EWT computation</div>
+            <div class="table-scroll">
+              <table class="tax-computation-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Supplier</th>
+                    <th>Net Amount</th>
+                    <th>EWT Rate</th>
+                    <th>EWT Amount</th>
+                  </tr>
+                </thead>
+                <tbody id="ewt-computation-body"></tbody>
+              </table>
+            </div>
+
+            <div class="tax-sheet-line tax-sheet-subtotal">
+              <span>Total EWT withheld to remit</span>
+              <strong class="mono" id="ewt-total-remit">₱0.00</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tax-income-panel" class="tax-tab-panel" style="display:none">
+        <div class="card">
+          <div class="tax-section-header">
+            <div class="tax-section-badge">C</div>
+            Income Tax
+          </div>
+
+          <div class="tax-controls-row">
+            <label class="form-label" style="margin:0">Corporate income tax rate:</label>
+            <select class="form-select" id="cit-tax-rate" style="width:110px">
+              <option value="0.20" selected>20%</option>
+              <option value="0.25">25%</option>
+            </select>
+          </div>
+
+          <div class="tax-computation-sheet">
+            <div class="tax-sheet-section-title">Income for tax purposes</div>
+
+            <div class="tax-sheet-line">
+              <span>Sales</span>
+              <strong class="mono" id="cit-sales">₱0.00</strong>
+            </div>
+
+            <div class="tax-sheet-line tax-sheet-less">
+              <span>
+                less COGS
+                <small class="tax-cogs-note">
+                  COGS here uses total Purchases for the period to maximize claimable tax deductions.
+                  This is a tax-purposes computation and may differ from accounting COGS
+                  (cost of only goods actually sold).
+                </small>
+              </span>
+              <strong class="mono" id="cit-cogs">₱0.00</strong>
+            </div>
+
+            <div class="tax-sheet-line tax-sheet-less">
+              <span>less Expenses</span>
+              <strong class="mono" id="cit-expenses">₱0.00</strong>
+            </div>
+
+            <div class="tax-sheet-line tax-sheet-subtotal">
+              <span>Taxable Income</span>
+              <strong class="mono" id="cit-taxable">₱0.00</strong>
+            </div>
+
+            <div class="tax-sheet-line">
+              <span id="cit-rate-label">Income Tax Due = Taxable Income × 20%</span>
+              <strong class="mono" id="cit-tax-due">₱0.00</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js"></script>
+<script src="tax-monitoring.js"></script>
+</body>
+</html>
