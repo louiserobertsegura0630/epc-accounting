@@ -49,11 +49,11 @@ function inventoryTotalsForCode(itemCode) {
 // Every POS sale shows up as an Outgoing movement (read-only; owned by Sales).
 // Derived at load time only — never written back to Firestore inventoryData.
 function saleToOutgoingRow(sale, index) {
-  const code = inventoryCode(sale.itemCode);
-  const qty  = Number(sale.unitsSold) || 0;
+  const code = inventoryCode(sale.itemCode ?? sale.code);
+  const qty  = Number(sale.unitsSold ?? sale.quantity ?? sale.qty ?? sale.unitSold ?? sale.soldQty) || 0;
   if (!code || qty <= 0) return null;
-  const unitCost = Number(sale.unitCost) || 0;
-  const raw = sale.date;
+  const unitCost = Number(sale.unitCost ?? sale.cost) || 0;
+  const raw = sale.date ?? sale.dateSold ?? sale.transactionDate;
   const date = raw && typeof raw.toDate === 'function'
     ? raw.toDate().toISOString().slice(0, 10)
     : String(raw || '').slice(0, 10);
@@ -61,7 +61,7 @@ function saleToOutgoingRow(sale, index) {
     id: `sale-${sale._firestoreId || sale.id || `${code}|${date}|${qty}|${index}`}`,
     type: 'Outgoing',
     itemCode: code,
-    description: sale.productName || sale.description || '',
+    description: sale.productName || sale.description || sale.itemName || '',
     category: sale.category || '',
     supplier: '',
     unitCost,
@@ -73,9 +73,37 @@ function saleToOutgoingRow(sale, index) {
   };
 }
 
+// Average selling price per item code, derived from POS sales (salesData).
+// Weighted ASP = total revenue / total units sold across all sales of that item.
+let salesAspByCode = {};
+
+function inventoryAvgSellingPrice(itemCode) {
+  return salesAspByCode[inventoryCode(itemCode)] || 0;
+}
+
+// Potential revenue of an incoming batch = ASP × incoming units.
+function inventoryPotentialRevenue(row) {
+  if (String(row.type || 'Incoming').toLowerCase() === 'outgoing') return 0;
+  return inventoryAvgSellingPrice(row.itemCode) * (Number(row.qty) || 0);
+}
+
 // Replace the derived sales-outgoing rows in the movements array with a fresh
 // set built from the given sales records, then repaint table + summary.
 function applySalesOutgoing(sales) {
+  // Recompute average selling price per item code from the sales records.
+  const agg = {};
+  (sales || []).forEach(s => {
+    const code = inventoryCode(s.itemCode ?? s.code);
+    if (!code) return;
+    if (!agg[code]) agg[code] = { rev: 0, units: 0 };
+    agg[code].rev   += Number(s.totalRevenue) || 0;
+    agg[code].units += Number(s.unitsSold ?? s.quantity ?? s.qty) || 0;
+  });
+  salesAspByCode = {};
+  Object.keys(agg).forEach(code => {
+    salesAspByCode[code] = agg[code].units ? agg[code].rev / agg[code].units : 0;
+  });
+
   const real    = DB.get('inventory_movements').filter(row => !row._derived);
   const derived = (sales || []).map(saleToOutgoingRow).filter(Boolean);
   DB.set('inventory_movements', [...real, ...derived]);
@@ -84,17 +112,30 @@ function applySalesOutgoing(sales) {
 }
 
 // Live source of truth: the Sales page writes to the 'salesData' collection.
-// onSnapshot fires once immediately (initial load) and again on every upload.
+// Each POS sale becomes a read-only Outgoing movement here.
 function watchSalesOutgoing() {
   const db = getFirestoreDB();
   if (!db) {
     applySalesOutgoing(DB.get('pos_sales'));
     return;
   }
-  db.collection('salesData').onSnapshot(snap => {
+  const handle = (snap, source) => {
     const sales = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+    const derived = sales.map(saleToOutgoingRow).filter(Boolean);
+    console.info(`[Inventory] salesData (${source}): ${sales.length} sales docs → ${derived.length} outgoing rows.`,
+      sales.length && !derived.length ? sales[0] : '');
     applySalesOutgoing(sales);
-  }, err => console.error('[Inventory] salesData listener failed:', err));
+  };
+  // Immediate one-time fetch — populates Outgoing right away even if the
+  // realtime listener is delayed or the tab was opened before the import.
+  db.collection('salesData').get()
+    .then(snap => handle(snap, 'get'))
+    .catch(err => console.error('[Inventory] salesData get() failed:', err));
+  // Live updates for every subsequent sale recorded on the Sales page.
+  db.collection('salesData').onSnapshot(
+    snap => handle(snap, 'live'),
+    err => console.error('[Inventory] salesData listener failed:', err)
+  );
 }
 
 function outgoingProductCost(product) {
@@ -306,6 +347,11 @@ function renderSummary() {
   const movs = DB.get('inventory_movements');
   const inVal  = movs.filter(m=>m.type==='Incoming').reduce((s,m)=>s+(m.totalCost||0),0);
   const outVal = movs.filter(m=>m.type==='Outgoing').reduce((s,m)=>s+(m.totalCost||0),0);
+  // Potential revenue reflects the currently filtered/visible rows (tab + column
+  // filters + search), so it changes as the user narrows the table.
+  const visibleRows = (typeof invTable !== 'undefined' && invTable) ? invTable.getProcessedRows() : movs;
+  const potential = visibleRows.reduce((s, m) => s + inventoryPotentialRevenue(m), 0);
+  const filtered = typeof invTable !== 'undefined' && invTable && (invTable.hasActive() || invTable.activeTab !== 'all');
   document.getElementById('inv-summary').innerHTML = `
     <div class="summary-card">
       <div class="kpi-label">Total Incoming Value</div>
@@ -318,6 +364,10 @@ function renderSummary() {
     <div class="summary-card">
       <div class="kpi-label">Net Movement</div>
       <div class="kpi-value ${(inVal-outVal)>=0?'blue':''}">${formatPeso(inVal-outVal)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="kpi-label">Potential Revenue${filtered ? ' (filtered)' : ''}</div>
+      <div class="kpi-value" style="color:#7c3aed">${formatPeso(potential)}</div>
     </div>`;
 }
 
@@ -721,6 +771,8 @@ async function exportInventoryCSV() {
       { label:'Qty', value: row => row.qty ?? 0 },
       { label:'Unit Cost', value: row => row.unitCost ?? 0 },
       { label:'Total Cost', value: row => row.totalCost ?? 0 },
+      { label:'Avg Selling Price', value: row => inventoryAvgSellingPrice(row.itemCode) },
+      { label:'Potential Revenue', value: row => inventoryPotentialRevenue(row) },
     ], rows);
     showToast(`${rows.length.toLocaleString()} inventory records exported to CSV.`, 'success');
   } catch (err) {
@@ -781,6 +833,8 @@ const invTable = new TrackingTable({
     { key:'qty',           label:'Qty',         sortable:true, filterable:true,  filterType:'num-range', sortVal:r=>r.qty },
     { key:'unitCost',      label:'Unit Cost',   sortable:true, filterable:true,  filterType:'num-range', sortVal:r=>r.unitCost },
     { key:'totalCost',     label:'Total Cost',  sortable:true, filterable:true,  filterType:'num-range', sortVal:r=>r.totalCost },
+    { key:'avgSellingPrice',  label:'Avg Selling Price', sortable:true, filterable:false, sortVal:r=>inventoryAvgSellingPrice(r.itemCode) },
+    { key:'potentialRevenue', label:'Potential Revenue', sortable:true, filterable:false, sortVal:inventoryPotentialRevenue },
     { key:'_actions',      label:'Actions',     sortable:false, filterable:false },
   ],
   renderRow: m => `<tr${m._derived ? ' class="inv-derived-row"' : ''}>
@@ -794,6 +848,8 @@ const invTable = new TrackingTable({
       <td class="mono">${m.qty.toLocaleString()}</td>
       <td class="mono">${formatPeso(m.unitCost)}</td>
       <td class="mono"><strong>${formatPeso(m.totalCost)}</strong></td>
+      <td class="mono">${inventoryAvgSellingPrice(m.itemCode) > 0 ? formatPeso(inventoryAvgSellingPrice(m.itemCode)) : '—'}</td>
+      <td class="mono">${m.type === 'Incoming' && inventoryAvgSellingPrice(m.itemCode) > 0 ? formatPeso(inventoryPotentialRevenue(m)) : '—'}</td>
       <td>
         ${m._derived
           ? '<span class="badge badge-blue" title="Generated from a POS sale — manage it on the Sales page">POS Sale</span>'
@@ -803,12 +859,13 @@ const invTable = new TrackingTable({
         </div>`}
       </td>
     </tr>`,
-  emptyHtml: '<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">📦</div><p>No inventory movements yet.</p></div></td></tr>',
+  emptyHtml: '<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">📦</div><p>No inventory movements yet.</p></div></td></tr>',
 });
 const baseInvRender = invTable.render.bind(invTable);
 invTable.render = function() {
   baseInvRender();
   syncBulkSelectionUI();
+  renderSummary();
 };
 invTable.render();
 
