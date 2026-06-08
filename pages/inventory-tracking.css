@@ -208,3 +208,4 @@
     .review-table th, .review-table td { white-space: nowrap; }
     .review-cost-change { background: #fff7ed; }
     .review-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .inv-derived-row td { background: #f8fafc; }

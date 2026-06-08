@@ -464,15 +464,26 @@ function rowsInCITPeriod(rows) {
   return rowsInRange(rows, activeGeneratedRange());
 }
 
+function taxExpenseIsDeductible(row) {
+  return String(row.classification || '').toLowerCase() === 'business' && !(
+    row.taxDeductible === false ||
+    row.deductible === false ||
+    row.taxTreatment === 'Non-deductible' ||
+    row.deductibility === 'Non-deductible' ||
+    row.taxDeductible === 'no' ||
+    row.deductible === 'no'
+  );
+}
+
 function calculateCIT() {
   const salesRows = rowsInCITPeriod(DB.get('eSalesRecords'));
   const purchases = rowsInCITPeriod(DB.get('purchases'));
-  const expenses = rowsInCITPeriod(DB.get('expenses'));
+  const expenses = rowsInCITPeriod(DB.get('expenses')).filter(taxExpenseIsDeductible);
   const supplies = rowsInCITPeriod(DB.get('supplies_movements'));
 
   const sales = salesRows.reduce((sum, row) => sum + (Number(row.grossSales) || 0), 0);
   const cogs = purchases.reduce((sum, row) => sum + purchaseSpend(row), 0);
-  const expenseAmount = expenses.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const expenseAmount = expenses.reduce((sum, row) => sum + (Number(row.amount ?? row.grossAmount ?? row.netAmount) || 0), 0);
   const supplyAmount = supplies.reduce((sum, row) => sum + supplyFullPurchaseCost(row), 0);
   const expensesAndSupplies = expenseAmount + supplyAmount;
   const taxableIncome = sales - cogs - expensesAndSupplies;

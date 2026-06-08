@@ -47,6 +47,7 @@ function resetForm() {
   document.getElementById('f-exp-vat').value = '';
   document.getElementById('f-exp-desc').value = '';
   document.getElementById('r-business').checked = true;
+  document.getElementById('r-deductible').checked = true;
   initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS);
 }
 
@@ -62,6 +63,17 @@ function expenseNetAmount(row) {
   const explicit = Number(row.netAmount);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
   return Math.max(0, expenseGrossAmount(row) - expenseVATAmount(row));
+}
+
+function expenseIsDeductible(row) {
+  return !(
+    row.taxDeductible === false ||
+    row.deductible === false ||
+    row.taxTreatment === 'Non-deductible' ||
+    row.deductibility === 'Non-deductible' ||
+    row.taxDeductible === 'no' ||
+    row.deductible === 'no'
+  );
 }
 
 function syncExpenseAmountFields(source) {
@@ -121,11 +133,12 @@ function renderTable() {
 
   const tbody = document.getElementById('exp-tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">💳</div><p>No expenses recorded yet.</p></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">💳</div><p>No expenses recorded yet.</p></div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(e => {
     const badge = e.classification==='Business' ? 'badge-green' : 'badge-gray';
+    const deductible = expenseIsDeductible(e);
     const netAmount = expenseNetAmount(e);
     const vatAmount = expenseVATAmount(e);
     const grossAmount = expenseGrossAmount(e);
@@ -135,6 +148,7 @@ function renderTable() {
       <td>${e.category}</td>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description||'—'}</td>
       <td><span class="badge ${badge}">${e.classification}</span></td>
+      <td><span class="badge ${deductible ? 'badge-green' : 'badge-gray'}">${deductible ? 'Deductible' : 'Non-deductible'}</span></td>
       <td class="mono">${formatPeso(netAmount)}</td>
       <td class="mono">${formatPeso(vatAmount)}</td>
       <td class="mono"><strong>${formatPeso(grossAmount)}</strong></td>
@@ -148,6 +162,34 @@ function renderTable() {
   }).join('');
 }
 
+function getFilteredExpenseRows() {
+  const classFilter = document.getElementById('filter-class').value;
+  const query = document.getElementById('search-exp').value.trim().toLowerCase();
+  let rows = DB.get('expenses').slice().sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
+  if (classFilter) rows = rows.filter(e => e.classification === classFilter);
+  if (query) {
+    rows = rows.filter(e => [e.name, e.category, e.description, e.classification, expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible']
+      .some(value => String(value || '').toLowerCase().includes(query)));
+  }
+  return rows;
+}
+
+function exportExpensesCSV() {
+  const rows = getFilteredExpenseRows();
+  exportRowsToCSV(`expenses-${todayISO()}.csv`, [
+    { label:'Date', value: row => csvDate(row.date) },
+    { label:'Name', value:'name' },
+    { label:'Category', value:'category' },
+    { label:'Description', value:'description' },
+    { label:'Classification', value:'classification' },
+    { label:'Tax Treatment', value: row => expenseIsDeductible(row) ? 'Deductible' : 'Non-deductible' },
+    { label:'Net Amount', value: expenseNetAmount },
+    { label:'VAT', value: expenseVATAmount },
+    { label:'Gross Amount', value: expenseGrossAmount },
+  ], rows);
+  alert(`${rows.length.toLocaleString()} expense records exported to CSV.`);
+}
+
 async function saveExpense() {
   const name  = document.getElementById('f-exp-name').value.trim();
   const date  = document.getElementById('f-exp-date').value;
@@ -156,6 +198,8 @@ async function saveExpense() {
   let netAmount = parsePeso(document.getElementById('f-exp-net-amount').value);
   let vatAmount = parsePeso(document.getElementById('f-exp-vat').value);
   const cls   = document.querySelector('input[name="exp-class"]:checked')?.value;
+  const taxTreatment = document.querySelector('input[name="exp-deductible"]:checked')?.value || 'Deductible';
+  const taxDeductible = taxTreatment === 'Deductible';
 
   if (!grossAmount && (netAmount || vatAmount)) grossAmount = netAmount + vatAmount;
   if (!netAmount && grossAmount) netAmount = Math.max(0, grossAmount - vatAmount);
@@ -174,7 +218,11 @@ async function saveExpense() {
     netAmount,
     vatAmount,
     inputVAT:vatAmount,
-    vatCreditable:vatAmount > 0
+    vatCreditable:vatAmount > 0,
+    taxTreatment,
+    deductibility:taxTreatment,
+    taxDeductible,
+    deductible:taxDeductible
   };
 
   const editId = document.getElementById('exp-edit-id').value;
@@ -211,6 +259,7 @@ function editExp(id) {
   document.getElementById('f-exp-vat').value = formatNum(expenseVATAmount(e));
   document.getElementById('f-exp-desc').value   = e.description||'';
   document.querySelector(`input[name="exp-class"][value="${e.classification}"]`).checked = true;
+  document.querySelector(`input[name="exp-deductible"][value="${expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible'}"]`).checked = true;
   initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS);
   document.getElementById('f-exp-cat').value    = e.category;
   openModal('modal-expense');
@@ -231,6 +280,7 @@ function deleteExp(id) {
 }
 
 document.getElementById('btn-add-expense').addEventListener('click', () => { resetForm(); openModal('modal-expense'); });
+document.getElementById('btn-export-expenses').addEventListener('click', exportExpensesCSV);
 document.getElementById('btn-save-expense').addEventListener('click', saveExpense);
 document.getElementById('filter-class').addEventListener('change', renderTable);
 document.getElementById('f-exp-amount').addEventListener('input', () => syncExpenseAmountFields('gross'));

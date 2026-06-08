@@ -256,6 +256,36 @@ function pct(num, den) {
   return ((num / den) * 100).toFixed(1) + '%';
 }
 
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvDate(value) {
+  if (!value) return '';
+  const iso = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return `${iso[2]}/${iso[3]}/${iso[1]}`;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return `${String(parsed.getMonth() + 1).padStart(2, '0')}/${String(parsed.getDate()).padStart(2, '0')}/${parsed.getFullYear()}`;
+}
+
+function exportRowsToCSV(filename, columns, rows) {
+  const header = columns.map(col => csvCell(col.label)).join(',');
+  const body = rows.map(row => columns.map(col => {
+    const value = typeof col.value === 'function' ? col.value(row) : row[col.value || col.key];
+    return csvCell(value);
+  }).join(','));
+  const blob = new Blob([[header, ...body].join('\n')], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+  return rows.length;
+}
+
 // ─── Number input auto-format ────────────────────────────────────────────────
 function initNumberFormatting(container) {
   const root = container || document;
@@ -613,6 +643,10 @@ function currentUserInitials(user = getCurrentUser()) {
   return (first + last).toUpperCase();
 }
 
+function auditUserName(user = getCurrentUser()) {
+  return currentUserFullName(user) || user.username || roleDisplayName(user.role);
+}
+
 function canCurrentUserEdit(activeKey) {
   const role = getCurrentUser().role;                       // already normalized to lowercase token
   if (role === 'accountant') return true;
@@ -639,16 +673,24 @@ function applyRolePermissions(activeKey) {
 
 function logAudit(action, target, details) {
   const entries = DB.get(AUDIT_LOG_KEY);
-  entries.push({
+  const entry = {
     id: genId(),
     timestamp: new Date().toISOString(),
-    user: currentUserFullName(),
+    user: auditUserName(),
+    uid: getCurrentUser().uid || '',
     role: getCurrentUser().role,
     action: String(action || '').trim(),
     target: String(target || '').trim(),
     details: String(details || '').trim()
-  });
+  };
+  entries.push(entry);
   DB.set(AUDIT_LOG_KEY, entries.slice(-5000));
+
+  const db = getFirestoreDB();
+  if (db) {
+    db.collection(AUDIT_LOG_KEY).doc(entry.id).set(entry)
+      .catch(err => console.error('[Audit Log] Firestore write failed:', err));
+  }
 }
 
 function buildSidebar(activeKey) {
@@ -936,6 +978,10 @@ class TrackingTable {
   setPage(p) {
     this.page = p;
     this.render();
+  }
+
+  getProcessedRows() {
+    return this._getProcessed();
   }
 
   _renderPagination(total) {

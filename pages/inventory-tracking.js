@@ -45,6 +45,58 @@ function inventoryTotalsForCode(itemCode) {
   return { incoming, outgoing, balance: incoming - outgoing };
 }
 
+// ─── POS Sales → derived Outgoing rows ──────────────────────────────────────
+// Every POS sale shows up as an Outgoing movement (read-only; owned by Sales).
+// Derived at load time only — never written back to Firestore inventoryData.
+function saleToOutgoingRow(sale, index) {
+  const code = inventoryCode(sale.itemCode);
+  const qty  = Number(sale.unitsSold) || 0;
+  if (!code || qty <= 0) return null;
+  const unitCost = Number(sale.unitCost) || 0;
+  const raw = sale.date;
+  const date = raw && typeof raw.toDate === 'function'
+    ? raw.toDate().toISOString().slice(0, 10)
+    : String(raw || '').slice(0, 10);
+  return {
+    id: `sale-${sale._firestoreId || sale.id || `${code}|${date}|${qty}|${index}`}`,
+    type: 'Outgoing',
+    itemCode: code,
+    description: sale.productName || sale.description || '',
+    category: sale.category || '',
+    supplier: '',
+    unitCost,
+    qty,
+    totalCost: Number(sale.totalCost) || unitCost * qty,
+    dateDelivered: date,
+    notes: 'POS Sale',
+    _derived: true,
+  };
+}
+
+// Replace the derived sales-outgoing rows in the movements array with a fresh
+// set built from the given sales records, then repaint table + summary.
+function applySalesOutgoing(sales) {
+  const real    = DB.get('inventory_movements').filter(row => !row._derived);
+  const derived = (sales || []).map(saleToOutgoingRow).filter(Boolean);
+  DB.set('inventory_movements', [...real, ...derived]);
+  invTable.render();
+  renderSummary();
+}
+
+// Live source of truth: the Sales page writes to the 'salesData' collection.
+// onSnapshot fires once immediately (initial load) and again on every upload.
+function watchSalesOutgoing() {
+  const db = getFirestoreDB();
+  if (!db) {
+    applySalesOutgoing(DB.get('pos_sales'));
+    return;
+  }
+  db.collection('salesData').onSnapshot(snap => {
+    const sales = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+    applySalesOutgoing(sales);
+  }, err => console.error('[Inventory] salesData listener failed:', err));
+}
+
 function outgoingProductCost(product) {
   const productCost = Number(product?.latestCost ?? product?.unitCost ?? product?.cost) || 0;
   if (productCost > 0) return productCost;
@@ -333,7 +385,7 @@ async function saveInv() {
 
 function editInv(id) {
   const m = DB.get('inventory_movements').find(x => x.id===id);
-  if (!m) return;
+  if (!m || m._derived) return;
   document.getElementById('inv-edit-id').value = m.id;
   document.getElementById('modal-inv-title').textContent = 'Edit Inventory Entry';
   document.getElementById(m.type==='Incoming'?'r-incoming':'r-outgoing').checked = true;
@@ -356,6 +408,7 @@ function editInv(id) {
 
 function deleteInv(id) {
   const m = DB.get('inventory_movements').find(x=>x.id===id);
+  if (!m || m._derived) return;
   confirmDelete(`Delete this inventory entry for <strong>${m?.description}</strong>?`, async () => {
     try {
       const db = getFirestoreDB();
@@ -385,7 +438,7 @@ function invCurrentPageRows(rows = invFilteredRows()) {
 
 function syncBulkSelectionUI() {
   const existing = new Set(DB.get('inventory_movements').map(m => m.id));
-  const filtered = invFilteredRows();
+  const filtered = invFilteredRows().filter(r => !r._derived);
   const filteredSet = new Set(filtered.map(r => r.id));
   [...selectedInvIds].forEach(id => {
     if (!existing.has(id) || !filteredSet.has(id)) selectedInvIds.delete(id);
@@ -432,7 +485,7 @@ function toggleInvRowSelection(id, checked) {
 }
 
 function toggleAllVisibleInvRows(checked) {
-  invFilteredRows().forEach(row => {
+  invFilteredRows().filter(row => !row._derived).forEach(row => {
     if (checked) selectedInvIds.add(row.id);
     else selectedInvIds.delete(row.id);
   });
@@ -657,28 +710,18 @@ async function exportInventoryCSV() {
   btn.disabled = true;
   btn.textContent = 'Exporting...';
   try {
-    if (typeof Papa === 'undefined') throw new Error('CSV export library failed to load.');
-    const db = getFirestoreDB();
-    if (!db) throw new Error('Database unavailable.');
-    const snapshot = await db.collection('inventoryData').get();
-    const rows = snapshot.docs.map(doc => doc.data());
-    const csv = Papa.unparse(rows.map(row => ({
-      'Item Code': row.itemCode || '',
-      'Date': formatCSVDate(row.dateDelivered),
-      'Type': row.type || '',
-      'Description': row.description || '',
-      'Category': row.category || '',
-      'Supplier': row.supplier || '',
-      'Qty': row.qty ?? 0,
-      'Unit Cost': row.unitCost ?? 0,
-      'Total Cost': row.totalCost ?? 0,
-    })));
-    const url = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `inventory-export-${todayISO()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows = invTable.getProcessedRows();
+    exportRowsToCSV(`inventory-${todayISO()}.csv`, [
+      { label:'Item Code', value: row => row.itemCode || '' },
+      { label:'Date', value: row => csvDate(row.dateDelivered) },
+      { label:'Type', value: row => row.type || '' },
+      { label:'Description', value: row => inventoryDisplayDescription(row) || '' },
+      { label:'Category', value: row => inventoryDisplayCategory(row) || '' },
+      { label:'Supplier', value: row => row.supplier || '' },
+      { label:'Qty', value: row => row.qty ?? 0 },
+      { label:'Unit Cost', value: row => row.unitCost ?? 0 },
+      { label:'Total Cost', value: row => row.totalCost ?? 0 },
+    ], rows);
     showToast(`${rows.length.toLocaleString()} inventory records exported to CSV.`, 'success');
   } catch (err) {
     console.error('[Inventory] CSV export failed:', err);
@@ -740,8 +783,8 @@ const invTable = new TrackingTable({
     { key:'totalCost',     label:'Total Cost',  sortable:true, filterable:true,  filterType:'num-range', sortVal:r=>r.totalCost },
     { key:'_actions',      label:'Actions',     sortable:false, filterable:false },
   ],
-  renderRow: m => `<tr>
-      <td class="select-col"><input type="checkbox" class="inv-row-select" value="${m.id}" aria-label="Select inventory entry" onchange="toggleInvRowSelection('${m.id}', this.checked)"></td>
+  renderRow: m => `<tr${m._derived ? ' class="inv-derived-row"' : ''}>
+      <td class="select-col">${m._derived ? '' : `<input type="checkbox" class="inv-row-select" value="${m.id}" aria-label="Select inventory entry" onchange="toggleInvRowSelection('${m.id}', this.checked)">`}</td>
       <td class="mono">${m.itemCode}</td>
       <td>${formatDate(m.dateDelivered)}</td>
       <td><span class="badge ${m.type==='Incoming'?'badge-green':'badge-red'}">${m.type}</span></td>
@@ -752,10 +795,12 @@ const invTable = new TrackingTable({
       <td class="mono">${formatPeso(m.unitCost)}</td>
       <td class="mono"><strong>${formatPeso(m.totalCost)}</strong></td>
       <td>
-        <div class="action-btns">
+        ${m._derived
+          ? '<span class="badge badge-blue" title="Generated from a POS sale — manage it on the Sales page">POS Sale</span>'
+          : `<div class="action-btns">
           <button class="btn btn-outline btn-xs" onclick="editInv('${m.id}')">Edit</button>
           <button class="btn btn-danger btn-xs" onclick="deleteInv('${m.id}')">Delete</button>
-        </div>
+        </div>`}
       </td>
     </tr>`,
   emptyHtml: '<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">📦</div><p>No inventory movements yet.</p></div></td></tr>',
@@ -1599,6 +1644,7 @@ Promise.all([
     invTable.render();
     renderSummary();
     watchInventoryProductMaster();
+    watchSalesOutgoing();
   })
   .catch(err => console.error('[Inventory] Firestore load failed:', err));
 

@@ -799,10 +799,23 @@ function purchaseVATNonCreditable(row) {
     row.vatCreditable === 'no';
 }
 
+function reportExpenseIsDeductible(row) {
+  return String(row.classification || '').toLowerCase() === 'business' && !(
+    row.taxDeductible === false ||
+    row.deductible === false ||
+    row.taxTreatment === 'Non-deductible' ||
+    row.deductibility === 'Non-deductible' ||
+    row.taxDeductible === 'no' ||
+    row.deductible === 'no'
+  );
+}
+
 function calculateIncomeTax(range) {
   const revenue = sum(filterTaxRange(REPORT_DATA.esales, range), 'grossSales');
   const cogs = filterTaxRange(reportPurchasesData(), range).reduce((total, row) => total + purchaseSpend(row), 0);
-  const expenses = sum(filterTaxRange(REPORT_DATA.expenses, range), 'amount');
+  const expenses = filterTaxRange(REPORT_DATA.expenses, range)
+    .filter(reportExpenseIsDeductible)
+    .reduce((total, row) => total + (Number(row.amount ?? row.grossAmount ?? row.netAmount) || 0), 0);
   const supplies = filterTaxRange(REPORT_DATA.supplies, range).reduce((total, row) => total + (Number(row.totalCost ?? row.amount) || 0), 0);
   const grossProfit = revenue - cogs;
   const taxable = grossProfit - expenses - supplies;

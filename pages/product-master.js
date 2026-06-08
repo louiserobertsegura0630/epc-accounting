@@ -5,6 +5,8 @@ const PROD_CATS = ['Grains','Cooking Essentials','Condiments','Instant Food','Da
 const UOM_DEFAULTS = ['kg','g','L','mL','pack','piece','tray','box'];
 
 let _pmSalesRows = [];
+let _pmInventoryRows = [];
+let _pmStockByCode = new Map();
 
 function initUOMDropdown(sel, selected) {
   const extras = DB.get('uom_extras');
@@ -30,6 +32,35 @@ function productCost(p) { return p.latestCost ?? p.unitCost ?? p.cost ?? 0; }
 function productLatestDate(p) { return p.latestDate || p.costHistory?.[p.costHistory.length - 1]?.date || ''; }
 function productSupplier(p) { return p.supplier || ''; }
 function productReorderPoint(p) { return p.reorderPoint || 0; }
+function productCodeKey(value) { return String(value || '').trim().toLowerCase(); }
+function emptyProductStock() { return { unitsIn: 0, inventoryOut: 0, unitsSold: 0, unitsOut: 0, onHand: 0 }; }
+function ensureStockBucket(code) {
+  const key = productCodeKey(code);
+  if (!key) return emptyProductStock();
+  if (!_pmStockByCode.has(key)) _pmStockByCode.set(key, emptyProductStock());
+  return _pmStockByCode.get(key);
+}
+function rebuildProductStockIndex() {
+  _pmStockByCode = new Map();
+  _pmInventoryRows.forEach(row => {
+    const bucket = ensureStockBucket(row.itemCode || row.code);
+    const qty = Number(row.qty ?? row.quantity) || 0;
+    if (String(row.type || '').toLowerCase() === 'incoming') bucket.unitsIn += qty;
+    if (String(row.type || '').toLowerCase() === 'outgoing') bucket.inventoryOut += qty;
+  });
+  _pmSalesRows.forEach(row => {
+    const bucket = ensureStockBucket(row.itemCode || row.code);
+    bucket.unitsSold += Number(row.unitsSold ?? row.qty ?? row.quantity) || 0;
+  });
+  _pmStockByCode.forEach(bucket => {
+    bucket.unitsOut = bucket.inventoryOut + bucket.unitsSold;
+    bucket.onHand = bucket.unitsIn - bucket.unitsOut;
+  });
+}
+function productStockMetrics(code) {
+  const key = productCodeKey(code);
+  return key ? (_pmStockByCode.get(key) || emptyProductStock()) : emptyProductStock();
+}
 function populateProductSupplierSelect(selected = '') {
   const msg = document.getElementById('p-supplier-empty');
   const suppliers = DB.get('suppliers');
@@ -106,6 +137,9 @@ const PROD_COLUMNS = [
   { key:'name', label:'Product Name' },
   { key:'category', label:'Category' },
   { key:'uom', label:'UOM' },
+  { key:'unitsIn', label:'Units In' },
+  { key:'unitsSold', label:'Units Sold' },
+  { key:'onHand', label:'Units On Hand' },
   { key:'cost', label:'Latest Cost' },
   { key:'latestDate', label:'Last Updated' },
   { key:'supplier', label:'Supplier' },
@@ -121,6 +155,9 @@ function sortValue(p, key) {
   if (key === 'name') return productName(p);
   if (key === 'category') return productCategory(p);
   if (key === 'uom') return p.uom || '';
+  if (key === 'unitsIn') return productStockMetrics(productCode(p)).unitsIn;
+  if (key === 'unitsSold') return productStockMetrics(productCode(p)).unitsSold;
+  if (key === 'onHand') return productStockMetrics(productCode(p)).onHand;
   if (key === 'cost') return productCost(p);
   if (key === 'latestDate') return productLatestDate(p);
   if (key === 'supplier') return productSupplier(p);
@@ -132,8 +169,10 @@ function sortValue(p, key) {
 function renderSummary(rows = getProductMaster()) {
   const prods     = rows;
   const totalVal  = prods.reduce((s,p) => s+productCost(p), 0);
+  const totalOnHand = prods.reduce((sum, p) => sum + productStockMetrics(productCode(p)).onHand, 0);
   document.getElementById('prod-summary').innerHTML = `
     <div class="summary-card"><div class="kpi-label">Total Products</div><div class="kpi-value">${prods.length}</div></div>
+    <div class="summary-card"><div class="kpi-label">Units On Hand</div><div class="kpi-value">${totalOnHand.toLocaleString()}</div></div>
     <div class="summary-card"><div class="kpi-label">Total Unit Cost Value</div><div class="kpi-value">${formatPeso(totalVal)}</div></div>`;
 }
 
@@ -158,6 +197,9 @@ function renderProductHeaders() {
       ${cats.map(c => `<option value="${c}"${PROD_TABLE.filters.category===c?' selected':''}>${c}</option>`).join('')}
     </select></th>
     <th class="filter-cell"><input class="col-filter" type="text" value="${PROD_TABLE.filters.uom}" oninput="setProductFilter('uom', this.value)" placeholder="Filter…"></th>
+    <th class="filter-cell-empty"></th>
+    <th class="filter-cell-empty"></th>
+    <th class="filter-cell-empty"></th>
     <th class="filter-cell"><div class="col-filter-range">
       <input class="col-filter" type="number" value="${PROD_TABLE.filters.costMin}" oninput="setProductFilter('costMin', this.value)" placeholder="Min" min="0" step="any">
       <span class="range-sep">–</span>
@@ -449,20 +491,20 @@ function renderTable() {
 
   const tbody = document.getElementById('prod-tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">📦</div><p>No products yet. Click "Add Product" to get started.</p></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14"><div class="empty-state"><div class="empty-icon">📦</div><p>No products yet. Click "Add Product" to get started.</p></div></td></tr>';
     syncProductSelectionUI();
     return;
   }
-  const posSales = _pmSalesRows;
   tbody.innerHTML = rows.map(p => {
     const code       = productCode(p);
     const name       = productName(p);
     const cat        = productCategory(p);
     const cost       = productCost(p);
     const reorder    = productReorderPoint(p);
-    const sold       = posSales.filter(r=>r.itemCode===code).reduce((s,r)=>s+(r.unitsSold||0),0);
-    const status     = sold < reorder ? 'badge-red' : 'badge-green';
-    const statusLabel= sold < reorder ? 'Low Stock' : (p.status || 'Active');
+    const stock      = productStockMetrics(code);
+    const isLowStock = reorder > 0 && stock.onHand <= reorder;
+    const status     = isLowStock ? 'badge-red' : 'badge-green';
+    const statusLabel= isLowStock ? 'Low Stock' : (p.status || 'Active');
     const missingCat = !cat;
     const trClass    = missingCat ? ' class="pm-missing-cat"' : '';
     const catCell    = missingCat
@@ -474,6 +516,9 @@ function renderTable() {
       <td>${name}</td>
       <td class="cat-cell">${catCell}</td>
       <td class="mono">${p.uom||'—'}</td>
+      <td class="mono">${stock.unitsIn.toLocaleString()}</td>
+      <td class="mono">${stock.unitsSold.toLocaleString()}</td>
+      <td class="mono"><strong>${stock.onHand.toLocaleString()}</strong></td>
       <td class="mono">${formatPeso(cost)}</td>
       <td>${productLatestDate(p) ? formatDate(productLatestDate(p)) : '—'}</td>
       <td>${productSupplier(p)||'—'}</td>
@@ -488,6 +533,25 @@ function renderTable() {
     </tr>`;
   }).join('');
   syncProductSelectionUI();
+}
+
+function exportProductsCSV() {
+  const rows = getFilteredProducts();
+  exportRowsToCSV(`product-master-${todayISO()}.csv`, [
+    { label:'Item Code', value: productCode },
+    { label:'Product Name', value: productName },
+    { label:'Category', value: row => productCategory(row) || 'Uncategorized' },
+    { label:'UOM', value: row => row.uom || '' },
+    { label:'Units In', value: row => productStockMetrics(productCode(row)).unitsIn },
+    { label:'Units Sold', value: row => productStockMetrics(productCode(row)).unitsSold },
+    { label:'Units On Hand', value: row => productStockMetrics(productCode(row)).onHand },
+    { label:'Latest Cost', value: productCost },
+    { label:'Last Updated', value: row => csvDate(productLatestDate(row)) },
+    { label:'Supplier', value: productSupplier },
+    { label:'Reorder Point', value: productReorderPoint },
+    { label:'Status', value: productStatus },
+  ], rows);
+  alert(`${rows.length.toLocaleString()} product records exported to CSV.`);
 }
 
 // After a PM category update, push the new category to every matching salesData doc in the background.
@@ -683,6 +747,7 @@ function openProductCostHistory(id) {
   const product = getProductMaster().find(p => p.id === id);
   if (!product) return;
   const normalized = normalizeProductCostData(product);
+  const stock = productStockMetrics(productCode(normalized));
   const history = [...normalized.costHistory].sort((a, b) => b.date.localeCompare(a.date));
   document.getElementById('pm-detail-title').textContent = productName(normalized) || 'Product Details';
   document.getElementById('pm-detail-body').innerHTML = `
@@ -691,6 +756,10 @@ function openProductCostHistory(id) {
       <div><span>Category</span><strong>${pmEsc(productCategory(normalized)) || '—'}</strong></div>
       <div class="pm-latest-cost"><span>Latest Cost</span><strong>${formatPeso(normalized.latestCost)}</strong></div>
       <div><span>Last Updated</span><strong>${normalized.latestDate ? formatDate(normalized.latestDate) : '—'}</strong></div>
+      <div><span>Units In</span><strong class="mono">${stock.unitsIn.toLocaleString()}</strong></div>
+      <div><span>Units Sold</span><strong class="mono">${stock.unitsSold.toLocaleString()}</strong></div>
+      <div><span>Inventory Released</span><strong class="mono">${stock.inventoryOut.toLocaleString()}</strong></div>
+      <div><span>Units On Hand</span><strong class="mono">${stock.onHand.toLocaleString()}</strong></div>
     </div>
     <div class="pm-history-wrap">
       <table>
@@ -742,6 +811,7 @@ function checkMissingCategories() {
 }
 
 document.getElementById('btn-add-product').addEventListener('click', () => { resetProdForm(); openModal('modal-product'); });
+document.getElementById('btn-export-products').addEventListener('click', exportProductsCSV);
 initSupplierPicker('p-supplier', 'p-supplier-search', 'p-supplier-results');
 document.getElementById('btn-save-product').addEventListener('click', saveProduct);
 document.getElementById('search-prod').addEventListener('input', () => { PROD_TABLE.page = 1; renderTable(); });
@@ -760,11 +830,15 @@ document.getElementById('prod-tbody').addEventListener('click', handleProductTab
 
 getProductMaster();
 cleanupProductMasterData(false);
+rebuildProductStockIndex();
 renderTable();
 checkMissingCategories();
 Promise.all([
   loadSuppliersFromFirestore(),
   loadProductMasterFromFirestore('productName'),
+  loadInventoryFromFirestore().then(rows => {
+    _pmInventoryRows = rows || [];
+  }),
   (async () => {
     const fsdb = getFirestoreDB();
     if (!fsdb) return;
@@ -778,6 +852,7 @@ Promise.all([
 ])
   .then(() => {
     cleanupProductMasterData();
+    rebuildProductStockIndex();
     populateProductSupplierSelect();
     renderTable();
     checkMissingCategories();

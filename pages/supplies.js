@@ -329,7 +329,29 @@ async function saveSupplyUsage() {
   }
 }
 
+function exportSuppliesCSV() {
+  const rows = supTable.getProcessedRows();
+  exportRowsToCSV(`supplies-${todayISO()}.csv`, [
+    { label:'Item Code', value: row => row.itemCode || '' },
+    { label:'Date', value: row => csvDate(row.datePurchased) },
+    { label:'Type', value: row => row.type || '' },
+    { label:'Supply Name', value: row => row.name || '' },
+    { label:'Description', value: row => row.description || '' },
+    { label:'Qty On Hand', value: row => row.type === 'Incoming' ? supplyOnHand(row) : Number(row.qty || 0) },
+    { label:'Total Used', value: supplyUsedTotal },
+    { label:'Unit Cost', value: row => row.unitCost || 0 },
+    { label:'Total', value: row => row.totalCost || 0 },
+    { label:'Net Amount', value: supplyNetAmount },
+    { label:'Input VAT', value: supplyVATAmount },
+    { label:'Gross Amount', value: supplyGrossAmount },
+    { label:'Who Received/Released', value: row => row.whoReceived || '' },
+    { label:'Notes', value: row => row.notes || '' },
+  ], rows);
+  alert(`${rows.length.toLocaleString()} supply records exported to CSV.`);
+}
+
 document.getElementById('btn-add-supply').addEventListener('click', () => { resetForm(); openModal('modal-supply'); });
+document.getElementById('btn-export-supplies').addEventListener('click', exportSuppliesCSV);
 document.getElementById('btn-save-supply').addEventListener('click', saveSupply);
 document.getElementById('btn-save-supply-usage').addEventListener('click', saveSupplyUsage);
 renderSummary();

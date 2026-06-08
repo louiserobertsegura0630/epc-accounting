@@ -13,4 +13,5 @@
 .audit-toolbar .form-input { width: auto; }
 .audit-toolbar .audit-search { min-width: 240px; flex: 1; }
 #audit-tbody td:first-child { white-space: nowrap; }
-#audit-tbody td:last-child { min-width: 320px; }
+#audit-tbody td:nth-child(5) { min-width: 320px; }
+#audit-tbody td:last-child { white-space: nowrap; }

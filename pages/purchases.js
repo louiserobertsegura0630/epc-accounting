@@ -612,6 +612,15 @@ function renderTable() {
     </tr>`).join('');
 }
 
+function exportPurchasesCSV() {
+  const rows = getPurchaseRows();
+  exportRowsToCSV(`purchases-${todayISO()}.csv`, PURCHASE_LEDGER_COLUMNS.map(column => ({
+    label: column.label,
+    value: row => column.type === 'date' ? csvDate(purchaseColumnValue(row, column.key)) : purchaseColumnValue(row, column.key)
+  })), rows);
+  alert(`${rows.length.toLocaleString()} purchase records exported to CSV.`);
+}
+
 // ─── Save ─────────────────────────────────────────────────────────────────────
 function savePurchase() {
   const supplier  = document.getElementById('f-supplier').value;
@@ -709,6 +718,8 @@ function deletePurchase(id) {
 }
 
 document.getElementById('btn-add-purchase').addEventListener('click', () => { resetForm(); openModal('modal-purchase'); });
+document.getElementById('btn-export-purchases')?.addEventListener('click', exportPurchasesCSV);
+document.getElementById('btn-export-filtered-purchases')?.addEventListener('click', exportPurchasesCSV);
 document.getElementById('btn-save-purchase').addEventListener('click', savePurchase);
 document.getElementById('btn-import-purchases').addEventListener('click', () => document.getElementById('purchase-import-file').click());
 document.getElementById('btn-browse-purchase-import').addEventListener('click', event => {
