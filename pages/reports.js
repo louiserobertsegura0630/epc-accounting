@@ -44,8 +44,8 @@ const reportCurrentMonth = `${reportToday.getFullYear()}-${String(reportToday.ge
 const taxRanges = {
   vat:{ from:`${reportCurrentMonth}-01`, to:lastDayOfReportMonth(reportToday.getFullYear(), reportToday.getMonth() + 1) },
   ewt:{ from:`${reportCurrentMonth}-01`, to:lastDayOfReportMonth(reportToday.getFullYear(), reportToday.getMonth() + 1) },
+  income:{ from:`${reportCurrentMonth}-01`, to:lastDayOfReportMonth(reportToday.getFullYear(), reportToday.getMonth() + 1) },
 };
-let taxIncomePeriod = { type:'monthly', value:reportCurrentMonth };
 let taxChartInstances = {};
 let taxLiabilityState = { vatPayable:0, ewt:0, incomeTaxStillDue:0 };
 
@@ -66,8 +66,18 @@ function normalizeReportDate(value) {
   return Number.isNaN(parsed.getTime()) ? text.slice(0, 10) : parsed.toISOString().slice(0, 10);
 }
 
+function firstReportValue(row, keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== '') return row[key];
+  }
+  return '';
+}
+
 function reportDate(row) {
-  return normalizeReportDate(row.date || row.dateDelivered || row.datePurchased || row.importedAt || '');
+  return normalizeReportDate(firstReportValue(row, [
+    'date', 'checkVoucherDate', 'Check Voucher Date', 'dateDelivered',
+    'datePurchased', 'purchaseDate', 'importedAt'
+  ]));
 }
 
 function inReportRange(row) {
@@ -390,14 +400,27 @@ function salesFlag(row) {
   return 'Normal';
 }
 
+function reportCostedSales(rows) {
+  const method = localStorage.getItem('costMethod') === 'average' ? 'average' : 'latest';
+  if (window.EPCSalesCost?.fullyCostedSales) {
+    return window.EPCSalesCost.fullyCostedSales(rows, REPORT_DATA.productMaster, method);
+  }
+  return rows.map(row => {
+    const unitsSold = Number(row.unitsSold ?? row.qty ?? row.quantity) || 0;
+    const totalRevenue = Number(row.totalRevenue ?? row.revenue ?? row.totalSales ?? row.total) || 0;
+    const unitCost = Number(row.unitCost ?? row.latestCost ?? row.cost) || 0;
+    const storedCost = Number(row.totalCost ?? row.cogs ?? row.costOfGoodsSold) || 0;
+    const totalCost = unitCost > 0 && unitsSold > 0 ? unitCost * unitsSold : storedCost;
+    if (!(totalRevenue > 0) || !(totalCost > 0)) return null;
+    return { ...row, totalRevenue, totalCost };
+  }).filter(Boolean);
+}
+
 function renderIncomeStatement() {
   const sales = REPORT_DATA.sales.filter(inReportRange);
   const expenses = REPORT_DATA.expenses.filter(inReportRange);
   const supplies = REPORT_DATA.supplies.filter(inReportRange);
-  const salesCostMethod = window.EPCSalesCost?.getCostMethod?.() || 'latest';
-  const costedSales = window.EPCSalesCost?.fullyCostedSales
-    ? window.EPCSalesCost.fullyCostedSales(sales, REPORT_DATA.productMaster, salesCostMethod)
-    : sales.filter(row => Number(row.totalCost) > 0);
+  const costedSales = reportCostedSales(sales);
   const revenue = sum(costedSales, 'totalRevenue');
   const cogs = sum(costedSales, 'totalCost');
   const grossProfit = revenue - cogs;
@@ -492,17 +515,24 @@ function salesProductRanking(rows) {
 }
 
 function purchaseSpend(row) {
-  return Number(row.netAmount ?? row.total ?? row.amount ?? row.totalCost ?? row.totalAmount ?? 0) || 0;
+  return Number(firstReportValue(row, [
+    'netAmount', 'Purchase Net of Vat', 'purchaseNetOfVat',
+    'total', 'amount', 'totalCost', 'totalAmount'
+  ])) || 0;
 }
 
 function purchaseGrossAmount(row) {
-  const explicit = Number(row.grossAmount ?? row.totalAmount);
+  const explicit = Number(firstReportValue(row, [
+    'grossAmount', 'Purchase Gross of Vat', 'purchaseGrossOfVat', 'totalAmount'
+  ]));
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
   return purchaseSpend(row) + purchaseInputVAT(row);
 }
 
 function purchaseSupplier(row) {
-  return row.supplier || row.supplierName || row.vendorName || 'Unknown';
+  return firstReportValue(row, [
+    'supplier', 'Supplier', 'supplierName', 'Supplier Name', 'vendorName', 'Vendor Name'
+  ]) || 'Unknown';
 }
 
 function purchasesSupplierRanking(rows) {
@@ -518,6 +548,43 @@ function purchasesSupplierRanking(rows) {
     .slice(0, purchasesTopN).map((row, index) => ({
       ...row, rank:index + 1, average:row.transactions ? row.total / row.transactions : 0
     }));
+}
+
+function purchaseMetricAmount(row, keys) {
+  return Number(firstReportValue(row, keys)) || 0;
+}
+
+function purchaseAdjustmentMetrics(rows) {
+  const totalPurchases = rows.reduce((value, row) => value + purchaseSpend(row), 0);
+  const metricDefs = [
+    { key:'discounts', label:'Discounts', keys:['discounts', 'Discounts'] },
+    { key:'badOrder', label:'Bad Orders', keys:['badOrder', 'badOrders', 'Bad Orders'] },
+    { key:'returns', label:'Returns', keys:['returns', 'Returns'] },
+    { key:'noStock', label:'No Stock', keys:['noStock', 'No Stock'] },
+    { key:'lacking', label:'Lacking', keys:['lacking', 'Lacking'] },
+    { key:'ewt', label:'EWT Withheld', keys:['ewtAmount', 'EWT'] },
+    { key:'otherDeductions', label:'Other Deductions', keys:['otherDeduction', 'otherDeductions', 'Other Deductions'] },
+    { key:'otherIncome', label:'Other Income', keys:['otherIncome', 'Other Income'] },
+  ];
+  return metricDefs.map(metric => {
+    const amount = rows.reduce((sumValue, row) => sumValue + purchaseMetricAmount(row, metric.keys), 0);
+    const affectedRows = rows.filter(row => purchaseMetricAmount(row, metric.keys) > 0).length;
+    return {
+      ...metric,
+      amount,
+      affectedRows,
+      percent: totalPurchases > 0 ? amount / totalPurchases * 100 : 0
+    };
+  });
+}
+
+function reportPurchasesData() {
+  const localPurchases = DB.get('purchases');
+  if (localPurchases.length) {
+    REPORT_DATA.purchases = localPurchases;
+    return localPurchases;
+  }
+  return REPORT_DATA.purchases;
 }
 
 function renderSalesReport() {
@@ -560,31 +627,44 @@ function renderSalesReport() {
 }
 
 function renderPurchasesReport() {
-  const rows = REPORT_DATA.purchases.filter(inReportRange).filter(row => !reportPurchaseSupplier || purchaseSupplier(row) === reportPurchaseSupplier);
-  const suppliers = [...new Set(REPORT_DATA.purchases.map(purchaseSupplier).filter(Boolean))].sort();
-  document.getElementById('report-extra-filters').innerHTML = `
-    <select class="form-select" id="report-purchase-supplier" onchange="setReportPurchaseSupplier(this.value)">
-      <option value="">All Suppliers</option>${suppliers.map(v => `<option${v === reportPurchaseSupplier ? ' selected' : ''}>${escReport(v)}</option>`).join('')}
-    </select>`;
+  const purchases = reportPurchasesData();
+  const rows = purchases.filter(inReportRange);
+  document.getElementById('report-extra-filters').innerHTML = '';
   const total = rows.reduce((value, row) => value + purchaseSpend(row), 0);
-  const unique = new Set(rows.map(purchaseSupplier).filter(Boolean)).size;
+  const gross = rows.reduce((value, row) => value + purchaseGrossAmount(row), 0);
+  const metrics = purchaseAdjustmentMetrics(rows);
+  const deductionKeys = new Set(['discounts', 'badOrder', 'returns', 'noStock', 'lacking', 'otherDeductions']);
+  const totalDeductions = metrics
+    .filter(metric => deductionKeys.has(metric.key))
+    .reduce((value, metric) => value + metric.amount, 0);
+  const ewtTotal = metrics.find(metric => metric.key === 'ewt')?.amount || 0;
+  const shownMetrics = metrics.filter(metric => metric.amount > 0 || ['discounts','badOrder','returns','noStock','lacking','ewt'].includes(metric.key));
   renderCards([
-    { label:'Total Purchases', value:formatPeso(total), cls:'blue' },
-    { label:'Total Suppliers', value:unique.toLocaleString() },
-    { label:'Avg per Supplier', value:formatPeso(unique ? total / unique : 0) },
+    { label:'Net Purchases', value:formatPeso(total), cls:'blue' },
+    { label:'Gross Purchases', value:formatPeso(gross) },
+    { label:'Total Deductions', value:`${formatPeso(totalDeductions)} (${total ? (totalDeductions / total * 100).toFixed(2) : '0.00'}%)`, cls:'red' },
+    { label:'EWT Withheld', value:`${formatPeso(ewtTotal)} (${total ? (ewtTotal / total * 100).toFixed(2) : '0.00'}%)`, cls:'green' },
   ]);
-  const top = purchasesSupplierRanking(rows);
-  renderTopNControl(purchasesTopN, 'suppliers');
-  renderTopNChart(top, `Top ${purchasesTopN} Suppliers by Total Spend`, '#7c3aed', purchasesTopN, 'purchases');
-  renderCategoryChart(rows, row => row.category || purchaseSupplier(row),
-    purchaseSpend, 'Purchases by Category');
-  renderRankingTable(`Top ${purchasesTopN} Suppliers by Total Spend`, 'purchases', [
-    { key:'rank', label:'Rank', numeric:true, render:row => row.rank },
-    { key:'name', label:'Supplier', render:row => escReport(row.name) },
-    { key:'total', label:'Total Purchases', numeric:true, render:row => formatPeso(row.total) },
-    { key:'transactions', label:'No. of Transactions', numeric:true, render:row => row.transactions.toLocaleString() },
-    { key:'average', label:'Avg per Transaction', numeric:true, render:row => formatPeso(row.average) },
-  ], top);
+  drawChart('bar',
+    shownMetrics.map(metric => metric.label),
+    shownMetrics.map(metric => Number(metric.percent.toFixed(2))),
+    'Purchase Adjustments as % of Net Purchases',
+    '#2563eb',
+    {
+      forceZero:true,
+      hideLegend:true,
+      title:'Purchase Adjustments as % of Net Purchases',
+      scales:{ y:{ beginAtZero:true, ticks:{ callback:value => `${value}%` } } }
+    });
+  renderCategoryChart(shownMetrics.filter(metric => metric.amount > 0), metric => metric.label,
+    metric => metric.amount, 'Adjustment Amount Breakdown');
+  renderTable('primary', 'Purchase Adjustment Analysis', ['Metric', 'Amount', '% of Net Purchases', 'Affected Records'], shownMetrics.map(metric => `
+    <tr>
+      <td>${escReport(metric.label)}</td>
+      <td class="mono">${formatPeso(metric.amount)}</td>
+      <td class="mono">${metric.percent.toFixed(2)}%</td>
+      <td class="mono">${metric.affectedRows.toLocaleString()}</td>
+    </tr>`));
   hideSecondaryTable();
 }
 
@@ -670,33 +750,6 @@ function getPeriodDates(periodType, periodValue) {
   return { from:`${periodValue}-01-01`, to:`${periodValue}-12-31` };
 }
 
-function taxIncomeOptions(type) {
-  const currentYear = reportToday.getFullYear();
-  const years = Array.from({ length:5 }, (_, index) => currentYear - 2 + index);
-  if (type === 'monthly') return years.flatMap(year => Array.from({ length:12 }, (_, month) => {
-    const value = `${year}-${String(month + 1).padStart(2, '0')}`;
-    return [value, new Date(year, month, 1).toLocaleDateString('en-PH', { month:'long', year:'numeric' })];
-  }));
-  if (type === 'quarterly') return years.flatMap(year => [1,2,3,4].map(quarter => [`${year}-Q${quarter}`, `Q${quarter} ${year}`]));
-  return years.map(year => [String(year), String(year)]);
-}
-
-function setTaxIncomePeriodType(value) {
-  const year = reportToday.getFullYear();
-  taxIncomePeriod.type = value;
-  taxIncomePeriod.value = value === 'monthly' ? reportCurrentMonth
-    : value === 'quarterly' ? `${year}-Q${Math.floor(reportToday.getMonth() / 3) + 1}` : String(year);
-  renderTaxSummary();
-}
-
-function applyTaxIncomePeriod() {
-  withReportProgress('Applying income tax period...', async () => {
-    taxIncomePeriod.value = document.getElementById('tax-income-period-value').value;
-    await waitReportFrame();
-    renderTaxSummary();
-  });
-}
-
 function taxCards(targetId, cards) {
   document.getElementById(targetId).innerHTML = cards.map(card => `<div class="summary-card">
     <div class="kpi-label">${card.label}</div><div class="kpi-value ${card.cls || ''}">${card.value}</div>
@@ -725,9 +778,11 @@ function reportMonthDisplay(month) {
 }
 
 function purchaseInputVAT(row) {
-  const explicit = row.inputVAT ?? row.vatAmount;
+  const explicit = firstReportValue(row, ['inputVAT', 'vatAmount', 'VAT']);
   if (explicit != null && explicit !== '') return Number(explicit) || 0;
-  const gross = Number(row.grossAmount ?? row.totalAmount ?? 0) || 0;
+  const gross = Number(firstReportValue(row, [
+    'grossAmount', 'Purchase Gross of Vat', 'purchaseGrossOfVat', 'totalAmount'
+  ])) || 0;
   const net = purchaseSpend(row);
   return gross > net ? gross - net : 0;
 }
@@ -746,7 +801,7 @@ function purchaseVATNonCreditable(row) {
 
 function calculateIncomeTax(range) {
   const revenue = sum(filterTaxRange(REPORT_DATA.esales, range), 'grossSales');
-  const cogs = filterTaxRange(REPORT_DATA.purchases, range).reduce((total, row) => total + purchaseSpend(row), 0);
+  const cogs = filterTaxRange(reportPurchasesData(), range).reduce((total, row) => total + purchaseSpend(row), 0);
   const expenses = sum(filterTaxRange(REPORT_DATA.expenses, range), 'amount');
   const supplies = filterTaxRange(REPORT_DATA.supplies, range).reduce((total, row) => total + (Number(row.totalCost ?? row.amount) || 0), 0);
   const grossProfit = revenue - cogs;
@@ -757,7 +812,7 @@ function calculateIncomeTax(range) {
 function renderTaxVATSection() {
   document.getElementById('tax-vat-controls').innerHTML = taxRangeControls('vat');
   const sales = filterTaxRange(REPORT_DATA.esales, taxRanges.vat);
-  const purchases = filterTaxRange(REPORT_DATA.purchases, taxRanges.vat);
+  const purchases = filterTaxRange(reportPurchasesData(), taxRanges.vat);
   const vatOutput = sum(sales, 'vatAmount');
   const vatInput = purchases
     .filter(row => !purchaseVATNonCreditable(row))
@@ -777,13 +832,30 @@ function renderTaxVATSection() {
   });
   const months = reportMonthsBetween(taxRanges.vat.from, taxRanges.vat.to);
   replaceTaxChart('vatTrend', 'tax-vat-trend-chart', {
-    type:'bar', data:{ labels:months.map(reportMonthDisplay), datasets:[{ label:'VAT Output', data:months.map(month => sum(sales.filter(row => reportDate(row).startsWith(month)),'vatAmount')), backgroundColor:'#dc2626' }] },
-    options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } }, plugins:{ title:{ display:true,text:'VAT Output Trend by Month' } } }
+    type:'bar',
+    data:{
+      labels:months.map(reportMonthDisplay),
+      datasets:[
+        {
+          label:'VAT Output',
+          data:months.map(month => sum(sales.filter(row => reportDate(row).startsWith(month)), 'vatAmount')),
+          backgroundColor:'#dc2626'
+        },
+        {
+          label:'VAT Input',
+          data:months.map(month => purchases
+            .filter(row => reportDate(row).startsWith(month) && !purchaseVATNonCreditable(row))
+            .reduce((total, row) => total + purchaseInputVAT(row), 0)),
+          backgroundColor:'#2563eb'
+        }
+      ]
+    },
+    options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } }, plugins:{ title:{ display:true,text:'VAT Output vs Input VAT by Month' } } }
   });
 }
 
 function ewtMonthlyRows() {
-  const purchases = filterTaxRange(REPORT_DATA.purchases, taxRanges.ewt);
+  const purchases = filterTaxRange(reportPurchasesData(), taxRanges.ewt);
   return reportMonthsBetween(taxRanges.ewt.from, taxRanges.ewt.to).map(month => {
     const rows = purchases.filter(row => reportDate(row).startsWith(month));
     const totalPurchases = rows.reduce((total, row) => total + purchaseSpend(row), 0);
@@ -804,7 +876,7 @@ async function toggleEwtRemittance(month) {
 
 function renderTaxEWTSection() {
   document.getElementById('tax-ewt-controls').innerHTML = taxRangeControls('ewt');
-  const purchases = filterTaxRange(REPORT_DATA.purchases, taxRanges.ewt);
+  const purchases = filterTaxRange(reportPurchasesData(), taxRanges.ewt);
   const months = ewtMonthlyRows();
   const totalPurchases = purchases.reduce((total,row) => total + purchaseSpend(row), 0);
   const ewt = purchases.reduce((total,row) => total + purchaseEWT(row), 0);
@@ -822,22 +894,19 @@ function renderTaxEWTSection() {
     type:'bar', data:{ labels:months.map(row => reportMonthDisplay(row.month)), datasets:[{ label:'EWT Withheld', data:months.map(row => row.ewt), backgroundColor:'#d97706' }] },
     options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } }, plugins:{ title:{ display:true,text:'Monthly EWT Withheld' } } }
   });
-  const suppliers = taxEwtSupplierSummary(purchases).slice(0, 8);
-  replaceTaxChart('ewtSuppliers', 'tax-ewt-suppliers-chart', {
-    type:'doughnut', data:{ labels:suppliers.map(row => row.supplier), datasets:[{ data:suppliers.map(row => row.ewt), backgroundColor:['#3b82f6','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#db2777','#65a30d'] }] },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{ title:{ display:true,text:'Top Suppliers by EWT' } } }
-  });
+  const monthlyCard = document.getElementById('tax-ewt-monthly-chart')?.closest('.tax-chart-card');
+  const supplierCard = document.getElementById('tax-ewt-suppliers-chart')?.closest('.tax-chart-card');
+  if (monthlyCard) monthlyCard.style.gridColumn = '1 / -1';
+  if (supplierCard) supplierCard.style.display = 'none';
+  if (taxChartInstances.ewtSuppliers) {
+    taxChartInstances.ewtSuppliers.destroy();
+    taxChartInstances.ewtSuppliers = null;
+  }
 }
 
 function renderTaxIncomeSection() {
-  const options = taxIncomeOptions(taxIncomePeriod.type);
-  document.getElementById('tax-income-controls').innerHTML = `
-    <label>Period type <select class="form-select" onchange="setTaxIncomePeriodType(this.value)">
-      ${['monthly','quarterly','annual'].map(type => `<option value="${type}"${taxIncomePeriod.type === type ? ' selected' : ''}>${type[0].toUpperCase() + type.slice(1)}</option>`).join('')}
-    </select></label>
-    <label>Period <select class="form-select" id="tax-income-period-value">${options.map(([value,label]) => `<option value="${value}"${taxIncomePeriod.value === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
-    <button class="btn btn-primary btn-sm" type="button" onclick="applyTaxIncomePeriod()">Apply</button>`;
-  const range = getPeriodDates(taxIncomePeriod.type, taxIncomePeriod.value);
+  document.getElementById('tax-income-controls').innerHTML = taxRangeControls('income');
+  const range = taxRanges.income;
   const result = calculateIncomeTax(range);
   taxLiabilityState.incomeTaxStillDue = result.due;
   taxCards('tax-income-summary', [
@@ -853,23 +922,18 @@ function renderTaxIncomeSection() {
     '<tr class="statement-rule"><td colspan="2"></td></tr>',
     statementRow('TAX STILL DUE', result.due, false, 'net-income', true)
   ].join('');
-  const year = Number(taxIncomePeriod.value.slice(0, 4));
-  const trendPeriods = taxIncomePeriod.type === 'quarterly'
-    ? [1,2,3,4].map(q => [`Q${q}`, getPeriodDates('quarterly', `${year}-Q${q}`)])
-    : Array.from({ length:12 }, (_, month) => {
-      const value = `${year}-${String(month + 1).padStart(2,'0')}`;
-      return [new Date(year,month,1).toLocaleDateString('en-PH',{month:'short'}), getPeriodDates('monthly',value)];
-    });
+  const trendPeriods = reportMonthsBetween(range.from, range.to)
+    .map(month => [reportMonthDisplay(month), { from:`${month}-01`, to:lastDayOfReportMonth(month.slice(0, 4), month.slice(5, 7)) }]);
   replaceTaxChart('incomeTrend', 'tax-income-trend-chart', {
     type:'line', data:{ labels:trendPeriods.map(row => row[0]), datasets:[{ label:'Income Tax Due', data:trendPeriods.map(row => calculateIncomeTax(row[1]).due), borderColor:'#7c3aed', backgroundColor:'#7c3aed', tension:.25 }] },
-    options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } }, plugins:{ title:{ display:true,text:`Income Tax Due Trend for ${year}` } } }
+    options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } }, plugins:{ title:{ display:true,text:'Income Tax Due Trend' } } }
   });
 }
 
 function renderTaxLiabilitySummary() {
   const total = taxLiabilityState.vatPayable + taxLiabilityState.ewt + taxLiabilityState.incomeTaxStillDue;
   document.getElementById('tax-liability-period-note').textContent =
-    `VAT ${taxRanges.vat.from} to ${taxRanges.vat.to} · EWT ${taxRanges.ewt.from} to ${taxRanges.ewt.to} · Income Tax ${taxIncomePeriod.value}`;
+    `VAT ${taxRanges.vat.from} to ${taxRanges.vat.to} · EWT ${taxRanges.ewt.from} to ${taxRanges.ewt.to} · Income Tax ${taxRanges.income.from} to ${taxRanges.income.to}`;
   document.getElementById('tax-dedicated-liability-body').innerHTML = `
     <div class="tax-liability-row"><span>VAT Payable</span><strong>${formatPeso(taxLiabilityState.vatPayable)}</strong></div>
     <div class="tax-liability-row"><span>EWT to Remit (current period)</span><strong>${formatPeso(taxLiabilityState.ewt)}</strong></div>
@@ -882,22 +946,6 @@ function renderTaxSummary() {
   renderTaxEWTSection();
   renderTaxIncomeSection();
   renderTaxLiabilitySummary();
-}
-
-function taxEwtSupplierSummary(purchases) {
-  const suppliers = new Map();
-  purchases.forEach(row => {
-    const supplier = purchaseSupplier(row);
-    const current = suppliers.get(supplier) || { supplier, ewt:0, gross:0, rates:new Set() };
-    current.ewt += purchaseEWT(row);
-    current.gross += purchaseGrossAmount(row);
-    const rate = Number(row.ewtRate ?? row.taxRate);
-    if (Number.isFinite(rate)) current.rates.add(rate);
-    suppliers.set(supplier, current);
-  });
-  return [...suppliers.values()].sort((a, b) => b.ewt - a.ewt).map(row => ({
-    ...row, rate:row.rates.size ? [...row.rates].map(rate => `${rate}%`).join(', ') : '—'
-  }));
 }
 
 function renderInventoryReport() {
@@ -1385,16 +1433,18 @@ function cfComputedBeginBalance(from) {
   if (!from) return 0;
   const before = r => { const d = reportDate(r); return d && d < from; };
   const inflow  = REPORT_DATA.sales.filter(before).reduce((s,r) => s+(Number(r.totalRevenue)||0), 0);
-  const purOut  = REPORT_DATA.purchases.filter(before).reduce((s,r) => s+purchaseSpend(r), 0);
+  const purchases = reportPurchasesData();
+  const purOut  = purchases.filter(before).reduce((s,r) => s+purchaseSpend(r), 0);
   const supOut  = REPORT_DATA.supplies.filter(before).reduce((s,r) => s+(Number(r.totalCost??r.amount)||0), 0);
   return inflow - purOut - supOut;
 }
 
 function cfEarliestDate(from) {
   if (!from) return null;
+  const purchases = reportPurchasesData();
   const dates = [
     ...REPORT_DATA.sales.map(r => reportDate(r)),
-    ...REPORT_DATA.purchases.map(r => reportDate(r)),
+    ...purchases.map(r => reportDate(r)),
     ...REPORT_DATA.supplies.map(r => reportDate(r)),
   ].filter(d => d && d < from).sort();
   return dates[0] || null;
@@ -1459,11 +1509,12 @@ function renderCFBeginSection(from) {
 
 function renderCashFlowReport() {
   const from = document.getElementById('report-start').value;
+  const to = document.getElementById('report-end').value;
   renderCFBeginSection(from);
   const salesIn  = REPORT_DATA.sales.filter(inReportRange);
-  const purOut   = REPORT_DATA.purchases.filter(inReportRange);
+  const purOut   = reportPurchasesData().filter(inReportRange);
   const supOut   = REPORT_DATA.supplies.filter(inReportRange);
-  const months   = [...new Set([
+  const months   = from && to ? reportMonthsBetween(from, to) : [...new Set([
     ...salesIn.map(r => (reportDate(r)||'').slice(0,7)),
     ...purOut.map(r  => (reportDate(r)||'').slice(0,7)),
     ...supOut.map(r  => (reportDate(r)||'').slice(0,7)),
@@ -1534,7 +1585,7 @@ function renderCashFlowReport() {
 const REPORT_META = {
   income:['Income Statement', 'Revenue, COGS, expenses, and net income'],
   sales:['Sales Report', 'Sales performance, product ranking, and margin flags'],
-  purchases:['Purchases Report', 'Supplier spending and purchase trends'],
+  purchases:['Purchases Report', 'Purchase deductions, EWT, and adjustment ratios'],
   tax:['Tax Summary', 'VAT and EWT obligations for the selected period'],
   inventory:['Inventory Report', 'Incoming inventory value and product quantities'],
   cashflow:['Cash Flow Report', 'Beginning balance, period inflows, outflows, and running balance'],

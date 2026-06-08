@@ -30,15 +30,16 @@ window.EPCSalesCost = window.EPCSalesCost || (() => {
   }
 
   function computeCostedSale(row, products = [], method = getCostMethod()) {
-    const unitsSold = Number(row.unitsSold) || 0;
-    const totalRevenue = Number(row.totalRevenue) || 0;
+    const unitsSold = Number(row.unitsSold ?? row.qty ?? row.quantity) || 0;
+    const totalRevenue = Number(row.totalRevenue ?? row.revenue ?? row.totalSales ?? row.total) || 0;
     if (!unitsSold || !totalRevenue) return null;
 
     const productsByCode = Array.isArray(products) ? productMap(products) : products;
     const code = String(row.itemCode || '').trim();
     const product = productsByCode[code] || productsByCode[normalizeCode(code)];
     const unitCost = product ? productUnitCost(product, method) : (Number(row.unitCost) || 0);
-    const totalCost = unitCost * unitsSold;
+    const storedCost = Number(row.totalCost ?? row.cogs ?? row.costOfGoodsSold) || 0;
+    const totalCost = unitCost > 0 ? unitCost * unitsSold : storedCost;
     if (!(totalCost > 0)) return null;
 
     const grossProfit = totalRevenue - totalCost;
