@@ -229,6 +229,31 @@ async function loadInventoryFromFirestore() {
   return rows;
 }
 
+// Purchases live in the Firestore 'purchases' collection. On first run against
+// an empty collection, any existing local purchases are migrated up so nothing
+// is lost. The local cache stays only for synchronous rendering.
+async function loadPurchasesFromFirestore() {
+  const localRows = DB.get('purchases');
+  const db = getFirestoreDB();
+  if (!db) return localRows;
+  const snap = await db.collection('purchases').get();
+  const firestoreRows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  if (firestoreRows.length) {
+    DB.set('purchases', firestoreRows);
+    return firestoreRows;
+  }
+  for (const row of localRows) {
+    const docId = row.id || genId();
+    row.id = docId;
+    const clean = { ...row };
+    delete clean._firestoreId;
+    await db.collection('purchases').doc(docId).set(clean, { merge: true });
+    row._firestoreId = docId;
+  }
+  if (localRows.length) DB.set('purchases', localRows);
+  return localRows;
+}
+
 // ─── Utilities ──────────────────────────────────────────────────────────────
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 

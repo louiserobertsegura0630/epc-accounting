@@ -3,6 +3,52 @@ initSidebar('purchases');
 
 let purchaseImportPreviewRows = [];
 
+// ─── Firestore persistence (collection: 'purchases') ─────────────────────────
+async function upsertPurchaseInFirestore(row) {
+  const db = getFirestoreDB();
+  if (!db) return;
+  const docId = row._firestoreId || row.id;
+  const clean = { ...row };
+  delete clean._firestoreId;
+  await db.collection('purchases').doc(docId).set(clean, { merge: true });
+  row._firestoreId = docId;
+}
+
+async function deletePurchaseFromFirestore(row) {
+  const db = getFirestoreDB();
+  if (!db || !row) return;
+  await db.collection('purchases').doc(row._firestoreId || row.id).delete();
+}
+
+async function batchWritePurchasesToFirestore(rows) {
+  const db = getFirestoreDB();
+  if (!db || !rows.length) return;
+  for (let start = 0; start < rows.length; start += 400) {
+    const batch = db.batch();
+    rows.slice(start, start + 400).forEach(row => {
+      const docId = row.id || genId();
+      row.id = docId;
+      const clean = { ...row };
+      delete clean._firestoreId;
+      batch.set(db.collection('purchases').doc(docId), clean);
+      row._firestoreId = docId;
+    });
+    await batch.commit();
+  }
+}
+
+async function batchDeletePurchasesFromFirestore(rows) {
+  const db = getFirestoreDB();
+  if (!db || !rows.length) return;
+  for (let start = 0; start < rows.length; start += 400) {
+    const batch = db.batch();
+    rows.slice(start, start + 400).forEach(row => {
+      batch.delete(db.collection('purchases').doc(row._firestoreId || row.id));
+    });
+    await batch.commit();
+  }
+}
+
 // ─── Additions list ──────────────────────────────────────────────────────────
 function addAdditionRow(desc = '', amount = '') {
   const list = document.getElementById('additions-list');
@@ -198,12 +244,19 @@ async function handlePurchaseImportFile(file) {
   }
 }
 
-function confirmPurchaseImport() {
+async function confirmPurchaseImport() {
   if (!purchaseImportPreviewRows.length) return;
-  const purchases = DB.get('purchases');
-  DB.set('purchases', [...purchases, ...purchaseImportPreviewRows]);
+  const rows = purchaseImportPreviewRows;
+  try {
+    await batchWritePurchasesToFirestore(rows);
+  } catch (err) {
+    console.error('[Purchases] Import save failed:', err);
+    alert('Could not import purchases to the database. Please try again.');
+    return;
+  }
+  DB.set('purchases', [...DB.get('purchases'), ...rows]);
   logAudit('Import', 'Purchases',
-    `Imported ${purchaseImportPreviewRows.length.toLocaleString()} purchase ledger rows`);
+    `Imported ${rows.length.toLocaleString()} purchase ledger rows`);
   purchaseImportPreviewRows = [];
   closeModal('modal-purchase-import');
   populatePurchasesFilterSuppliers();
@@ -509,8 +562,16 @@ function selectAllFilteredPurchases() {
 function deleteSelectedPurchases() {
   const ids = [...selectedPurchaseIds];
   if (!ids.length) return;
-  confirmDelete(`Delete <strong>${ids.length.toLocaleString()}</strong> selected purchase records? This cannot be undone.`, () => {
+  confirmDelete(`Delete <strong>${ids.length.toLocaleString()}</strong> selected purchase records? This cannot be undone.`, async () => {
     const removeIds = new Set(ids);
+    const rows = DB.get('purchases').filter(row => removeIds.has(row.id));
+    try {
+      await batchDeletePurchasesFromFirestore(rows);
+    } catch (err) {
+      console.error('[Purchases] Bulk delete failed:', err);
+      alert('Could not delete the selected purchases. Please try again.');
+      return;
+    }
     DB.set('purchases', DB.get('purchases').filter(row => !removeIds.has(row.id)));
     selectedPurchaseIds.clear();
     populatePurchasesFilterSuppliers();
@@ -622,7 +683,7 @@ function exportPurchasesCSV() {
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
-function savePurchase() {
+async function savePurchase() {
   const supplier  = document.getElementById('f-supplier').value;
   const date      = document.getElementById('f-date').value;
   const netAmount = parsePeso(document.getElementById('f-total').value);
@@ -659,13 +720,25 @@ function savePurchase() {
     notes: document.getElementById('f-notes').value,
   };
 
+  let savedRow;
   if (editId) {
     record.status         = existingPurchase?.status         || 'Pending';
     record.remittanceDate = existingPurchase?.remittanceDate || '';
     DB.update('purchases', editId, record);
+    savedRow = DB.get('purchases').find(p => p.id === editId);
+    if (existingPurchase?._firestoreId) savedRow._firestoreId = existingPurchase._firestoreId;
   } else {
     record.id = genId();
     DB.push('purchases', record);
+    savedRow = record;
+  }
+
+  try {
+    await upsertPurchaseInFirestore(savedRow);
+  } catch (err) {
+    console.error('[Purchases] Save to Firestore failed:', err);
+    alert('Could not save the purchase to the database. Please try again.');
+    return;
   }
 
   closeModal('modal-purchase');
@@ -708,7 +781,14 @@ function editPurchase(id) {
 // ─── Delete ───────────────────────────────────────────────────────────────────
 function deletePurchase(id) {
   const p = DB.get('purchases').find(x => x.id === id);
-  confirmDelete(`Delete purchase from <strong>${p?.supplier}</strong>?`, () => {
+  confirmDelete(`Delete purchase from <strong>${p?.supplier}</strong>?`, async () => {
+    try {
+      await deletePurchaseFromFirestore(p);
+    } catch (err) {
+      console.error('[Purchases] Delete failed:', err);
+      alert('Could not delete the purchase. Please try again.');
+      return;
+    }
     DB.remove('purchases', id);
     selectedPurchaseIds.delete(id);
     renderTable();
@@ -779,6 +859,13 @@ document.getElementById('btn-clear-filters-purchases').addEventListener('click',
 
 renderTable();
 renderSummary();
-loadSuppliersFromFirestore()
-  .then(populatePurchasesFilterSuppliers)
-  .catch(err => console.error('[Purchases] Supplier Firestore load failed:', err));
+Promise.all([
+  loadPurchasesFromFirestore(),
+  loadSuppliersFromFirestore()
+])
+  .then(() => {
+    populatePurchasesFilterSuppliers();
+    renderTable();
+    renderSummary();
+  })
+  .catch(err => console.error('[Purchases] Firestore load failed:', err));
