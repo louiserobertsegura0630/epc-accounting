@@ -1,6 +1,58 @@
 // ─── shared-utils.js ─────────────────────────────────────────────────────────
-// Cross-page utilities shared between POS Import, Product Master, and Inventory Tracking.
+// Cross-page utilities shared between POS Import, Product Master, Inventory Tracking, and Reports.
 // Requires app.js (getFirestoreDB) to be loaded first.
+
+window.EPCSalesCost = window.EPCSalesCost || (() => {
+  function normalizeCode(value) {
+    return String(value ?? '').trim().toUpperCase();
+  }
+
+  function getCostMethod() {
+    return localStorage.getItem('costMethod') === 'average' ? 'average' : 'latest';
+  }
+
+  function productMap(products = []) {
+    const map = {};
+    products.forEach(product => {
+      const rawCode = String(product.itemCode ?? product.code ?? '').trim();
+      if (!rawCode) return;
+      map[rawCode] = product;
+      map[normalizeCode(rawCode)] = product;
+    });
+    return map;
+  }
+
+  function productUnitCost(product, method = getCostMethod()) {
+    if (!product) return 0;
+    const latest = Number(product.latestCost ?? product.unitCost ?? product.cost) || 0;
+    const average = Number(product.averageCost) || 0;
+    return method === 'average' ? (average || latest) : (latest || average);
+  }
+
+  function computeCostedSale(row, products = [], method = getCostMethod()) {
+    const unitsSold = Number(row.unitsSold) || 0;
+    const totalRevenue = Number(row.totalRevenue) || 0;
+    if (!unitsSold || !totalRevenue) return null;
+
+    const productsByCode = Array.isArray(products) ? productMap(products) : products;
+    const code = String(row.itemCode || '').trim();
+    const product = productsByCode[code] || productsByCode[normalizeCode(code)];
+    const unitCost = product ? productUnitCost(product, method) : (Number(row.unitCost) || 0);
+    const totalCost = unitCost * unitsSold;
+    if (!(totalCost > 0)) return null;
+
+    const grossProfit = totalRevenue - totalCost;
+    const margin = totalRevenue > 0 ? Number((grossProfit / totalRevenue * 100).toFixed(1)) : 0;
+    return { ...row, unitCost, totalCost, totalRevenue, grossProfit, margin, costMethod: method };
+  }
+
+  function fullyCostedSales(rows = [], products = [], method = getCostMethod()) {
+    const productsByCode = productMap(products);
+    return rows.map(row => computeCostedSale(row, productsByCode, method)).filter(Boolean);
+  }
+
+  return { getCostMethod, productUnitCost, computeCostedSale, fullyCostedSales };
+})();
 
 // Re-match all Under Review items against the current Product Master.
 // Any item whose itemCode now exists in productMaster is moved to salesData

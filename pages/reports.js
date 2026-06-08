@@ -392,11 +392,14 @@ function salesFlag(row) {
 
 function renderIncomeStatement() {
   const sales = REPORT_DATA.sales.filter(inReportRange);
-  const purchases = REPORT_DATA.purchases.filter(inReportRange);
   const expenses = REPORT_DATA.expenses.filter(inReportRange);
   const supplies = REPORT_DATA.supplies.filter(inReportRange);
-  const revenue = sum(sales, 'totalRevenue');
-  const cogs = purchases.reduce((total, row) => total + purchaseSpend(row), 0);
+  const salesCostMethod = window.EPCSalesCost?.getCostMethod?.() || 'latest';
+  const costedSales = window.EPCSalesCost?.fullyCostedSales
+    ? window.EPCSalesCost.fullyCostedSales(sales, REPORT_DATA.productMaster, salesCostMethod)
+    : sales.filter(row => Number(row.totalCost) > 0);
+  const revenue = sum(costedSales, 'totalRevenue');
+  const cogs = sum(costedSales, 'totalCost');
   const grossProfit = revenue - cogs;
   const operatingExpenses = sum(expenses, 'amount');
   const suppliesExpense = supplies.reduce((total, row) => total + (Number(row.totalCost ?? row.amount) || 0), 0);
