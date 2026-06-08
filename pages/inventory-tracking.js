@@ -347,11 +347,6 @@ function renderSummary() {
   const movs = DB.get('inventory_movements');
   const inVal  = movs.filter(m=>m.type==='Incoming').reduce((s,m)=>s+(m.totalCost||0),0);
   const outVal = movs.filter(m=>m.type==='Outgoing').reduce((s,m)=>s+(m.totalCost||0),0);
-  // Potential revenue reflects the currently filtered/visible rows (tab + column
-  // filters + search), so it changes as the user narrows the table.
-  const visibleRows = (typeof invTable !== 'undefined' && invTable) ? invTable.getProcessedRows() : movs;
-  const potential = visibleRows.reduce((s, m) => s + inventoryPotentialRevenue(m), 0);
-  const filtered = typeof invTable !== 'undefined' && invTable && (invTable.hasActive() || invTable.activeTab !== 'all');
   document.getElementById('inv-summary').innerHTML = `
     <div class="summary-card">
       <div class="kpi-label">Total Incoming Value</div>
@@ -364,10 +359,6 @@ function renderSummary() {
     <div class="summary-card">
       <div class="kpi-label">Net Movement</div>
       <div class="kpi-value ${(inVal-outVal)>=0?'blue':''}">${formatPeso(inVal-outVal)}</div>
-    </div>
-    <div class="summary-card">
-      <div class="kpi-label">Potential Revenue${filtered ? ' (filtered)' : ''}</div>
-      <div class="kpi-value" style="color:#7c3aed">${formatPeso(potential)}</div>
     </div>`;
 }
 
@@ -865,7 +856,6 @@ const baseInvRender = invTable.render.bind(invTable);
 invTable.render = function() {
   baseInvRender();
   syncBulkSelectionUI();
-  renderSummary();
 };
 invTable.render();
 
