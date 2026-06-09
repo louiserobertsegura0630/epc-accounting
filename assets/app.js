@@ -6,13 +6,13 @@
 const FIRESTORE_ONLY_KEYS = new Set([
   'productMaster', 'productmaster', 'product_master', 'products',
   'salesData', 'underReviewData', 'importHistory', 'inventoryData',
-  'inventory_movements', 'suppliers', 'eSalesRecords'
+  'inventory_movements', 'suppliers', 'eSalesRecords', 'auditLog'
 ]);
 const _runtimeData = Object.create(null);
 [
   'productMaster', 'productmaster', 'product_master', 'products',
   'salesData', 'underReviewData', 'importHistory', 'inventoryData',
-  'inventory_movements', 'suppliers', 'eSalesRecords'
+  'inventory_movements', 'suppliers', 'eSalesRecords', 'auditLog'
 ].forEach(key => localStorage.removeItem(key));
 
 const DB = {
@@ -874,7 +874,6 @@ function applyRolePermissions(activeKey) {
 }
 
 function logAudit(action, target, details) {
-  const entries = DB.get(AUDIT_LOG_KEY);
   const entry = {
     id: genId(),
     timestamp: new Date().toISOString(),
@@ -885,8 +884,6 @@ function logAudit(action, target, details) {
     target: String(target || '').trim(),
     details: String(details || '').trim()
   };
-  entries.push(entry);
-  DB.set(AUDIT_LOG_KEY, entries.slice(-5000));
 
   const db = getFirestoreDB();
   if (db) {

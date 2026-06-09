@@ -37,22 +37,22 @@ function normalizeAuditRows(rows) {
 }
 
 function cacheAuditRows(rows) {
-  DB.set(AUDIT_LOG_KEY, normalizeAuditRows(rows).slice(0, 5000));
+  _runtimeData[AUDIT_LOG_KEY] = normalizeAuditRows(rows).slice(0, 5000);
 }
 
 async function loadAuditLogFromFirebase() {
   const db = getFirestoreDB();
   if (!db) {
-    cacheAuditRows(DB.get(AUDIT_LOG_KEY));
+    cacheAuditRows([]);
     return;
   }
   try {
     const snap = await db.collection(AUDIT_LOG_KEY).orderBy('timestamp', 'desc').limit(5000).get();
     const remoteRows = snap.docs.map(doc => ({ _firestoreId: doc.id, id: doc.id, ...doc.data() }));
-    cacheAuditRows([...remoteRows, ...DB.get(AUDIT_LOG_KEY)]);
+    cacheAuditRows(remoteRows);
   } catch (err) {
     console.error('[Audit Log] Firestore load failed:', err);
-    cacheAuditRows(DB.get(AUDIT_LOG_KEY));
+    cacheAuditRows([]);
   }
 }
 
@@ -137,7 +137,7 @@ async function deleteAllAuditLogs() {
   if (!rows.length) return;
   if (!confirm(`Delete all ${rows.length.toLocaleString()} audit log entries? This cannot be undone.`)) return;
   await deleteAuditDocs(rows.flatMap(row => [row.id, row._firestoreId]).filter(Boolean));
-  DB.set(AUDIT_LOG_KEY, []);
+  cacheAuditRows([]);
   renderAuditActions();
   resetAuditPage();
 }

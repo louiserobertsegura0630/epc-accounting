@@ -34,17 +34,12 @@ async function deleteExpenseFromFirestore(row) {
 }
 
 async function loadExpensesFromFirestore() {
-  const localRows = DB.get('expenses');
   const db = getFirestoreDB();
-  if (!db) return localRows;
+  if (!db) return DB.get('expenses');
   const snapshot = await db.collection('expenses').get();
   const firestoreRows = snapshot.docs.map(doc => ({ _firestoreId:doc.id, ...doc.data() }));
-  if (firestoreRows.length) {
-    DB.set('expenses', firestoreRows);
-    return firestoreRows;
-  }
-  for (const row of localRows) await upsertExpenseInFirestore(row);
-  return localRows;
+  DB.set('expenses', firestoreRows);
+  return firestoreRows;
 }
 
 function resetForm() {
