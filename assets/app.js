@@ -54,17 +54,63 @@ const EPC_FIREBASE_CONFIG = {
   messagingSenderId: '46771511408',
   appId:             '1:46771511408:web:0b2cd68d0f8f4405a154b5'
 };
+const EPC_FIRESTORE_EMULATOR_HOST = 'localhost';
+const EPC_FIRESTORE_EMULATOR_PORT = 8080;
+let _firestoreEmulatorConnected = false;
+let _firestoreConnectionLogged = false;
+
+function isLocalhostRuntime() {
+  if (typeof window === 'undefined') return false;
+  return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
+}
+
+function isFirestoreEmulatorActive() {
+  return _firestoreEmulatorConnected && isLocalhostRuntime();
+}
+
+function connectFirestoreEmulatorIfLocal(db) {
+  if (!db) return;
+  const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (!isLocalhostRuntime()) {
+    if (!_firestoreConnectionLogged) {
+      console.log('Firestore URL:', currentUrl);
+      console.log('Firestore hostname:', currentHostname || '(empty)');
+      console.log('Firestore emulator active:', false);
+      console.log("🌐 CONNECTED TO PRODUCTION FIRESTORE");
+      _firestoreConnectionLogged = true;
+    }
+    return;
+  }
+  if (_firestoreEmulatorConnected) return;
+  if (typeof db.useEmulator === 'function') {
+    db.useEmulator(EPC_FIRESTORE_EMULATOR_HOST, EPC_FIRESTORE_EMULATOR_PORT);
+    _firestoreEmulatorConnected = true;
+    console.log('Firestore URL:', currentUrl);
+    console.log('Firestore hostname:', currentHostname);
+    console.log('Firestore emulator active:', true);
+    console.log("✅ CONNECTED TO FIRESTORE EMULATOR");
+    _firestoreConnectionLogged = true;
+  }
+}
+
 // Initialize immediately so any page script can call firebase.auth() /
 // firebase.firestore() directly without going through the lazy helpers first.
 if (typeof firebase !== 'undefined' && !firebase.apps.length) {
   firebase.initializeApp(EPC_FIREBASE_CONFIG);
+}
+if (typeof firebase !== 'undefined' && typeof firebase.firestore === 'function') {
+  connectFirestoreEmulatorIfLocal(firebase.firestore());
 }
 let _productMasterWriteQueue = Promise.resolve();
 
 function getFirestoreDB() {
   if (typeof firebase === 'undefined') return null;
   if (!firebase.apps.length) firebase.initializeApp(EPC_FIREBASE_CONFIG);
-  return firebase.firestore();
+  if (typeof firebase.firestore !== 'function') return null;
+  const db = firebase.firestore();
+  connectFirestoreEmulatorIfLocal(db);
+  return db;
 }
 
 function cacheProductMasterRows(rows) {
@@ -132,16 +178,24 @@ async function replaceProductMasterInFirestore(rows) {
 
   for (let i = 0; i < snap.docs.length; i += BATCH_SIZE) {
     const batch = db.batch();
-    snap.docs.slice(i, i + BATCH_SIZE).forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
+    let pendingWrites = 0;
+    snap.docs.slice(i, i + BATCH_SIZE).forEach(doc => {
+      batch.delete(doc.ref);
+      pendingWrites += 1;
+    });
+    if (pendingWrites > 0) await batch.commit();
   }
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = db.batch();
+    let pendingWrites = 0;
     rows.slice(i, i + BATCH_SIZE).forEach(row => {
       const docId = productMasterFirestoreDocId(row);
-      if (docId) batch.set(db.collection('productMaster').doc(docId), cleanFirestoreProduct(row));
+      if (docId) {
+        batch.set(db.collection('productMaster').doc(docId), cleanFirestoreProduct(row));
+        pendingWrites += 1;
+      }
     });
-    await batch.commit();
+    if (pendingWrites > 0) await batch.commit();
   }
 }
 
@@ -181,27 +235,36 @@ async function upsertProductMasterRowsInFirestore(rows, onProgress, options = {}
     const legacyDocIds = new Set();
     for (let i = 0; i < normalizedRows.length; i += BATCH_SIZE) {
       const batch = db.batch();
-      normalizedRows.slice(i, i + BATCH_SIZE).forEach(row => {
+      const chunk = normalizedRows.slice(i, i + BATCH_SIZE);
+      let pendingWrites = 0;
+      chunk.forEach(row => {
         const docId = productMasterFirestoreDocId(row);
         if (!docId) return;
         if (row._firestoreId && row._firestoreId !== docId) legacyDocIds.add(row._firestoreId);
         const ref = db.collection('productMaster').doc(docId);
         row._firestoreId = ref.id;
         batch.set(ref, cleanFirestoreProduct(row), { merge: true });
+        pendingWrites += 1;
       });
-      await commitBatch(batch, Math.min(i + BATCH_SIZE, normalizedRows.length));
-      written += normalizedRows.slice(i, i + BATCH_SIZE).length;
+      if (pendingWrites > 0) {
+        await commitBatch(batch, Math.min(i + BATCH_SIZE, normalizedRows.length));
+        await delay();
+      }
+      written += chunk.length;
       if (onProgress) onProgress(written, normalizedRows.length);
-      await delay();
     }
     const staleIds = [...legacyDocIds];
     for (let i = 0; i < staleIds.length; i += BATCH_SIZE) {
       const batch = db.batch();
+      let pendingWrites = 0;
       staleIds.slice(i, i + BATCH_SIZE).forEach(id => {
         batch.delete(db.collection('productMaster').doc(id));
+        pendingWrites += 1;
       });
-      await commitBatch(batch, normalizedRows.length);
-      await delay();
+      if (pendingWrites > 0) {
+        await commitBatch(batch, normalizedRows.length);
+        await delay();
+      }
     }
   }
   const cachedRows = getCachedProductMasterRows();
@@ -309,6 +372,92 @@ function exportRowsToCSV(filename, columns, rows) {
   link.click();
   URL.revokeObjectURL(url);
   return rows.length;
+}
+
+// ─── Word (.doc) export helpers ───────────────────────────────────────────────
+// Generates an HTML-based .doc that Microsoft Word opens natively (no library).
+function wordEsc(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Serialize a rendered <table> to clean HTML, dropping filter/input rows.
+function serializeTableToWord(table) {
+  if (!table) return '';
+  const trs = [...table.rows].filter(tr => !tr.querySelector('input, select'));
+  const body = trs.map(tr => `<tr>${[...tr.cells].map(cell => {
+    const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
+    return `<${tag}>${wordEsc(cell.innerText.replace(/\s+/g, ' ').trim())}</${tag}>`;
+  }).join('')}</tr>`).join('');
+  return `<table border="1" cellspacing="0" cellpadding="4">${body}</table>`;
+}
+
+// Serialize a table for Excel, forcing every cell to TEXT so long numeric codes
+// (e.g. 4800361410816) aren't mangled into scientific notation (4.8E+12).
+function serializeTableToExcel(table) {
+  if (!table) return '';
+  const trs = [...table.rows].filter(tr => !tr.querySelector('input, select'));
+  const body = trs.map(tr => `<tr>${[...tr.cells].map(cell => {
+    const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
+    return `<${tag} style="mso-number-format:'\\@'">${wordEsc(cell.innerText.replace(/\s+/g, ' ').trim())}</${tag}>`;
+  }).join('')}</tr>`).join('');
+  return `<table>${body}</table>`;
+}
+
+// ─── PDF export (in-page print-to-PDF, no library, no popup window) ────────────
+// Renders the report into a hidden #report-print-area on the CURRENT page and
+// calls window.print(); a print stylesheet hides everything else, so only the
+// native print dialog appears (user picks "Save as PDF"). Graphs fit the page.
+function ensurePrintArea() {
+  let area = document.getElementById('report-print-area');
+  if (area) return area;
+  area = document.createElement('div');
+  area.id = 'report-print-area';
+  document.body.appendChild(area);
+  const style = document.createElement('style');
+  style.textContent = `
+    #report-print-area { display:none; }
+    #report-print-area h1 { font-size:20px; margin:0 0 4px; }
+    #report-print-area p.meta { color:#64748b; font-size:12px; margin:0 0 12px; }
+    #report-print-area img { max-width:100%; height:auto; display:block; margin:12px 0; }
+    #report-print-area table { border-collapse:collapse; width:100%; margin:12px 0; font-size:11px; }
+    #report-print-area th, #report-print-area td { border:1px solid #999; padding:4px 6px; text-align:left; }
+    #report-print-area th { background:#f1f5f9; }
+    @media print {
+      @page { size:A4; margin:14mm; }
+      body > *:not(#report-print-area) { display:none !important; }
+      #report-print-area { display:block !important; }
+      #report-print-area table { page-break-inside:auto; }
+      #report-print-area tr { page-break-inside:avoid; }
+      #report-print-area thead { display:table-header-group; }
+    }`;
+  document.head.appendChild(style);
+  return area;
+}
+
+function printReportPDF(title, bodyHtml) {
+  const area = ensurePrintArea();
+  area.innerHTML = `${bodyHtml}<p class="meta">Generated ${new Date().toLocaleString('en-PH')} — EPC Commercial Corporation</p>`;
+  const prevTitle = document.title;   // the saved-PDF filename defaults to the title
+  document.title = title;
+  window.print();
+  document.title = prevTitle;
+}
+
+// ─── Excel export (HTML-based .xls, no library) ───────────────────────────────
+function downloadExcel(title, bodyHtml) {
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>${wordEsc(String(title).slice(0, 31))}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>table{border-collapse:collapse} th,td{border:1px solid #999;padding:4px 8px} th{background:#f1f5f9;font-weight:bold}</style>
+</head><body>${bodyHtml}</body></html>`;
+  const blob = new Blob(['﻿', html], { type:'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${String(title).replace(/[^\w]+/g, '-').toLowerCase().replace(/^-|-$/g, '')}-${todayISO()}.xls`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Number input auto-format ────────────────────────────────────────────────
@@ -555,6 +704,7 @@ const NAV = [
   { href:'expenses.html',  icon:'card',    label:'Expenses',          key:'expenses' },
   { section:'TRACKING' },
   { href:'inventory-tracking.html', icon:'package', label:'Inventory Tracking', key:'inventory-tracking' },
+  { href:'potential-revenue.html', icon:'chart', label:'Potential Revenue', key:'potential-revenue' },
   { href:'supplies-tracking.html', icon:'layers', label:'Supplies Tracking', key:'supplies' },
   { section:'FINANCIAL' },
   { href:'tax-monitoring.html',   icon:'pct', label:'Tax Monitoring',   key:'tax-monitoring' },
@@ -593,6 +743,33 @@ function roleDisplayName(role) {
     case 'accountant': return 'Accountant';
     case 'limited':    return 'Limited Access';
     default:           return 'Viewer';
+  }
+}
+
+function userRoleDocumentPath(uid) {
+  return `users/${uid}`;
+}
+
+function logLocalUserRoleSeedInfo(firebaseUser) {
+  if (!isFirestoreEmulatorActive() || !firebaseUser?.uid) return;
+  const username = String(firebaseUser.email || '').replace(EPC_AUTH_DOMAIN, '');
+  console.log('Firestore user role path:', userRoleDocumentPath(firebaseUser.uid));
+  console.log(
+    'Seed local Accountant role:',
+    `node scripts/seed-local-accountant.js ${firebaseUser.uid} ${username}`
+  );
+}
+
+function logLoadedUserRole(firebaseUser, snap, data, normalizedRole) {
+  const path = userRoleDocumentPath(firebaseUser.uid);
+  console.log('Loaded Firestore user role path:', path);
+  console.log('Loaded Firestore user role document exists:', snap.exists);
+  console.log('Loaded Firestore user role raw value:', data.role);
+  console.log('Loaded Firestore user role normalized value:', normalizedRole);
+  if (isFirestoreEmulatorActive() && normalizedRole === 'viewer') {
+    console.warn(
+      'Local emulator role is Viewer. Seed the emulator user doc shown above, then refresh the app.'
+    );
   }
 }
 
@@ -797,15 +974,18 @@ function initSidebar(activeKey) {
     try {
       const db = getFirestoreDB();
       if (db) {
+        logLocalUserRoleSeedInfo(firebaseUser);
         const snap = await db.collection('users').doc(firebaseUser.uid).get();
         const data = snap.exists ? snap.data() : {};
+        const normalizedRole = _normalizeRole(data.role);
+        logLoadedUserRole(firebaseUser, snap, data, normalizedRole);
         _currentEPCUser = {
           uid:        firebaseUser.uid,
           username:   data.username   || firebaseUser.email.replace(EPC_AUTH_DOMAIN, ''),
           firstName:  data.firstName  || '',
           middleName: data.middleName || '',
           lastName:   data.lastName   || '',
-          role:       _normalizeRole(data.role),
+          role:       normalizedRole,
         };
       } else {
         _currentEPCUser = {
@@ -992,7 +1172,9 @@ class TrackingTable {
 
     const tbody = document.getElementById(this.cfg.tbodyId);
     if (!processed.length) {
-      tbody.innerHTML = this.cfg.emptyHtml;
+      tbody.innerHTML = typeof this.cfg.emptyHtml === 'function'
+        ? this.cfg.emptyHtml(this.activeTab)
+        : this.cfg.emptyHtml;
     } else {
       tbody.innerHTML = pageRows.map(r => this.cfg.renderRow(r)).join('');
     }
@@ -1055,6 +1237,9 @@ class TrackingTable {
     // Tab filter
     if (this.activeTab === 'incoming') rows = rows.filter(r => r.type === 'Incoming');
     if (this.activeTab === 'outgoing') rows = rows.filter(r => r.type === 'Outgoing');
+    if (typeof this.cfg.tabFilter === 'function') {
+      rows = rows.filter(r => this.cfg.tabFilter(r, this.activeTab));
+    }
     // Quick search (across all text-filterable columns)
     if (this.quickSearch.trim()) {
       const q = this.quickSearch.trim().toLowerCase();
@@ -1132,8 +1317,8 @@ class TrackingTable {
 
     const filterCells = this.cfg.columns.map(col =>
       col.filterable
-        ? `<th class="filter-cell">${this._buildFilterInput(col)}</th>`
-        : `<th class="filter-cell-empty"></th>`
+        ? `<th class="filter-cell" data-col="${col.key}">${this._buildFilterInput(col)}</th>`
+        : `<th class="filter-cell-empty" data-col="${col.key}"></th>`
     ).join('');
 
     thead.innerHTML =

@@ -29,8 +29,9 @@ function cleanESRow(row) {
   return clean;
 }
 function esSleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-async function commitESBatch(batch, retries = 3) {
+async function commitESBatch(createBatch, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
+    const batch = createBatch();
     try { await batch.commit(); return; }
     catch (err) {
       if (attempt === retries) throw err;
@@ -61,11 +62,14 @@ async function writeRows(rows, onProgress) {
   const fsdb = getFirestoreDB();
   const total = Math.max(1, Math.ceil(rows.length / ES_BATCH_SIZE));
   for (let start = 0, batchNo = 0; start < rows.length; start += ES_BATCH_SIZE) {
-    const batch = fsdb.batch();
-    rows.slice(start, start + ES_BATCH_SIZE).forEach(row => {
-      batch.set(fsdb.collection('eSalesRecords').doc(esDocId(row)), cleanESRow(row), { merge:true });
+    const chunk = rows.slice(start, start + ES_BATCH_SIZE);
+    await commitESBatch(() => {
+      const batch = fsdb.batch();
+      chunk.forEach(row => {
+        batch.set(fsdb.collection('eSalesRecords').doc(esDocId(row)), cleanESRow(row), { merge:true });
+      });
+      return batch;
     });
-    await commitESBatch(batch);
     batchNo++;
     onProgress?.(Math.round(batchNo / total * 100));
     await esSleep(300);
@@ -75,9 +79,12 @@ async function deleteRows(rows, onProgress) {
   const fsdb = getFirestoreDB();
   const total = Math.max(1, Math.ceil(rows.length / ES_BATCH_SIZE));
   for (let start = 0, batchNo = 0; start < rows.length; start += ES_BATCH_SIZE) {
-    const batch = fsdb.batch();
-    rows.slice(start, start + ES_BATCH_SIZE).forEach(row => batch.delete(fsdb.collection('eSalesRecords').doc(esDocId(row))));
-    await commitESBatch(batch);
+    const chunk = rows.slice(start, start + ES_BATCH_SIZE);
+    await commitESBatch(() => {
+      const batch = fsdb.batch();
+      chunk.forEach(row => batch.delete(fsdb.collection('eSalesRecords').doc(esDocId(row))));
+      return batch;
+    });
     batchNo++;
     onProgress?.(Math.round(batchNo / total * 100));
     await esSleep(300);

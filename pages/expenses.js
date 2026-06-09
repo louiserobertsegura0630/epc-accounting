@@ -2,6 +2,16 @@
 initSidebar('expenses');
 
 const EXP_CATS = ['Selling Expenses','Administrative Expenses','Utilities','Rent','Salaries & Wages','Depreciation','Miscellaneous'];
+const expTableState = {
+  sortKey: 'date',
+  sortDir: 'desc',
+  filters: {}
+};
+
+function expEsc(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 function cleanExpenseFirestoreRow(row) {
   const clean = { ...row };
@@ -76,6 +86,40 @@ function expenseIsDeductible(row) {
   );
 }
 
+function expenseColumnValue(row, key) {
+  if (key === 'taxTreatment') return expenseIsDeductible(row) ? 'Deductible' : 'Non-deductible';
+  if (key === 'netAmount') return expenseNetAmount(row);
+  if (key === 'vatAmount') return expenseVATAmount(row);
+  if (key === 'grossAmount') return expenseGrossAmount(row);
+  return row[key] ?? '';
+}
+
+const EXPENSE_COLUMNS = [
+  { key:'date', label:'Date', type:'date', className:'col-date',
+    render: row => formatDate(row.date) },
+  { key:'name', label:'Name', type:'text', className:'col-name',
+    render: row => `<strong>${expEsc(row.name)}</strong>` },
+  { key:'category', label:'Category', type:'dropdown', className:'col-category',
+    options: () => [...new Set([...EXP_CATS, ...DB.get('expenses').map(row => row.category).filter(Boolean)])].sort() },
+  { key:'description', label:'Description', type:'text', className:'col-description',
+    render: row => expEsc(row.description || '—') },
+  { key:'classification', label:'Class', type:'dropdown', className:'col-classification',
+    options:['Business','Personal'],
+    render: row => `<span class="badge ${row.classification === 'Business' ? 'badge-green' : 'badge-gray'}">${expEsc(row.classification || '—')}</span>` },
+  { key:'taxTreatment', label:'Tax Treatment', type:'dropdown', className:'col-tax',
+    options:['Deductible','Non-deductible'],
+    render: row => {
+      const deductible = expenseIsDeductible(row);
+      return `<span class="badge ${deductible ? 'badge-green' : 'badge-gray'}">${deductible ? 'Deductible' : 'Non-deductible'}</span>`;
+    } },
+  { key:'netAmount', label:'Net Amount', type:'number', className:'col-money',
+    render: row => `<span class="mono">${formatPeso(expenseNetAmount(row))}</span>` },
+  { key:'vatAmount', label:'VAT', type:'number', className:'col-money',
+    render: row => `<span class="mono">${formatPeso(expenseVATAmount(row))}</span>` },
+  { key:'grossAmount', label:'Gross Amount', type:'number', className:'col-money',
+    render: row => `<strong class="mono">${formatPeso(expenseGrossAmount(row))}</strong>` },
+];
+
 function syncExpenseAmountFields(source) {
   const grossEl = document.getElementById('f-exp-amount');
   const netEl = document.getElementById('f-exp-net-amount');
@@ -126,33 +170,114 @@ function renderSummary() {
       `<span class="cat-pill">${c}: ${formatPeso(v)}</span>`).join('');
 }
 
-function renderTable() {
-  const classFilter = document.getElementById('filter-class').value;
-  let rows = DB.get('expenses').sort((a,b) => b.date.localeCompare(a.date));
-  if (classFilter) rows = rows.filter(e => e.classification===classFilter);
+function expenseFilterInput(column) {
+  const key = column.key;
+  if (column.type === 'date') {
+    return `<div class="exp-filter-range">
+      <input class="exp-filter-input" type="date" value="${expTableState.filters[key]?.from || ''}"
+        oninput="setExpenseRangeFilter('${key}', 'from', this.value)">
+      <span>–</span>
+      <input class="exp-filter-input" type="date" value="${expTableState.filters[key]?.to || ''}"
+        oninput="setExpenseRangeFilter('${key}', 'to', this.value)">
+    </div>`;
+  }
+  if (column.type === 'number') {
+    return `<div class="exp-filter-range">
+      <input class="exp-filter-input" type="number" min="0" step="any" placeholder="Min" value="${expTableState.filters[key]?.min || ''}"
+        oninput="setExpenseRangeFilter('${key}', 'min', this.value)">
+      <span>–</span>
+      <input class="exp-filter-input" type="number" min="0" step="any" placeholder="Max" value="${expTableState.filters[key]?.max || ''}"
+        oninput="setExpenseRangeFilter('${key}', 'max', this.value)">
+    </div>`;
+  }
+  if (column.type === 'dropdown') {
+    const options = typeof column.options === 'function' ? column.options() : column.options;
+    return `<select class="exp-filter-input" onchange="setExpenseFilter('${key}', this.value)">
+      <option value="">All</option>
+      ${(options || []).map(option => `<option value="${expEsc(option)}" ${expTableState.filters[key] === option ? 'selected' : ''}>${expEsc(option)}</option>`).join('')}
+    </select>`;
+  }
+  return `<input class="exp-filter-input" type="text" placeholder="Filter..." value="${expEsc(expTableState.filters[key] || '')}"
+    oninput="setExpenseFilter('${key}', this.value)">`;
+}
 
+function renderExpenseHeader() {
+  const thead = document.getElementById('exp-thead');
+  thead.innerHTML = `
+    <tr>
+      ${EXPENSE_COLUMNS.map(column => {
+        const active = expTableState.sortKey === column.key;
+        const arrow = active ? (expTableState.sortDir === 'asc' ? '↑' : '↓') : '↕';
+        return `<th class="sortable ${column.className || ''}" onclick="setExpenseSort('${column.key}')">
+          <span>${column.label}</span> <span class="sort-icon ${active ? 'sort-active' : ''}">${arrow}</span>
+        </th>`;
+      }).join('')}
+      <th class="col-actions">Actions</th>
+    </tr>
+    <tr class="filter-row">
+      ${EXPENSE_COLUMNS.map(column => `<th class="${column.className || ''}">${expenseFilterInput(column)}</th>`).join('')}
+      <th class="filter-cell-empty"></th>
+    </tr>`;
+}
+
+function expensePassesColumnFilters(row) {
+  return EXPENSE_COLUMNS.every(column => {
+    const filter = expTableState.filters[column.key];
+    if (filter == null || filter === '') return true;
+    const value = expenseColumnValue(row, column.key);
+    if (column.type === 'date') {
+      if (filter.from && String(value || '') < filter.from) return false;
+      if (filter.to && String(value || '') > filter.to) return false;
+      return true;
+    }
+    if (column.type === 'number') {
+      const numberValue = Number(value) || 0;
+      if (filter.min !== '' && filter.min != null && Number.isFinite(Number(filter.min)) && numberValue < Number(filter.min)) return false;
+      if (filter.max !== '' && filter.max != null && Number.isFinite(Number(filter.max)) && numberValue > Number(filter.max)) return false;
+      return true;
+    }
+    if (column.type === 'dropdown') return !filter || value === filter;
+    return String(value || '').toLowerCase().includes(String(filter).trim().toLowerCase());
+  });
+}
+
+function getFilteredExpenseRows() {
+  const classFilter = document.getElementById('filter-class').value;
+  const query = document.getElementById('search-exp').value.trim().toLowerCase();
+  let rows = DB.get('expenses').slice();
+  if (classFilter) rows = rows.filter(e => e.classification === classFilter);
+  if (query) {
+    rows = rows.filter(e => [e.name, e.category, e.description, e.classification, expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible']
+      .some(value => String(value || '').toLowerCase().includes(query)));
+  }
+  rows = rows.filter(expensePassesColumnFilters);
+
+  const sortColumn = EXPENSE_COLUMNS.find(column => column.key === expTableState.sortKey);
+  if (sortColumn) {
+    const dir = expTableState.sortDir === 'asc' ? 1 : -1;
+    rows = rows.sort((a, b) => {
+      const av = expenseColumnValue(a, sortColumn.key);
+      const bv = expenseColumnValue(b, sortColumn.key);
+      let cmp = 0;
+      if (sortColumn.type === 'number') cmp = (Number(av) || 0) - (Number(bv) || 0);
+      else cmp = String(av || '').localeCompare(String(bv || ''));
+      return cmp * dir;
+    });
+  }
+  return rows;
+}
+
+function renderTable() {
+  const rows = getFilteredExpenseRows();
   const tbody = document.getElementById('exp-tbody');
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">💳</div><p>No expenses recorded yet.</p></div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(e => {
-    const badge = e.classification==='Business' ? 'badge-green' : 'badge-gray';
-    const deductible = expenseIsDeductible(e);
-    const netAmount = expenseNetAmount(e);
-    const vatAmount = expenseVATAmount(e);
-    const grossAmount = expenseGrossAmount(e);
     return `<tr>
-      <td>${formatDate(e.date)}</td>
-      <td><strong>${e.name}</strong></td>
-      <td>${e.category}</td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.description||'—'}</td>
-      <td><span class="badge ${badge}">${e.classification}</span></td>
-      <td><span class="badge ${deductible ? 'badge-green' : 'badge-gray'}">${deductible ? 'Deductible' : 'Non-deductible'}</span></td>
-      <td class="mono">${formatPeso(netAmount)}</td>
-      <td class="mono">${formatPeso(vatAmount)}</td>
-      <td class="mono"><strong>${formatPeso(grossAmount)}</strong></td>
-      <td>
+      ${EXPENSE_COLUMNS.map(column => `<td class="${column.className || ''}">${column.render ? column.render(e) : expEsc(expenseColumnValue(e, column.key))}</td>`).join('')}
+      <td class="col-actions">
         <div class="action-btns">
           <button class="btn btn-outline btn-xs" onclick="editExp('${e.id}')">Edit</button>
           <button class="btn btn-danger btn-xs" onclick="deleteExp('${e.id}')">Delete</button>
@@ -162,16 +287,35 @@ function renderTable() {
   }).join('');
 }
 
-function getFilteredExpenseRows() {
-  const classFilter = document.getElementById('filter-class').value;
-  const query = document.getElementById('search-exp').value.trim().toLowerCase();
-  let rows = DB.get('expenses').slice().sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
-  if (classFilter) rows = rows.filter(e => e.classification === classFilter);
-  if (query) {
-    rows = rows.filter(e => [e.name, e.category, e.description, e.classification, expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible']
-      .some(value => String(value || '').toLowerCase().includes(query)));
+function setExpenseSort(key) {
+  if (expTableState.sortKey === key) {
+    expTableState.sortDir = expTableState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    expTableState.sortKey = key;
+    expTableState.sortDir = 'asc';
   }
-  return rows;
+  renderExpenseHeader();
+  renderTable();
+}
+
+function setExpenseFilter(key, value) {
+  expTableState.filters[key] = value;
+  renderTable();
+}
+
+function setExpenseRangeFilter(key, rangeKey, value) {
+  expTableState.filters[key] = { ...(expTableState.filters[key] || {}), [rangeKey]: value };
+  renderTable();
+}
+
+function clearExpenseFilters() {
+  expTableState.filters = {};
+  expTableState.sortKey = 'date';
+  expTableState.sortDir = 'desc';
+  document.getElementById('search-exp').value = '';
+  document.getElementById('filter-class').value = '';
+  renderExpenseHeader();
+  renderTable();
 }
 
 function exportExpensesCSV() {
@@ -235,6 +379,7 @@ async function saveExpense() {
   else { record.id = genId(); DB.push('expenses', record); }
 
   closeModal('modal-expense');
+  renderExpenseHeader();
   renderTable();
   renderSummary();
   try {
@@ -270,7 +415,7 @@ function deleteExp(id) {
   confirmDelete(`Delete expense <strong>${e?.name}</strong>?`, async () => {
     try {
       await deleteExpenseFromFirestore(e);
-      DB.remove('expenses', id); renderTable(); renderSummary();
+      DB.remove('expenses', id); renderExpenseHeader(); renderTable(); renderSummary();
       logAudit('Delete', 'Expense', `Deleted expense ${e?.name || id}`);
     } catch (error) {
       console.error('Failed to delete expense from database:', error);
@@ -283,14 +428,17 @@ document.getElementById('btn-add-expense').addEventListener('click', () => { res
 document.getElementById('btn-export-expenses').addEventListener('click', exportExpensesCSV);
 document.getElementById('btn-save-expense').addEventListener('click', saveExpense);
 document.getElementById('filter-class').addEventListener('change', renderTable);
+document.getElementById('search-exp').addEventListener('input', renderTable);
+document.getElementById('btn-clear-exp-filters').addEventListener('click', clearExpenseFilters);
 document.getElementById('f-exp-amount').addEventListener('input', () => syncExpenseAmountFields('gross'));
 document.getElementById('f-exp-net-amount').addEventListener('input', () => syncExpenseAmountFields('net'));
 document.getElementById('f-exp-vat').addEventListener('input', () => syncExpenseAmountFields('vat'));
-initTableSearch('search-exp', 'exp-tbody');
 
 renderSummary();
+renderExpenseHeader();
 renderTable();
 loadExpensesFromFirestore().then(() => {
   renderSummary();
+  renderExpenseHeader();
   renderTable();
 }).catch(error => console.error('Failed to load expenses from database:', error));

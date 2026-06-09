@@ -21,6 +21,7 @@ function isValidPOSImportRow({ barcode = '', itemName = '', quantity = 0, total 
 }
 
 function processFile(file) {
+  if (!requireSalesEditAccess()) return;
   const ext = file.name.split('.').pop().toLowerCase();
   if (!['csv','xls','xlsx'].includes(ext)) { alert('Please upload a CSV, XLS, or XLSX file.'); return; }
   const reader = new FileReader();
@@ -158,6 +159,7 @@ function parseCSV(text, filename) {
 }
 
 function processPOSFile(rawRows, filename, fixedHeaderIdx = null) {
+  if (!requireSalesEditAccess()) return;
   if (!rawRows.length) { alert('File appears empty.'); return; }
 
   const headerIdx = fixedHeaderIdx ?? detectHeaderRow(rawRows);
@@ -230,6 +232,7 @@ function processPOSFile(rawRows, filename, fixedHeaderIdx = null) {
 
 // ─── Auto Import (async, Firestore-backed) ────────────────────────────────────
 async function autoImportXLS(filename) {
+  if (!requireSalesEditAccess()) return;
   const statusEl = document.getElementById('import-status');
   const fillEl   = document.getElementById('progress-fill');
   const labelEl  = document.getElementById('import-status-label');
@@ -352,6 +355,7 @@ async function autoImportXLS(filename) {
     dropZone.classList.remove('is-import-disabled');
     fileInput.disabled = false;
     setCostMethodInputsDisabled(false);
+    applySalesPagePermissions();
 
     const reviewNote = savedReview.length > 0
       ? ` &nbsp;<strong>${savedReview.length} item${savedReview.length !== 1 ? 's' : ''}</strong> require unit cost review. Enter unit costs in <strong>Under Review</strong>.`

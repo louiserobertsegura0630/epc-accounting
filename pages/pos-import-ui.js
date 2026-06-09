@@ -1,5 +1,6 @@
 // ─── Re-match Under Review ────────────────────────────────────────────────────
 document.getElementById('btn-rematch-now').addEventListener('click', async function () {
+  if (!requireSalesEditAccess()) return;
   const btn    = this;
   const result = document.getElementById('rematch-result');
   btn.disabled = true;
@@ -29,15 +30,19 @@ document.getElementById('btn-rematch-now').addEventListener('click', async funct
 const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 
-dropZone.addEventListener('click',    () => { if (!fileInput.disabled) fileInput.click(); });
-dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('click',    () => { if (!fileInput.disabled && canEditSalesPage()) fileInput.click(); });
+dropZone.addEventListener('dragover',  e => {
+  e.preventDefault();
+  if (canEditSalesPage()) dropZone.classList.add('dragover');
+});
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
   e.preventDefault(); dropZone.classList.remove('dragover');
-  if (fileInput.disabled) return;
+  if (fileInput.disabled || !requireSalesEditAccess()) return;
   if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
 });
 fileInput.addEventListener('change', function() {
+  if (!requireSalesEditAccess()) { this.value = ''; return; }
   if (this.files[0]) processFile(this.files[0]);
   this.value = '';
 });
@@ -76,12 +81,14 @@ function syncSalesSelectionUI(pageRows = getVisibleSalesRows()) {
 }
 
 function toggleSalesSelection(id, checked) {
+  if (!canEditSalesPage()) return;
   if (checked) selectedSalesIds.add(id);
   else selectedSalesIds.delete(id);
   syncSalesSelectionUI();
 }
 
 function toggleVisibleSalesRows(checked) {
+  if (!canEditSalesPage()) return;
   getVisibleSalesRows().forEach(row => {
     if (checked) selectedSalesIds.add(row._id);
     else selectedSalesIds.delete(row._id);
@@ -95,6 +102,7 @@ function deselectAllSalesRows() {
 }
 
 function selectAllSalesRows() {
+  if (!canEditSalesPage()) return;
   _salesData.forEach(row => selectedSalesIds.add(row._id));
   syncSalesSelectionUI();
 }
@@ -119,6 +127,7 @@ function bindSalesDetailPreviewEvents() {
 }
 
 function openSalesDeleteModal(ids) {
+  if (!requireSalesEditAccess()) return;
   if (salesDeleteInProgress) return;
   pendingSalesDeleteIds = [...new Set(ids)].filter(id => _salesData.some(row => row._id === id));
   if (!pendingSalesDeleteIds.length) return;
@@ -150,6 +159,7 @@ function salesDeleteProgressLabel(percent) {
 }
 
 async function confirmSalesDelete() {
+  if (!requireSalesEditAccess()) return;
   const ids = [...pendingSalesDeleteIds];
   if (!ids.length || salesDeleteInProgress) return;
   setSalesDeleteModalBusy(true, salesDeleteProgressLabel(0));
@@ -238,12 +248,14 @@ function syncReviewSelectionUI(pageRows = getVisibleReviewRows()) {
 }
 
 function toggleReviewSelection(id, checked) {
+  if (!canEditSalesPage()) return;
   if (checked) selectedReviewIds.add(id);
   else selectedReviewIds.delete(id);
   syncReviewSelectionUI();
 }
 
 function toggleVisibleReviewRows(checked) {
+  if (!canEditSalesPage()) return;
   getVisibleReviewRows().forEach(row => {
     if (checked) selectedReviewIds.add(row._id);
     else selectedReviewIds.delete(row._id);
@@ -257,11 +269,13 @@ function deselectAllReviewRows() {
 }
 
 function selectAllReviewRows() {
+  if (!canEditSalesPage()) return;
   _reviewData.forEach(row => selectedReviewIds.add(row._id));
   syncReviewSelectionUI();
 }
 
 function openReviewDeleteModal(ids) {
+  if (!requireSalesEditAccess()) return;
   pendingReviewDeleteIds = [...new Set(ids)].filter(id => _reviewData.some(r => r._id === id));
   if (!pendingReviewDeleteIds.length) return;
   const count = pendingReviewDeleteIds.length;
@@ -292,6 +306,7 @@ function reviewDeleteProgressLabel(pct) {
 }
 
 async function confirmReviewDelete() {
+  if (!requireSalesEditAccess()) return;
   const ids = [...pendingReviewDeleteIds];
   if (!ids.length) return;
   setReviewDeleteModalBusy(true, reviewDeleteProgressLabel(0));
@@ -390,6 +405,7 @@ function updateManualSalesTotal() {
 }
 
 async function saveManualSalesEntryFromModal() {
+  if (!requireSalesEditAccess()) return;
   const date = document.getElementById('sales-entry-date').value;
   const itemCode = document.getElementById('sales-entry-item-code').value.trim();
   const unitsSold = Number(document.getElementById('sales-entry-qty').value) || 0;
@@ -446,6 +462,7 @@ async function saveManualSalesEntryFromModal() {
 // ─── Event listeners ──────────────────────────────────────────────────────────
 document.getElementById('btn-export-sales-csv').addEventListener('click', exportSalesCSV);
 document.getElementById('btn-add-sales-entry').addEventListener('click', () => {
+  if (!requireSalesEditAccess()) return;
   resetManualSalesEntryModal();
   openModal('modal-sales-entry');
 });
@@ -469,6 +486,7 @@ document.getElementById('btn-clear-sales-filters').addEventListener('click', cle
 document.getElementById('margin-high-threshold').value = marginHighThreshold;
 document.getElementById('margin-low-threshold').value = marginLowThreshold;
 document.getElementById('btn-apply-margin-thresholds').addEventListener('click', () => {
+  if (!requireSalesEditAccess()) return;
   const high = Number(document.getElementById('margin-high-threshold').value);
   const low  = Number(document.getElementById('margin-low-threshold').value);
   if (!Number.isFinite(high) || !Number.isFinite(low)) {
@@ -502,6 +520,10 @@ document.getElementById('modal-delete-sales').addEventListener('click', function
 document.querySelectorAll('input[name="cost-method"]').forEach(input => {
   input.checked = input.value === costMethod;
   input.addEventListener('change', function() {
+    if (!requireSalesEditAccess()) {
+      this.checked = this.value === costMethod;
+      return;
+    }
     if (!this.checked) return;
     costMethod = this.value;
     localStorage.setItem('costMethod', costMethod);
@@ -518,6 +540,7 @@ document.getElementById('review-select-page').addEventListener('change', functio
   toggleVisibleReviewRows(this.checked);
 });
 document.getElementById('btn-delete-review-selected').addEventListener('click', () => {
+  if (!requireSalesEditAccess()) return;
   openReviewDeleteModal([...selectedReviewIds]);
 });
 document.getElementById('btn-deselect-review').addEventListener('click', deselectAllReviewRows);
@@ -547,9 +570,21 @@ async function initPage() {
     overlay.style.display = 'none';
   }
   renderAll();
-  if (_salesData.some(row => row.costMethod !== costMethod)) {
+  if (canEditSalesPage() && _salesData.some(row => row.costMethod !== costMethod)) {
     await recomputeAllSalesCOGS();
   }
 }
+
+function handleSalesAuthReady() {
+  salesPageAuthReady = true;
+  applySalesPagePermissions();
+  renderAll();
+  if (canEditSalesPage() && _salesData.some(row => row.costMethod !== costMethod)) {
+    recomputeAllSalesCOGS();
+  }
+}
+
+document.addEventListener('epc-auth-ready', handleSalesAuthReady);
+if (typeof hasEPCSession === 'function' && hasEPCSession()) handleSalesAuthReady();
 
 initPage();

@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Expenses - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="expenses.css">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -50,23 +51,11 @@
           <option value="Business">Business</option>
           <option value="Personal">Personal</option>
         </select>
+        <button class="btn btn-outline-gray btn-sm" id="btn-clear-exp-filters" type="button">Clear Filters</button>
       </div>
       <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Name</th>
-            <th>Category</th>
-            <th>Description</th>
-            <th>Classification</th>
-            <th>Tax Treatment</th>
-            <th>Net Amount</th>
-            <th>VAT</th>
-            <th>Gross Amount</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
+      <table class="expenses-table">
+        <thead id="exp-thead"></thead>
         <tbody id="exp-tbody"></tbody>
       </table>
       </div>
@@ -161,7 +150,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20260609-localrole"></script>
 <script src="expenses.js"></script>
 </body>
 </html>

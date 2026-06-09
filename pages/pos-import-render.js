@@ -366,6 +366,7 @@ function renderAll() {
   renderFlagBanner();
   renderSalesData(rows);
   renderUnderReview();
+  applySalesPagePermissions();
 }
 
 async function openSalesDetail(id) {

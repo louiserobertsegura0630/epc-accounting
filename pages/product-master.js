@@ -7,6 +7,9 @@ const UOM_DEFAULTS = ['kg','g','L','mL','pack','piece','tray','box'];
 let _pmSalesRows = [];
 let _pmInventoryRows = [];
 let _pmStockByCode = new Map();
+let activeProductDetailId = '';
+let productDetailPage = 1;
+const PRODUCT_DETAIL_PAGE_SIZE = 100;
 
 function initUOMDropdown(sel, selected) {
   const extras = DB.get('uom_extras');
@@ -735,7 +738,7 @@ function handleProductTableClick(e) {
   }
   if (e.target.closest('input, button, a, select')) return;
   const row = e.target.closest('[data-prod-id]');
-  if (row) openProductCostHistory(row.dataset.prodId);
+  if (row) openProductDetail(row.dataset.prodId);
 }
 
 function pmEsc(value) {
@@ -743,14 +746,72 @@ function pmEsc(value) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function openProductCostHistory(id) {
+function pagedProductDetailRows(rows) {
+  const totalPages = Math.max(1, Math.ceil(rows.length / PRODUCT_DETAIL_PAGE_SIZE));
+  productDetailPage = Math.min(Math.max(1, productDetailPage), totalPages);
+  const start = (productDetailPage - 1) * PRODUCT_DETAIL_PAGE_SIZE;
+  return {
+    totalPages,
+    start,
+    end: Math.min(start + PRODUCT_DETAIL_PAGE_SIZE, rows.length),
+    rows: rows.slice(start, start + PRODUCT_DETAIL_PAGE_SIZE)
+  };
+}
+
+function productDetailPaginationHtml(totalRows, totalPages, start, end) {
+  if (!totalRows || totalPages <= 1) {
+    return `<div class="pagination-info">Showing ${totalRows ? '1' : '0'}–${totalRows.toLocaleString()} of ${totalRows.toLocaleString()} history rows</div>`;
+  }
+  return `
+    <div class="pagination-bar pm-detail-pagination">
+      <div class="pagination-info">Showing ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${totalRows.toLocaleString()} history rows</div>
+      <div class="pagination-controls">
+        <button class="page-btn" onclick="setProductDetailPage(${productDetailPage - 1})" ${productDetailPage <= 1 ? 'disabled' : ''}>‹ Prev</button>
+        <span class="pagination-info">Page ${productDetailPage.toLocaleString()} of ${totalPages.toLocaleString()}</span>
+        <button class="page-btn" onclick="setProductDetailPage(${productDetailPage + 1})" ${productDetailPage >= totalPages ? 'disabled' : ''}>Next ›</button>
+      </div>
+    </div>`;
+}
+
+function setProductDetailPage(page) {
+  productDetailPage = Math.max(1, page);
+  renderProductDetailView();
+}
+
+function showProductCatalogView() {
+  activeProductDetailId = '';
+  productDetailPage = 1;
+  document.getElementById('product-catalog-view').style.display = '';
+  document.getElementById('product-detail-view').style.display = 'none';
+  document.getElementById('pm-tab-catalog').classList.add('active');
+  document.getElementById('pm-tab-detail').classList.remove('active');
+  document.getElementById('pm-tab-detail').textContent = 'Product Detail';
+}
+
+function openProductDetail(id) {
+  activeProductDetailId = id;
+  productDetailPage = 1;
+  renderProductDetailView();
+}
+
+function renderProductDetailView() {
+  const id = activeProductDetailId;
   const product = getProductMaster().find(p => p.id === id);
-  if (!product) return;
+  if (!product) {
+    showProductCatalogView();
+    return;
+  }
   const normalized = normalizeProductCostData(product);
   const stock = productStockMetrics(productCode(normalized));
   const history = [...normalized.costHistory].sort((a, b) => b.date.localeCompare(a.date));
-  document.getElementById('pm-detail-title').textContent = productName(normalized) || 'Product Details';
-  document.getElementById('pm-detail-body').innerHTML = `
+  const paged = pagedProductDetailRows(history);
+  document.getElementById('product-catalog-view').style.display = 'none';
+  document.getElementById('product-detail-view').style.display = '';
+  document.getElementById('pm-tab-catalog').classList.remove('active');
+  document.getElementById('pm-tab-detail').classList.add('active');
+  document.getElementById('pm-tab-detail').textContent = productName(normalized) || productCode(normalized) || 'Product Detail';
+  document.getElementById('pm-detail-page-title').textContent = productName(normalized) || 'Product Detail';
+  document.getElementById('pm-detail-page-body').innerHTML = `
     <div class="pm-detail-grid">
       <div><span>Item Code</span><strong class="mono">${pmEsc(productCode(normalized))}</strong></div>
       <div><span>Category</span><strong>${pmEsc(productCategory(normalized)) || '—'}</strong></div>
@@ -764,13 +825,13 @@ function openProductCostHistory(id) {
     <div class="pm-history-wrap">
       <table>
         <thead><tr><th>Date</th><th>Unit Cost</th><th>Supplier</th></tr></thead>
-        <tbody>${history.length
-          ? history.map(entry => `<tr><td>${formatDate(entry.date)}</td><td class="mono">${formatPeso(entry.unitCost)}</td><td>${pmEsc(entry.supplier) || '—'}</td></tr>`).join('')
+        <tbody>${paged.rows.length
+          ? paged.rows.map(entry => `<tr><td>${formatDate(entry.date)}</td><td class="mono">${formatPeso(entry.unitCost)}</td><td>${pmEsc(entry.supplier) || '—'}</td></tr>`).join('')
           : '<tr><td colspan="3">No cost history yet.</td></tr>'}</tbody>
       </table>
     </div>
+    ${productDetailPaginationHtml(history.length, paged.totalPages, paged.start, paged.end)}
     <div class="pm-average-cost">Average Cost <strong>${formatPeso(normalized.averageCost)}</strong></div>`;
-  openModal('modal-product-cost-history');
 }
 
 function openProductFromURL() {
@@ -794,7 +855,7 @@ function openProductFromURL() {
     row.classList.add('pm-url-highlight');
     row.scrollIntoView({ behavior:'smooth', block:'center' });
   }
-  openProductCostHistory(product.id);
+  openProductDetail(product.id);
 }
 
 function checkMissingCategories() {

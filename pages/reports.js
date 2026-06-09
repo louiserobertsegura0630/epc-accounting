@@ -5,6 +5,28 @@ const REPORT_DATA = {
   ewtRemittances: [], productMaster: []
 };
 let activeReportTab = 'income';
+const REPORT_COLLECTIONS = {
+  sales: { collection:'salesData', fallback:'pos_sales', dataKey:'sales' },
+  purchases: { collection:'purchases', fallback:'purchases', dataKey:'purchases' },
+  expenses: { collection:'expenses', fallback:'expenses', dataKey:'expenses' },
+  supplies: { collection:'suppliesData', fallback:'supplies_movements', dataKey:'supplies' },
+  inventory: { collection:'inventoryData', fallback:'inventory_movements', dataKey:'inventory' },
+  suppliers: { collection:'suppliers', fallback:'suppliers', dataKey:'suppliers' },
+  esales: { collection:'eSalesRecords', fallback:'', dataKey:'esales' },
+  ewtRemittances: { collection:'ewtRemittances', fallback:'', dataKey:'ewtRemittances' },
+  productMaster: { collection:'productMaster', fallback:'', dataKey:'productMaster' },
+};
+const REPORT_TAB_COLLECTIONS = {
+  income: ['sales', 'expenses', 'supplies', 'productMaster'],
+  sales: ['sales'],
+  purchases: ['purchases'],
+  tax: ['esales', 'purchases', 'expenses', 'supplies', 'ewtRemittances'],
+  inventory: ['inventory', 'sales', 'productMaster'],
+  cashflow: ['sales', 'purchases', 'supplies', 'expenses'],
+  custom: ['sales', 'esales', 'purchases', 'expenses', 'inventory', 'productMaster'],
+};
+const loadedReportCollections = new Set();
+let productMasterReportListenerStarted = false;
 const FEATURE_CUSTOM_REPORT = false;
 let reportChart = null;
 let purchasesBarChart = null;
@@ -27,14 +49,19 @@ let reportSalesFlag = '';
 let reportPurchaseSupplier = '';
 let salesTopN = 5;
 let purchasesTopN = 5;
-let reportProgressTimer = null;
-const inventoryMovementState = {
-  highThreshold:75, lowThreshold:25, search:'', flag:'all',
-  sortKey:'outgoingPct', sortDir:'desc', page:1, pageSize:50,
-  filters:{ itemCode:'', description:'', category:'', supplier:'', unitCost:{min:'',max:''},
-    totalIncoming:{min:'',max:''}, incomingValue:{min:'',max:''}, totalOutgoing:{min:'',max:''},
-    outgoingValue:{min:'',max:''}, netStock:{min:'',max:''}, outgoingPct:{min:'',max:''} }
+let salesMetric = 'revenue';            // 'revenue' | 'units'
+let flaggedSourceRows = [];             // raw flagged sales rows for the current period
+let salesRankedAll = [];                // full product ranking for the current period
+const flaggedState = {
+  page: 1, pageSize: 50, sortKey: 'date', sortDir: 'desc',
+  filters: { from: '', to: '', product: '', flag: '' }
 };
+let inventoryTrendMode = 'item';        // 'item' | 'category'
+let inventoryTrendSelections = [];      // [{ key, label }] — one line each
+let inventoryTrendQuery = '';           // current search text
+let inventoryTrendResultOpts = [];      // current dropdown matches (index-referenced)
+const invMatrixState = { page: 1, pageSize: 100, sortKey: 'total', sortDir: 'desc', search: '', category: '' };
+let reportProgressTimer = null;
 const rankingTableSort = {
   sales:{ key:'rank', direction:'asc' },
   purchases:{ key:'rank', direction:'asc' }
@@ -103,19 +130,36 @@ async function fetchReportCollection(name, fallbackKey = '') {
   return localRows;
 }
 
-async function loadReportData() {
-  const [sales, purchases, expenses, supplies, inventory, suppliers, esales, ewtRemittances, productMaster] = await Promise.all([
-    fetchReportCollection('salesData', 'pos_sales'),
-    fetchReportCollection('purchases', 'purchases'),
-    fetchReportCollection('expenses', 'expenses'),
-    fetchReportCollection('suppliesData', 'supplies_movements'),
-    fetchReportCollection('inventoryData', 'inventory_movements'),
-    fetchReportCollection('suppliers', 'suppliers'),
-    fetchReportCollection('eSalesRecords'),
-    fetchReportCollection('ewtRemittances'),
-    fetchReportCollection('productMaster'),
-  ]);
-  Object.assign(REPORT_DATA, { sales, purchases, expenses, supplies, inventory, suppliers, esales, ewtRemittances, productMaster });
+async function loadReportCollections(keys, { force = false } = {}) {
+  const uniqueKeys = [...new Set(keys)].filter(key => REPORT_COLLECTIONS[key]);
+  const keysToLoad = force ? uniqueKeys : uniqueKeys.filter(key => !loadedReportCollections.has(key));
+  if (!keysToLoad.length) return;
+  const loaded = await Promise.all(keysToLoad.map(async key => {
+    const cfg = REPORT_COLLECTIONS[key];
+    const rows = await fetchReportCollection(cfg.collection, cfg.fallback);
+    return [cfg.dataKey, rows, key];
+  }));
+  loaded.forEach(([dataKey, rows, key]) => {
+    REPORT_DATA[dataKey] = rows;
+    loadedReportCollections.add(key);
+  });
+  if (loadedReportCollections.has('productMaster')) startProductMasterReportListener();
+}
+
+async function ensureActiveReportData({ force = false } = {}) {
+  await loadReportCollections(REPORT_TAB_COLLECTIONS[activeReportTab] || [], { force });
+}
+
+function startProductMasterReportListener() {
+  if (productMasterReportListenerStarted) return;
+  const db = getFirestoreDB();
+  if (!db) return;
+  productMasterReportListenerStarted = true;
+  db.collection('productMaster').onSnapshot(snapshot => {
+    REPORT_DATA.productMaster = snapshot.docs.map(doc => ({ _firestoreId:doc.id, ...doc.data() }));
+    loadedReportCollections.add('productMaster');
+    if (activeReportTab === 'inventory' || activeReportTab === 'income') renderActiveReport();
+  }, err => console.error('[Reports] Product Master listener failed:', err));
 }
 
 function setDefaultReportDates() {
@@ -151,13 +195,29 @@ async function setReportPreset(preset) {
   await refreshReportData();
 }
 
-function setReportTab(tab) {
+async function setReportTab(tab) {
   if (tab === 'custom' && !FEATURE_CUSTOM_REPORT) return;
   activeReportTab = tab;
   document.querySelectorAll('[data-report-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.reportTab === tab);
   });
-  renderActiveReport();
+  const needsLoad = (REPORT_TAB_COLLECTIONS[activeReportTab] || [])
+    .some(key => !loadedReportCollections.has(key));
+  if (!needsLoad) {
+    renderActiveReport();
+    return;
+  }
+  await withReportProgress('Loading report data...', async () => {
+    try {
+      await ensureActiveReportData();
+    } catch (err) {
+      console.error('[Reports] Firestore tab load failed:', err);
+      alert('Could not load report data. Please check your connection and try again.');
+    }
+    setReportProgress(86, 'Rendering report...');
+    await waitReportFrame();
+    renderActiveReport();
+  });
 }
 
 function sum(rows, key) {
@@ -314,7 +374,7 @@ function getPurchasesChartHeight(n) {
   return (n * 36) + 80;
 }
 
-function renderTopNChart(rows, title, color, selectedN, type = 'sales') {
+function renderTopNChart(rows, title, color, selectedN, type = 'sales', opts = {}) {
   const isPurchases = type === 'purchases';
   const height = isPurchases ? getPurchasesChartHeight(selectedN) : getRankedChartHeight(selectedN);
   const container = document.getElementById(isPurchases ? 'purchases-bar-container' : 'sales-bar-container');
@@ -325,29 +385,94 @@ function renderTopNChart(rows, title, color, selectedN, type = 'sales') {
     if (reportChart === purchasesBarChart) reportChart = null;
     purchasesBarChart = null;
   }
-  drawChart('bar', rows.map(row => shortenChartLabel(row.name)), rows.map(row => row.total),
+  const isUnits = opts.units;
+  drawChart('bar', rows.map(row => shortenChartLabel(row.name)),
+    rows.map(row => opts.valueFn ? opts.valueFn(row) : row.total),
     title, color, {
-      indexAxis:'y', hideLegend:true, pesoTooltips:true, borderRadius:4,
+      indexAxis:'y', hideLegend:true, pesoTooltips: !isUnits, borderRadius:4,
       title,
-      scales:{ x:{ beginAtZero:true, ticks:{ callback:value => `₱${(value / 1000000).toFixed(1)}M` } } }
+      scales:{ x:{ beginAtZero:true, ticks:{ callback: isUnits
+        ? (value => Number(value).toLocaleString())
+        : (value => `₱${(value / 1000000).toFixed(1)}M`) } } }
     });
   if (isPurchases) purchasesBarChart = reportChart;
 }
 
 function setReportTopN(value) {
-  const selected = Number(value) || 5;
+  const selected = Math.max(1, Math.round(Number(value) || 5));
   if (activeReportTab === 'sales') salesTopN = selected;
   if (activeReportTab === 'purchases') purchasesTopN = selected;
   renderActiveReport();
 }
 
-function renderTopNControl(selected, noun) {
+function renderTopNControl(selected, noun, showMetric = false) {
+  const metric = showMetric ? `
+    <span class="report-metric-toggle">
+      <button type="button" class="report-metric-btn${salesMetric==='revenue'?' on':''}" onclick="setSalesMetric('revenue')">Amount (₱)</button>
+      <button type="button" class="report-metric-btn${salesMetric==='units'?' on':''}" onclick="setSalesMetric('units')">Units</button>
+    </span>` : '';
+  const fullReport = showMetric
+    ? '<button type="button" class="btn btn-outline-gray btn-sm" onclick="openFullProductReport()">Open full report →</button>'
+    : '';
   document.getElementById('report-top-n-control').innerHTML = `
     <span>Show top:</span>
-    <select class="form-select" onchange="setReportTopN(this.value)">
-      ${[5, 10, 15, 20].map(value => `<option${value === selected ? ' selected' : ''}>${value}</option>`).join('')}
-    </select>
-    <span>${noun}</span>`;
+    <input type="number" min="1" class="form-input" style="width:84px" value="${selected}" onchange="setReportTopN(this.value)">
+    <span>${noun}</span>${metric}${fullReport}`;
+}
+
+function openFullProductReport() {
+  const payload = {
+    metric: salesMetric,
+    topN: salesTopN,
+    from: document.getElementById('report-start').value,
+    to: document.getElementById('report-end').value,
+    rows: salesRankedAll,   // full ranking — the full page can re-slice to any N
+  };
+  localStorage.setItem('salesFullReport', JSON.stringify(payload));
+  window.open('reports-products.html', '_blank');
+}
+
+function reportTableLabel(table) {
+  const card = table.closest('.card, section, .tax-report-section, .tax-table-block') || table.parentElement;
+  const heading = card ? card.querySelector('h1, h2, h3, h4, .section-title') : null;
+  return heading ? heading.textContent.trim() : '';
+}
+
+function exportActiveReportToPDF() {
+  const out = document.getElementById('report-output');
+  const title = document.getElementById('report-title').textContent || 'Report';
+  const subtitle = document.getElementById('report-subtitle').textContent || '';
+  const from = document.getElementById('report-start').value;
+  const to = document.getElementById('report-end').value;
+  let body = `<h1>${wordEsc(title)}</h1>`;
+  if (subtitle) body += `<p class="meta">${wordEsc(subtitle)}</p>`;
+  if (from || to) body += `<p class="meta">Period: ${wordEsc(from || '—')} to ${wordEsc(to || '—')}</p>`;
+  let any = false;
+  out.querySelectorAll('table').forEach(table => {
+    if (table.offsetParent === null || !table.rows.length) return;
+    const label = reportTableLabel(table);
+    if (label) body += `<h3>${wordEsc(label)}</h3>`;
+    body += serializeTableToWord(table);
+    any = true;
+  });
+  if (!any) { alert('No table data to export on this tab.'); return; }
+  printReportPDF(title, body);
+}
+
+function exportActiveReportToExcel() {
+  const out = document.getElementById('report-output');
+  const title = document.getElementById('report-title').textContent || 'Report';
+  let parts = `<h3>${wordEsc(title)}</h3>`;
+  let any = false;
+  out.querySelectorAll('table').forEach(table => {
+    if (table.offsetParent === null || !table.rows.length) return;
+    const label = reportTableLabel(table);
+    if (label) parts += `<p><b>${wordEsc(label)}</b></p>`;
+    parts += serializeTableToExcel(table);
+    any = true;
+  });
+  if (!any) { alert('No table data to export on this tab.'); return; }
+  downloadExcel(title, parts);
 }
 
 function sortRankingRows(rows, type) {
@@ -494,7 +619,7 @@ function setReportPurchaseSupplier(value) {
   renderActiveReport();
 }
 
-function salesProductRanking(rows) {
+function salesRankAllProducts(rows) {
   const products = new Map();
   rows.forEach(row => {
     const name = row.productName || row.itemCode || 'Unknown';
@@ -510,8 +635,27 @@ function salesProductRanking(rows) {
     current.profit += Number.isFinite(grossProfit) ? grossProfit : revenue * (Number(row.margin) || 0) / 100;
     products.set(key, current);
   });
-  return [...products.values()].sort((a, b) => b.total - a.total)
-    .slice(0, salesTopN).map((row, index) => ({ ...row, rank:index + 1 }));
+  const metricVal = r => salesMetric === 'units' ? r.units : r.total;
+  return [...products.values()]
+    .sort((a, b) => metricVal(b) - metricVal(a))
+    .map((row, index) => ({ ...row, rank:index + 1, margin:row.total ? row.profit / row.total * 100 : 0 }));
+}
+
+function salesRankingColumns() {
+  return [
+    { key:'rank', label:'Rank', numeric:true, render:row => row.rank },
+    { key:'name', label:'Product Name', render:row => escReport(row.name) },
+    { key:'itemCode', label:'Item Code', render:row => escReport(row.itemCode || '—') },
+    { key:'category', label:'Category', render:row => escReport(row.category) },
+    { key:'total', label:'Total Revenue', numeric:true, render:row => formatPeso(row.total) },
+    { key:'units', label:'Units Sold', numeric:true, render:row => row.units.toLocaleString() },
+    { key:'margin', label:'Avg Margin %', numeric:true, render:row => `${row.total ? (row.profit / row.total * 100).toFixed(1) : '0.0'}%` },
+  ];
+}
+
+function setSalesMetric(metric) {
+  salesMetric = metric === 'units' ? 'units' : 'revenue';
+  renderActiveReport();
 }
 
 function purchaseSpend(row) {
@@ -607,23 +751,75 @@ function renderSalesReport() {
     { label:'Avg Margin %', value:`${revenue ? (profit / revenue * 100).toFixed(1) : '0.0'}%`, cls:'blue' },
     { label:'Flagged Items', value:flagged.length.toLocaleString(), cls:'red' },
   ]);
-  const top = salesProductRanking(rows);
-  renderTopNControl(salesTopN, 'products');
-  renderTopNChart(top, `Top ${salesTopN} Products by Revenue`, '#3b82f6', salesTopN, 'sales');
+  salesRankedAll = salesRankAllProducts(rows);
+  flaggedSourceRows = flagged;
+  renderTopNControl(salesTopN, 'products', true);
+
+  const metricLabel = salesMetric === 'units' ? 'Units Sold' : 'Revenue';
+  const top = salesRankedAll.slice(0, salesTopN);
+  document.getElementById('report-category-chart-card').style.display = '';
+  renderTopNChart(top, `Top ${salesTopN} Products by ${metricLabel}`, '#3b82f6', salesTopN, 'sales',
+    { units: salesMetric === 'units', valueFn: row => salesMetric === 'units' ? row.units : row.total });
   renderCategoryChart(rows, row => row.category || 'Uncategorized',
-    row => Number(row.totalRevenue) || 0, 'Revenue by Category');
-  renderRankingTable(`Top ${salesTopN} Products by Revenue`, 'sales', [
-    { key:'rank', label:'Rank', numeric:true, render:row => row.rank },
-    { key:'name', label:'Product Name', render:row => escReport(row.name) },
-    { key:'itemCode', label:'Item Code', render:row => escReport(row.itemCode || '—') },
-    { key:'category', label:'Category', render:row => escReport(row.category) },
-    { key:'total', label:'Total Revenue', numeric:true, render:row => formatPeso(row.total) },
-    { key:'units', label:'Units Sold', numeric:true, render:row => row.units.toLocaleString() },
-    { key:'margin', label:'Avg Margin %', numeric:true,
-      render:row => `${row.total ? (row.profit / row.total * 100).toFixed(1) : '0.0'}%` },
-  ], top.map(row => ({ ...row, margin:row.total ? row.profit / row.total * 100 : 0 })));
-  renderTable('secondary', 'Flagged Items', ['Date', 'Product', 'Margin', 'Flag'],
-    flagged.map(row => `<tr><td>${formatDate(reportDate(row))}</td><td>${escReport(row.productName)}</td><td>${Number(row.margin || 0).toFixed(1)}%</td><td>${salesFlag(row)}</td></tr>`));
+    row => salesMetric === 'units' ? (Number(row.unitsSold) || 0) : (Number(row.totalRevenue) || 0),
+    `${metricLabel} by Category`);
+  renderRankingTable(`Top ${salesTopN} Products by ${metricLabel}`, 'sales', salesRankingColumns(), top);
+  renderFlaggedItems();
+}
+
+function setFlaggedFilter(key, value) { flaggedState.filters[key] = value; flaggedState.page = 1; renderFlaggedItems(); }
+function setFlaggedSort(key) {
+  if (flaggedState.sortKey === key) flaggedState.sortDir = flaggedState.sortDir === 'asc' ? 'desc' : 'asc';
+  else { flaggedState.sortKey = key; flaggedState.sortDir = 'asc'; }
+  flaggedState.page = 1; renderFlaggedItems();
+}
+function goFlaggedPage(p) { flaggedState.page = p; renderFlaggedItems(); }
+
+function renderFlaggedItems() {
+  const card = document.getElementById('report-secondary-card');
+  card.style.display = '';
+  document.getElementById('report-secondary-title').textContent = 'Flagged Items';
+  const f = flaggedState.filters;
+  const rows = flaggedSourceRows.map(row => ({
+    date: reportDate(row), product: row.productName || row.itemCode || 'Unknown',
+    margin: Number(row.margin) || 0, flag: salesFlag(row)
+  }))
+    .filter(r => !f.from || r.date >= f.from)
+    .filter(r => !f.to || r.date <= f.to)
+    .filter(r => !f.product || r.product.toLowerCase().includes(f.product.toLowerCase()))
+    .filter(r => !f.flag || r.flag === f.flag);
+  rows.sort((a, b) => {
+    const l = a[flaggedState.sortKey], r = b[flaggedState.sortKey];
+    const cmp = typeof l === 'number' && typeof r === 'number' ? l - r : String(l).localeCompare(String(r));
+    return flaggedState.sortDir === 'asc' ? cmp : -cmp;
+  });
+  const pages = Math.max(1, Math.ceil(rows.length / flaggedState.pageSize));
+  if (flaggedState.page > pages) flaggedState.page = pages;
+  const startIdx = (flaggedState.page - 1) * flaggedState.pageSize;
+  const visible = rows.slice(startIdx, startIdx + flaggedState.pageSize);
+  const arrow = k => flaggedState.sortKey === k ? (flaggedState.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+  const cols = [['date','Date'],['product','Product'],['margin','Margin'],['flag','Flag']];
+  document.getElementById('report-secondary-head').innerHTML = `
+    <tr>${cols.map(([k,l]) => `<th><button class="sortable-report-header" onclick="setFlaggedSort('${k}')">${l}${arrow(k)}</button></th>`).join('')}</tr>
+    <tr class="flagged-filter-row">
+      <th><div class="flagged-date-filter"><input type="date" class="form-input" value="${f.from}" onchange="setFlaggedFilter('from',this.value)"><input type="date" class="form-input" value="${f.to}" onchange="setFlaggedFilter('to',this.value)"></div></th>
+      <th><input type="text" class="form-input" placeholder="Filter…" value="${escReport(f.product)}" onchange="setFlaggedFilter('product',this.value)"></th>
+      <th></th>
+      <th><select class="form-select" onchange="setFlaggedFilter('flag',this.value)">
+        <option value="">All</option><option${f.flag==='Loss'?' selected':''}>Loss</option><option${f.flag==='High Margin'?' selected':''}>High Margin</option>
+      </select></th>
+    </tr>`;
+  document.getElementById('report-secondary-body').innerHTML = visible.length
+    ? visible.map(r => `<tr><td>${formatDate(r.date)}</td><td>${escReport(r.product)}</td><td>${r.margin.toFixed(1)}%</td><td>${escReport(r.flag)}</td></tr>`).join('')
+    : `<tr><td colspan="4"><div class="empty-state"><p>No flagged items match the filters.</p></div></td></tr>`;
+  document.getElementById('flagged-pagination')?.remove();
+  const startNum = rows.length ? startIdx + 1 : 0;
+  card.insertAdjacentHTML('beforeend', `<div class="inventory-pagination" id="flagged-pagination">
+    <span>Showing ${startNum}–${Math.min(startIdx + flaggedState.pageSize, rows.length)} of ${rows.length} flagged items</span>
+    <button class="btn btn-outline-gray btn-sm" ${flaggedState.page === 1 ? 'disabled' : ''} onclick="goFlaggedPage(${flaggedState.page - 1})">Prev</button>
+    <span>Page ${flaggedState.page} / ${pages}</span>
+    <button class="btn btn-outline-gray btn-sm" ${flaggedState.page === pages ? 'disabled' : ''} onclick="goFlaggedPage(${flaggedState.page + 1})">Next</button>
+  </div>`);
 }
 
 function renderPurchasesReport() {
@@ -638,33 +834,51 @@ function renderPurchasesReport() {
     .filter(metric => deductionKeys.has(metric.key))
     .reduce((value, metric) => value + metric.amount, 0);
   const ewtTotal = metrics.find(metric => metric.key === 'ewt')?.amount || 0;
-  const shownMetrics = metrics.filter(metric => metric.amount > 0 || ['discounts','badOrder','returns','noStock','lacking','ewt'].includes(metric.key));
   renderCards([
     { label:'Net Purchases', value:formatPeso(total), cls:'blue' },
     { label:'Gross Purchases', value:formatPeso(gross) },
     { label:'Total Deductions', value:`${formatPeso(totalDeductions)} (${total ? (totalDeductions / total * 100).toFixed(2) : '0.00'}%)`, cls:'red' },
     { label:'EWT Withheld', value:`${formatPeso(ewtTotal)} (${total ? (ewtTotal / total * 100).toFixed(2) : '0.00'}%)`, cls:'green' },
   ]);
-  drawChart('bar',
-    shownMetrics.map(metric => metric.label),
-    shownMetrics.map(metric => Number(metric.percent.toFixed(2))),
-    'Purchase Adjustments as % of Net Purchases',
+  const from = document.getElementById('report-start').value;
+  const to = document.getElementById('report-end').value;
+  const months = (from && to) ? reportMonthsBetween(from, to) : [];
+  const monthlySpend = months.map(month =>
+    rows.filter(row => (reportDate(row) || '').startsWith(month)).reduce((value, row) => value + purchaseSpend(row), 0));
+  drawChart('line',
+    months.map(reportMonthDisplay),
+    monthlySpend,
+    'Net Purchases',
     '#2563eb',
     {
-      forceZero:true,
+      pesoTooltips:true,
       hideLegend:true,
-      title:'Purchase Adjustments as % of Net Purchases',
-      scales:{ y:{ beginAtZero:true, ticks:{ callback:value => `${value}%` } } }
+      title:'Net Purchases by Month',
+      scales:{ y:{ beginAtZero:true, ticks:{ callback:value => `₱${(value / 1000000).toFixed(1)}M` } } }
     });
-  renderCategoryChart(shownMetrics.filter(metric => metric.amount > 0), metric => metric.label,
-    metric => metric.amount, 'Adjustment Amount Breakdown');
-  renderTable('primary', 'Purchase Adjustment Analysis', ['Metric', 'Amount', '% of Net Purchases', 'Affected Records'], shownMetrics.map(metric => `
-    <tr>
-      <td>${escReport(metric.label)}</td>
-      <td class="mono">${formatPeso(metric.amount)}</td>
-      <td class="mono">${metric.percent.toFixed(2)}%</td>
-      <td class="mono">${metric.affectedRows.toLocaleString()}</td>
-    </tr>`));
+  if (reportCategoryChart) { reportCategoryChart.destroy(); reportCategoryChart = null; }
+  document.getElementById('report-category-chart-card').style.display = 'none';
+  const adjCols = [
+    { key:'discounts', label:'Discounts' },
+    { key:'badOrder', label:'Bad Orders' },
+    { key:'returns', label:'Returns' },
+    { key:'noStock', label:'No Stock' },
+    { key:'lacking', label:'Lacking' },
+    { key:'ewt', label:'EWT Withheld' },
+  ];
+  const monthlyRows = months.map(month => {
+    const monthRows = rows.filter(row => (reportDate(row) || '').startsWith(month));
+    const monthGross = monthRows.reduce((value, row) => value + purchaseGrossAmount(row), 0);
+    const percentByKey = Object.fromEntries(purchaseAdjustmentMetrics(monthRows).map(metric => [metric.key, metric.percent]));
+    return `<tr>
+      <td>${escReport(reportMonthDisplay(month))}</td>
+      <td class="mono">${formatPeso(monthGross)}</td>
+      ${adjCols.map(col => `<td class="mono">${(percentByKey[col.key] || 0).toFixed(2)}%</td>`).join('')}
+    </tr>`;
+  });
+  renderTable('primary', 'Monthly Purchase Adjustments (% of Net Purchases)',
+    ['Month', 'Gross Purchases', ...adjCols.map(col => `${col.label} %`)],
+    monthlyRows);
   hideSecondaryTable();
 }
 
@@ -972,47 +1186,210 @@ function renderInventoryReport() {
     { label:'Total Items Received', value:quantity.toLocaleString() },
     { label:'Unique Products', value:unique.toLocaleString() },
   ]);
-  const outgoing = REPORT_DATA.inventory.filter(inReportRange)
-    .filter(row => String(row.type || 'Incoming').toLowerCase() === 'outgoing');
-  const totalIncomingUnits = incoming.reduce((total, row) => total + (Number(row.quantity ?? row.qty ?? 0) || 0), 0);
-  const totalOutgoingUnits = outgoing.reduce((total, row) => total + (Number(row.quantity ?? row.qty ?? 0) || 0), 0);
-  const totalUnits = totalIncomingUnits + totalOutgoingUnits;
-  const invCard = document.getElementById('report-chart-card');
-  if (totalUnits === 0 || typeof Chart === 'undefined') {
-    invCard.style.display = 'none';
-  } else {
-    invCard.style.display = '';
-    if (reportChart) {
-      if (reportChart === purchasesBarChart) purchasesBarChart = null;
-      reportChart.destroy();
-    }
-    const inPct = (totalIncomingUnits / totalUnits * 100).toFixed(1);
-    const outPct = (totalOutgoingUnits / totalUnits * 100).toFixed(1);
-    reportChart = new Chart(document.getElementById('report-chart'), {
-      type: 'pie',
-      data: {
-        labels: [
-          `Total Incoming Units: ${totalIncomingUnits.toLocaleString()} (${inPct}%)`,
-          `Total Outgoing Units: ${totalOutgoingUnits.toLocaleString()} (${outPct}%)`
-        ],
-        datasets: [{ data: [totalIncomingUnits, totalOutgoingUnits],
-          backgroundColor: ['#16a34a', '#dc2626'], borderColor: '#ffffff', borderWidth: 2 }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          title: { display: true, text: 'Total Incoming vs Outgoing Units', font: { size: 13, weight: '500' } },
-          legend: { position: 'bottom', labels: { font: { size: 12 }, padding: 16 } },
-          tooltip: { callbacks: { label: context => {
-            const pct = (context.parsed / totalUnits * 100).toFixed(1);
-            return ` ${context.label.split(':')[0]}: ${context.parsed.toLocaleString()} units (${pct}%)`;
-          } } }
-        }
-      }
-    });
-  }
-  renderInventoryMovementTable();
+  renderInventoryTrendControls();
+  renderInventorySalesTrend();
+  renderInventoryMonthlyMatrix();
   hideSecondaryTable();
+}
+
+function inventoryMatrixRows() {
+  const map = new Map();
+  REPORT_DATA.sales.filter(inReportRange).forEach(row => {
+    const code = String(row.itemCode || '').trim();
+    if (!code) return;
+    const month = (reportDate(row) || '').slice(0, 7);
+    let rec = map.get(code);
+    if (!rec) { rec = { code, name: row.productName || code, category: row.category || 'Uncategorized', monthly: {}, total: 0 }; map.set(code, rec); }
+    const units = Number(row.unitsSold) || 0;
+    if (month) rec.monthly[month] = (rec.monthly[month] || 0) + units;
+    rec.total += units;
+  });
+  return [...map.values()];
+}
+
+function setInvMatrixSearch(value) { invMatrixState.search = value; invMatrixState.page = 1; renderInventoryMonthlyMatrix(); }
+function setInvMatrixCategory(value) { invMatrixState.category = value; invMatrixState.page = 1; renderInventoryMonthlyMatrix(); }
+function setInvMatrixSort(key) {
+  if (invMatrixState.sortKey === key) invMatrixState.sortDir = invMatrixState.sortDir === 'asc' ? 'desc' : 'asc';
+  else { invMatrixState.sortKey = key; invMatrixState.sortDir = ['code', 'name', 'category'].includes(key) ? 'asc' : 'desc'; }
+  invMatrixState.page = 1; renderInventoryMonthlyMatrix();
+}
+function goInvMatrixPage(p) { invMatrixState.page = p; renderInventoryMonthlyMatrix(); }
+
+function renderInventoryMonthlyMatrix() {
+  const st = invMatrixState;
+  const from = document.getElementById('report-start').value;
+  const to = document.getElementById('report-end').value;
+  const months = (from && to) ? reportMonthsBetween(from, to) : [];
+  const allRows = inventoryMatrixRows();
+  const categories = [...new Set(allRows.map(r => r.category).filter(Boolean))].sort();
+  document.getElementById('report-primary-title').textContent = 'Monthly Sales by Item (Units)';
+  document.getElementById('inventory-movement-controls').innerHTML = `<div class="inventory-controls-grid inventory-controls-row">
+    <label>Date Range <span>${from || '—'} to ${to || '—'}</span></label>
+    <label>Search <input class="form-input inventory-search" placeholder="Search item code or name…" value="${escReport(st.search)}" onchange="setInvMatrixSearch(this.value)"></label>
+    <label>Category <select class="form-select" onchange="setInvMatrixCategory(this.value)"><option value="">All</option>${categories.map(c => `<option${st.category === c ? ' selected' : ''}>${escReport(c)}</option>`).join('')}</select></label>
+  </div>`;
+  const q = st.search.trim().toLowerCase();
+  const rows = allRows
+    .filter(r => !q || r.code.toLowerCase().includes(q) || String(r.name).toLowerCase().includes(q))
+    .filter(r => !st.category || r.category === st.category)
+    .sort((a, b) => {
+      let av, bv;
+      if (st.sortKey === 'code') { av = a.code; bv = b.code; }
+      else if (st.sortKey === 'name') { av = a.name; bv = b.name; }
+      else if (st.sortKey === 'category') { av = a.category; bv = b.category; }
+      else if (st.sortKey === 'total') { av = a.total; bv = b.total; }
+      else { av = a.monthly[st.sortKey] || 0; bv = b.monthly[st.sortKey] || 0; }
+      const cmp = (typeof av === 'number' && typeof bv === 'number') ? av - bv : String(av).localeCompare(String(bv));
+      return st.sortDir === 'asc' ? cmp : -cmp;
+    });
+  const pages = Math.max(1, Math.ceil(rows.length / st.pageSize));
+  if (st.page > pages) st.page = pages;
+  const startIdx = (st.page - 1) * st.pageSize;
+  const visible = rows.slice(startIdx, startIdx + st.pageSize);
+  const arrow = k => st.sortKey === k ? (st.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+  const headerCols = [['code', 'Item Code'], ['name', 'Description'], ['category', 'Category'],
+    ...months.map(m => [m, reportMonthDisplay(m)]), ['total', 'Total']];
+  document.getElementById('report-primary-head').innerHTML =
+    `<tr>${headerCols.map(([k, l]) => `<th class="sortable" onclick="setInvMatrixSort('${k}')">${escReport(l)}${arrow(k)}</th>`).join('')}</tr>`;
+  document.getElementById('report-primary-body').innerHTML = visible.length
+    ? visible.map(r => `<tr>
+        <td class="mono">${escReport(r.code)}</td>
+        <td>${escReport(r.name)}</td>
+        <td>${escReport(r.category)}</td>
+        ${months.map(m => `<td class="mono">${(r.monthly[m] || 0).toLocaleString()}</td>`).join('')}
+        <td class="mono"><strong>${r.total.toLocaleString()}</strong></td>
+      </tr>`).join('')
+    : `<tr><td colspan="${headerCols.length}"><div class="empty-state"><p>No sales for the selected period.</p></div></td></tr>`;
+  document.getElementById('inventory-movement-pagination')?.remove();
+  const startNum = rows.length ? startIdx + 1 : 0;
+  document.getElementById('report-primary-card').insertAdjacentHTML('beforeend', `<div class="inventory-pagination" id="inventory-movement-pagination">
+    <span>Showing ${startNum}–${Math.min(startIdx + st.pageSize, rows.length)} of ${rows.length} items</span>
+    <button class="btn btn-outline-gray btn-sm" ${st.page === 1 ? 'disabled' : ''} onclick="goInvMatrixPage(${st.page - 1})">Prev</button>
+    <span>Page ${st.page} / ${pages}</span>
+    <button class="btn btn-outline-gray btn-sm" ${st.page === pages ? 'disabled' : ''} onclick="goInvMatrixPage(${st.page + 1})">Next</button>
+  </div>`);
+}
+
+function renderInventoryTrendControls() {
+  const placeholder = inventoryTrendMode === 'category' ? 'Search category…' : 'Search item code or name…';
+  document.getElementById('report-extra-filters').innerHTML = `
+    <div class="inv-trend-controls">
+      <select class="form-select" onchange="setInventoryTrendMode(this.value)">
+        <option value="item"${inventoryTrendMode === 'item' ? ' selected' : ''}>By Item</option>
+        <option value="category"${inventoryTrendMode === 'category' ? ' selected' : ''}>By Category</option>
+      </select>
+      <div class="inv-trend-search-wrap">
+        <input class="form-input" id="inv-trend-search" placeholder="${placeholder}" autocomplete="off" oninput="onInventoryTrendSearch(this.value)">
+        <div class="inv-trend-results" id="inv-trend-results"></div>
+      </div>
+      <div class="inv-trend-chips" id="inv-trend-chips"></div>
+    </div>`;
+  renderInventoryTrendChips();
+}
+
+function setInventoryTrendMode(mode) {
+  inventoryTrendMode = mode === 'category' ? 'category' : 'item';
+  inventoryTrendSelections = [];
+  inventoryTrendQuery = '';
+  inventoryTrendResultOpts = [];
+  renderInventoryTrendControls();
+  renderInventorySalesTrend();
+}
+
+function onInventoryTrendSearch(value) {
+  inventoryTrendQuery = value;
+  const el = document.getElementById('inv-trend-results');
+  const q = value.trim().toLowerCase();
+  if (!q) { inventoryTrendResultOpts = []; el.classList.remove('open'); el.innerHTML = ''; return; }
+  const selectedKeys = new Set(inventoryTrendSelections.map(s => s.key));
+  if (inventoryTrendMode === 'category') {
+    const cats = [...new Set(REPORT_DATA.sales.map(r => r.category || 'Uncategorized'))].sort();
+    inventoryTrendResultOpts = cats.filter(c => !selectedKeys.has(c) && c.toLowerCase().includes(q))
+      .slice(0, 50).map(c => ({ key: c, label: c }));
+  } else {
+    const items = new Map();
+    REPORT_DATA.sales.forEach(r => {
+      const code = String(r.itemCode || '').trim();
+      if (code && !items.has(code)) items.set(code, r.productName || code);
+    });
+    inventoryTrendResultOpts = [...items.entries()]
+      .filter(([code, name]) => !selectedKeys.has(code) && (code.toLowerCase().includes(q) || String(name).toLowerCase().includes(q)))
+      .slice(0, 50).map(([code, name]) => ({ key: code, label: name }));
+  }
+  el.innerHTML = inventoryTrendResultOpts.length
+    ? inventoryTrendResultOpts.map((o, i) => `<button type="button" class="inv-trend-result" onmousedown="addInventoryTrendSelection(${i})">${escReport(o.label)}${inventoryTrendMode === 'item' ? ` <span style="color:#94a3b8">(${escReport(o.key)})</span>` : ''}</button>`).join('')
+    : '<div class="inv-trend-result" style="color:#94a3b8;cursor:default">No matches</div>';
+  el.classList.add('open');
+}
+
+function addInventoryTrendSelection(index) {
+  const opt = inventoryTrendResultOpts[index];
+  if (!opt) return;
+  if (!inventoryTrendSelections.some(s => s.key === opt.key)) inventoryTrendSelections.push(opt);
+  inventoryTrendQuery = '';
+  inventoryTrendResultOpts = [];
+  const input = document.getElementById('inv-trend-search');
+  if (input) input.value = '';
+  const results = document.getElementById('inv-trend-results');
+  results.classList.remove('open');
+  results.innerHTML = '';
+  renderInventoryTrendChips();
+  renderInventorySalesTrend();
+}
+
+function removeInventoryTrendSelection(index) {
+  inventoryTrendSelections.splice(index, 1);
+  renderInventoryTrendChips();
+  renderInventorySalesTrend();
+}
+
+function renderInventoryTrendChips() {
+  const el = document.getElementById('inv-trend-chips');
+  if (!el) return;
+  el.innerHTML = inventoryTrendSelections.map((s, i) =>
+    `<span class="inv-trend-chip">${escReport(s.label)}<button type="button" onmousedown="removeInventoryTrendSelection(${i})" aria-label="Remove">×</button></span>`).join('');
+}
+
+const INVENTORY_TREND_PALETTE = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#db2777','#65a30d','#f59e0b','#10b981'];
+
+function renderInventorySalesTrend() {
+  const card = document.getElementById('report-chart-card');
+  card.style.display = '';
+  if (typeof Chart === 'undefined') return;
+  if (reportChart) { if (reportChart === purchasesBarChart) purchasesBarChart = null; reportChart.destroy(); reportChart = null; }
+  const from = document.getElementById('report-start').value;
+  const to = document.getElementById('report-end').value;
+  const months = (from && to) ? reportMonthsBetween(from, to) : [];
+  const inRangeSales = REPORT_DATA.sales.filter(inReportRange);
+  const datasets = inventoryTrendSelections.map((sel, i) => {
+    const color = INVENTORY_TREND_PALETTE[i % INVENTORY_TREND_PALETTE.length];
+    const sales = inRangeSales.filter(row => inventoryTrendMode === 'category'
+      ? (row.category || 'Uncategorized') === sel.key
+      : String(row.itemCode || '').trim() === sel.key);
+    const data = months.map(month =>
+      sales.filter(row => (reportDate(row) || '').startsWith(month)).reduce((total, row) => total + (Number(row.unitsSold) || 0), 0));
+    return { label: sel.label, data, borderColor: color, backgroundColor: color,
+      tension: 0.25, fill: false, pointRadius: 3, borderWidth: 2 };
+  });
+  const title = datasets.length ? 'Monthly Sales (Units)'
+    : 'Search and select item(s) or categories above to view monthly sales (units)';
+  reportChart = new Chart(document.getElementById('report-chart'), {
+    type: 'line',
+    data: { labels: months.map(reportMonthDisplay), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: title, font: { size: 13, weight: '500' } },
+        legend: { display: datasets.length > 0, position: 'bottom' },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${Number(ctx.parsed.y).toLocaleString()} units` } }
+      },
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: 'Units Sold (actual count, not in thousands)' }, ticks: { callback: v => Number(v).toLocaleString() } },
+        x: { title: { display: true, text: 'Month' } }
+      }
+    }
+  });
 }
 
 function reportInventoryProduct(itemCode) {
@@ -1021,239 +1398,8 @@ function reportInventoryProduct(itemCode) {
     String(product.itemCode || product.code || '').trim() === code);
 }
 
-function reportInventoryDescription(itemCode, fallback = '') {
-  const product = reportInventoryProduct(itemCode);
-  return String(product?.productName || product?.name || fallback || '').trim();
-}
-
 function reportInventoryCategory(itemCode) {
   return String(reportInventoryProduct(itemCode)?.category || '').trim() || 'Uncategorized';
-}
-
-function inventoryMovementRows() {
-  const products = new Map();
-  const fullIncomingByCode = new Map();
-  REPORT_DATA.inventory.forEach(row => {
-    const itemCode = String(row.itemCode || '').trim();
-    if (!itemCode || String(row.type || 'Incoming').toLowerCase() === 'outgoing') return;
-    fullIncomingByCode.set(itemCode, (fullIncomingByCode.get(itemCode) || 0) + (Number(row.quantity ?? row.qty ?? 0) || 0));
-  });
-  REPORT_DATA.inventory.filter(inReportRange).forEach(row => {
-    const itemCode = String(row.itemCode || '').trim();
-    if (!itemCode) return;
-    const date = reportDate(row);
-    const current = products.get(itemCode) || {
-      itemCode, description:reportInventoryDescription(itemCode, row.description || row.itemName || row.productName || ''),
-      category:reportInventoryCategory(itemCode), supplier:row.supplier || '',
-      unitCost:0, latestCostDate:'', totalIncoming:0, totalOutgoing:0, incomingValue:0, outgoingValue:0
-    };
-    const qty = Number(row.quantity ?? row.qty ?? 0) || 0;
-    const cost = Number(row.unitCost ?? row.cost ?? 0) || 0;
-    if (String(row.type || 'Incoming').toLowerCase() === 'outgoing') {
-      current.totalOutgoing += qty;
-      current.outgoingValue += Number(row.totalCost ?? row.total ?? qty * cost) || 0;
-    } else {
-      current.totalIncoming += qty;
-      current.incomingValue += Number(row.totalCost ?? row.total ?? qty * cost) || 0;
-      if (!current.latestCostDate || date >= current.latestCostDate) {
-        current.unitCost = cost;
-        current.latestCostDate = date;
-      }
-    }
-    products.set(itemCode, current);
-  });
-  return [...products.values()].map(row => ({
-    ...row, netStock:row.totalIncoming - row.totalOutgoing,
-    outgoingPct:row.totalIncoming ? row.totalOutgoing / row.totalIncoming * 100 : 0,
-    incomingOutsideRange:row.totalIncoming === 0 && row.totalOutgoing > 0 && (fullIncomingByCode.get(row.itemCode) || 0) > 0
-  }));
-}
-
-function inventoryMovementHistory(itemCode) {
-  return REPORT_DATA.inventory
-    .filter(row => String(row.itemCode || '').trim() === String(itemCode || '').trim())
-    .sort((a, b) => reportDate(b).localeCompare(reportDate(a)));
-}
-
-function inventoryRangeDateLabel(value) {
-  if (!value) return 'Any date';
-  const parsed = new Date(`${value}T00:00:00`);
-  return Number.isNaN(parsed.getTime())
-    ? value
-    : parsed.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-}
-
-function inventoryHistoryList(rows) {
-  return rows.length ? rows.map(row => `
-    <div class="inventory-history-row">
-      <span>${escReport(inventoryRangeDateLabel(reportDate(row)))}</span>
-      <strong>${(Number(row.quantity ?? row.qty ?? 0) || 0).toLocaleString()} units</strong>
-    </div>`).join('') : '<div class="inventory-history-empty">No records found.</div>';
-}
-
-function openInventoryMovementDetail(itemCode) {
-  const row = inventoryMovementRows().find(item => item.itemCode === String(itemCode || '').trim());
-  if (!row) return;
-  const history = inventoryMovementHistory(row.itemCode);
-  const incomingHistory = history.filter(item => String(item.type || 'Incoming').toLowerCase() !== 'outgoing');
-  const outgoingHistory = history.filter(item => String(item.type || '').toLowerCase() === 'outgoing');
-  const start = inventoryRangeDateLabel(document.getElementById('report-start').value);
-  const end = inventoryRangeDateLabel(document.getElementById('report-end').value);
-  document.getElementById('inventory-detail-title').textContent =
-    `${row.description || row.itemCode}: Inventory Movement`;
-  document.getElementById('inventory-detail-body').innerHTML = `
-    <div class="inventory-detail-scope">
-      <h4>In selected range (${escReport(start)} - ${escReport(end)})</h4>
-      <p><strong>Incoming:</strong> ${row.totalIncoming.toLocaleString()} units / <strong>Outgoing:</strong> ${row.totalOutgoing.toLocaleString()} units</p>
-      ${row.incomingOutsideRange ? '<div class="inventory-detail-note">ⓘ Incoming stock exists for this item, but it was received outside the selected date range.</div>' : ''}
-    </div>
-    <div class="inventory-history-section">
-      <h4>Full movement history (all dates)</h4>
-      <div class="inventory-history-grid">
-        <div class="inventory-history-card"><h5>Incoming</h5><div class="inventory-history-list">${inventoryHistoryList(incomingHistory)}</div></div>
-        <div class="inventory-history-card"><h5>Outgoing</h5><div class="inventory-history-list">${inventoryHistoryList(outgoingHistory)}</div></div>
-      </div>
-    </div>`;
-  openModal('modal-inventory-movement-detail');
-}
-
-function inventoryMovementFlag(outgoingPct) {
-  if (outgoingPct >= inventoryMovementState.highThreshold) return 'high';
-  if (outgoingPct <= inventoryMovementState.lowThreshold) return 'low';
-  return 'normal';
-}
-
-function inventoryRangeMatch(value, range) {
-  const number = Number(value) || 0;
-  return (range.min === '' || number >= Number(range.min)) && (range.max === '' || number <= Number(range.max));
-}
-
-function filteredInventoryMovementRows() {
-  const state = inventoryMovementState;
-  const filters = state.filters;
-  const text = value => String(value || '').toLowerCase();
-  const query = state.search.trim().toLowerCase();
-  return inventoryMovementRows()
-    .filter(row => !query || text(row.itemCode).includes(query) || text(row.description).includes(query))
-    .filter(row => !filters.itemCode || text(row.itemCode).includes(text(filters.itemCode)))
-    .filter(row => !filters.description || text(row.description).includes(text(filters.description)))
-    .filter(row => !filters.category || row.category === filters.category)
-    .filter(row => !filters.supplier || text(row.supplier).includes(text(filters.supplier)))
-    .filter(row => ['unitCost','totalIncoming','incomingValue','totalOutgoing','outgoingValue','netStock','outgoingPct']
-      .every(key => inventoryRangeMatch(row[key], filters[key])))
-    .filter(row => state.flag === 'all' || inventoryMovementFlag(row.outgoingPct) === state.flag)
-    .sort((a,b) => {
-      const left = a[state.sortKey], right = b[state.sortKey];
-      const result = typeof left === 'number' && typeof right === 'number'
-        ? left - right : String(left || '').localeCompare(String(right || ''));
-      return result * (state.sortDir === 'asc' ? 1 : -1);
-    });
-}
-
-function setInventoryMovementState(key, value) {
-  inventoryMovementState[key] = value;
-  inventoryMovementState.page = 1;
-  renderInventoryMovementTable();
-}
-
-function setInventoryMovementFilter(key, value, part = '') {
-  if (part) inventoryMovementState.filters[key][part] = value;
-  else inventoryMovementState.filters[key] = value;
-  inventoryMovementState.page = 1;
-  renderInventoryMovementTable();
-}
-
-function applyInventoryThresholds() {
-  inventoryMovementState.highThreshold = Number(document.getElementById('inventory-high-threshold').value) || 75;
-  inventoryMovementState.lowThreshold = Number(document.getElementById('inventory-low-threshold').value) || 25;
-  inventoryMovementState.page = 1;
-  logAudit('Settings', 'Inventory Report Thresholds',
-    `Updated outgoing thresholds - high ${inventoryMovementState.highThreshold}%, low ${inventoryMovementState.lowThreshold}%`);
-  renderInventoryMovementTable();
-}
-
-function sortInventoryMovement(key) {
-  inventoryMovementState.sortDir = inventoryMovementState.sortKey === key && inventoryMovementState.sortDir === 'desc' ? 'asc' : 'desc';
-  inventoryMovementState.sortKey = key;
-  inventoryMovementState.page = 1;
-  renderInventoryMovementTable();
-}
-
-function goToInventoryMovementPage(page) {
-  inventoryMovementState.page = page;
-  renderInventoryMovementTable();
-}
-
-function inventoryNumberFilter(key) {
-  const range = inventoryMovementState.filters[key];
-  return `<div class="inventory-num-filter"><input class="form-input" type="number" placeholder="Min" value="${range.min}" onchange="setInventoryMovementFilter('${key}',this.value,'min')"><input class="form-input" type="number" placeholder="Max" value="${range.max}" onchange="setInventoryMovementFilter('${key}',this.value,'max')"></div>`;
-}
-
-function syncCustomHorizontalScroll() {
-  const topScroll = document.getElementById('custom-horizontal-scroll');
-  const topContent = document.getElementById('custom-horizontal-scroll-content');
-  const chartScroll = document.getElementById('sales-bar-container');
-  const chart = document.getElementById('report-chart');
-  if (!topScroll || !topContent || !chartScroll || !chart) return;
-  topContent.style.width = `${Math.max(chart.scrollWidth, 1200)}px`;
-  topScroll.scrollLeft = chartScroll.scrollLeft;
-  topScroll.onscroll = () => {
-    if (chartScroll.scrollLeft !== topScroll.scrollLeft) chartScroll.scrollLeft = topScroll.scrollLeft;
-  };
-  chartScroll.onscroll = () => {
-    if (topScroll.scrollLeft !== chartScroll.scrollLeft) topScroll.scrollLeft = chartScroll.scrollLeft;
-  };
-}
-
-function renderInventoryMovementTable() {
-  const state = inventoryMovementState;
-  const categories = [...new Set(inventoryMovementRows().map(row => row.category).filter(Boolean))].sort();
-  document.getElementById('report-primary-title').textContent = 'Inventory Movement Analysis';
-  document.getElementById('inventory-movement-controls').innerHTML = `<div class="inventory-controls-grid inventory-controls-row">
-    <label>Date Range <span>${document.getElementById('report-start').value || '—'} to ${document.getElementById('report-end').value || '—'}</span></label>
-    <label>High outgoing % <input class="form-input" id="inventory-high-threshold" type="number" value="${state.highThreshold}"></label>
-    <label>Low outgoing % <input class="form-input" id="inventory-low-threshold" type="number" value="${state.lowThreshold}"></label>
-    <button class="btn btn-primary btn-sm" onclick="applyInventoryThresholds()">Apply Threshold</button>
-    <label>Search <input class="form-input inventory-search" placeholder="Search item code or name..." value="${escReport(state.search)}" onchange="setInventoryMovementState('search',this.value)"></label>
-    <label>Filter by flag <select class="form-select" onchange="setInventoryMovementState('flag',this.value)">${['all','high','low','normal'].map(value => `<option value="${value}"${state.flag === value ? ' selected' : ''}>${{all:'All',high:'High',low:'Low',normal:'Normal'}[value]}</option>`).join('')}</select></label>
-    <label>Sort by <select class="form-select" onchange="setInventoryMovementState('sortKey',this.value)">${[
-      ['outgoingPct','Outgoing %'],['incomingValue','Total Incoming (₱)'],['totalIncoming','Incoming Units'],['totalOutgoing','Outgoing Units'],['outgoingValue','Outgoing Value (₱)']
-    ].map(([value,label]) => `<option value="${value}"${state.sortKey === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
-    <label>Direction <select class="form-select" onchange="setInventoryMovementState('sortDir',this.value)"><option value="desc"${state.sortDir === 'desc' ? ' selected' : ''}>↓ Desc</option><option value="asc"${state.sortDir === 'asc' ? ' selected' : ''}>↑ Asc</option></select></label>
-  </div>`;
-  const columns = [
-    ['itemCode','Item Code'],['description','Description'],['category','Category'],['incomingValue','Total Incoming (₱)'],['totalIncoming','Incoming Units'],
-    ['totalOutgoing','Outgoing Units'],['outgoingValue','Outgoing Value (₱)'],['outgoingPct','Outgoing %'],['flag','Flag']
-  ];
-  document.getElementById('report-primary-head').innerHTML = `<tr>${columns.map(([key,label]) => `<th${key === 'flag' ? '' : ` class="sortable" onclick="sortInventoryMovement('${key}')"`}>${label}${state.sortKey === key ? (state.sortDir === 'asc' ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr>
-    <tr class="inventory-filter-row">
-      <th><input class="form-input" placeholder="Filter..." value="${escReport(state.filters.itemCode)}" onchange="setInventoryMovementFilter('itemCode',this.value)"></th>
-      <th><input class="form-input" placeholder="Filter..." value="${escReport(state.filters.description)}" onchange="setInventoryMovementFilter('description',this.value)"></th>
-      <th><select class="form-select" onchange="setInventoryMovementFilter('category',this.value)"><option value="">All</option>${categories.map(category => `<option${state.filters.category === category ? ' selected' : ''}>${escReport(category)}</option>`).join('')}</select></th>
-      ${['incomingValue','totalIncoming','totalOutgoing','outgoingValue','outgoingPct'].map(key => `<th>${inventoryNumberFilter(key)}</th>`).join('')}
-      <th><select class="form-select" onchange="setInventoryMovementState('flag',this.value)">${['all','high','low','normal'].map(value => `<option value="${value}"${state.flag === value ? ' selected' : ''}>${{all:'All',high:'High',low:'Low',normal:'Normal'}[value]}</option>`).join('')}</select></th>
-    </tr>`;
-  const rows = filteredInventoryMovementRows();
-  const pages = Math.max(1, Math.ceil(rows.length / state.pageSize));
-  if (state.page > pages) state.page = pages;
-  const visible = rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
-  document.getElementById('report-primary-body').innerHTML = visible.length ? visible.map(row => {
-    const flag = inventoryMovementFlag(row.outgoingPct);
-    return `<tr class="inventory-movement-row ${flag === 'high' ? 'inventory-row-high' : flag === 'low' ? 'inventory-row-low' : ''}" data-item-code="${escReport(row.itemCode)}" onclick="openInventoryMovementDetail(this.dataset.itemCode)">
-      <td>${escReport(row.itemCode)}</td><td>${escReport(row.description)}${row.incomingOutsideRange ? '<span class="inventory-range-note">ⓘ Incoming exists outside this date range</span>' : ''}</td><td>${escReport(row.category)}</td>
-      <td class="mono">${formatPeso(row.incomingValue)}</td><td class="mono">${row.totalIncoming.toLocaleString()}</td>
-      <td class="mono">${row.totalOutgoing.toLocaleString()}</td><td class="mono">${formatPeso(row.outgoingValue)}</td>
-      <td class="mono">${row.outgoingPct.toFixed(1)}%</td><td>${flag === 'normal' ? '' : `<span class="inventory-flag ${flag}">${flag === 'high' ? '🟡 High' : '🔵 Low'}</span>`}</td>
-    </tr>`;
-  }).join('') : '<tr><td colspan="9"><div class="empty-state"><p>No inventory products match the selected filters.</p></div></td></tr>';
-  const start = rows.length ? (state.page - 1) * state.pageSize + 1 : 0;
-  document.getElementById('inventory-movement-pagination')?.remove();
-  document.getElementById('report-primary-card').insertAdjacentHTML('beforeend', `<div class="inventory-pagination" id="inventory-movement-pagination">
-    <span>Showing ${start}–${Math.min(state.page * state.pageSize, rows.length)} of ${rows.length} products</span>
-    <button class="btn btn-outline-gray btn-sm" ${state.page === 1 ? 'disabled' : ''} onclick="goToInventoryMovementPage(${state.page - 1})">Prev</button>
-    <span>Page ${state.page} / ${pages}</span>
-    <button class="btn btn-outline-gray btn-sm" ${state.page === pages ? 'disabled' : ''} onclick="goToInventoryMovementPage(${state.page + 1})">Next</button>
-  </div>`);
 }
 
 function customSourceRows() {
@@ -1527,17 +1673,21 @@ function renderCashFlowReport() {
   const salesIn  = REPORT_DATA.sales.filter(inReportRange);
   const purOut   = reportPurchasesData().filter(inReportRange);
   const supOut   = REPORT_DATA.supplies.filter(inReportRange);
+  const expOut   = REPORT_DATA.expenses.filter(inReportRange);
   const months   = from && to ? reportMonthsBetween(from, to) : [...new Set([
     ...salesIn.map(r => (reportDate(r)||'').slice(0,7)),
     ...purOut.map(r  => (reportDate(r)||'').slice(0,7)),
     ...supOut.map(r  => (reportDate(r)||'').slice(0,7)),
+    ...expOut.map(r  => (reportDate(r)||'').slice(0,7)),
   ])].filter(Boolean).sort();
   const mInflow  = m => salesIn.filter(r=>(reportDate(r)||'').startsWith(m)).reduce((s,r)=>s+(Number(r.totalRevenue)||0),0);
   const mOutflow = m => purOut.filter(r=>(reportDate(r)||'').startsWith(m)).reduce((s,r)=>s+purchaseSpend(r),0)
-                      + supOut.filter(r=>(reportDate(r)||'').startsWith(m)).reduce((s,r)=>s+(Number(r.totalCost??r.amount)||0),0);
+                      + supOut.filter(r=>(reportDate(r)||'').startsWith(m)).reduce((s,r)=>s+(Number(r.totalCost??r.amount)||0),0)
+                      + expOut.filter(r=>(reportDate(r)||'').startsWith(m)).reduce((s,r)=>s+(Number(r.amount)||0),0);
   const totalInflow  = salesIn.reduce((s,r)=>s+(Number(r.totalRevenue)||0),0);
   const totalOutflow = purOut.reduce((s,r)=>s+purchaseSpend(r),0)
-                     + supOut.reduce((s,r)=>s+(Number(r.totalCost??r.amount)||0),0);
+                     + supOut.reduce((s,r)=>s+(Number(r.totalCost??r.amount)||0),0)
+                     + expOut.reduce((s,r)=>s+(Number(r.amount)||0),0);
   const netCashFlow  = totalInflow - totalOutflow;
   const overrideRaw  = localStorage.getItem(CF_OVERRIDE_KEY);
   const beginBal     = overrideRaw !== null ? Number(overrideRaw) : cfComputedBeginBalance(from);
@@ -1622,6 +1772,7 @@ function renderActiveReport() {
   document.getElementById('report-top-n-control').innerHTML = '';
   document.getElementById('inventory-movement-controls').innerHTML = '';
   document.getElementById('inventory-movement-pagination')?.remove();
+  document.getElementById('flagged-pagination')?.remove();
   document.getElementById('cf-begin-section').style.display = 'none';
   document.getElementById('report-primary-table').classList.toggle('is-table',
     activeReportTab === 'income' || activeReportTab === 'tax');
@@ -1658,7 +1809,7 @@ function exportCustomCSV() {
 async function refreshReportData() {
   await withReportProgress('Loading report data...', async () => {
     try {
-      await loadReportData();
+      await ensureActiveReportData({ force: true });
     } catch (err) {
       console.error('[Reports] Firestore refresh failed:', err);
       alert('Could not refresh report data. Please check your connection and try again.');
@@ -1684,19 +1835,12 @@ async function initReports() {
     }
   }
   try {
-    await loadReportData();
+    await ensureActiveReportData();
   } catch (err) {
     console.error('[Reports] Firestore load failed:', err);
     alert('Could not load report data. Please check your connection and refresh.');
   }
   renderActiveReport();
-  const db = getFirestoreDB();
-  if (db) {
-    db.collection('productMaster').onSnapshot(snapshot => {
-      REPORT_DATA.productMaster = snapshot.docs.map(doc => ({ _firestoreId:doc.id, ...doc.data() }));
-      if (activeReportTab === 'inventory') renderInventoryReport();
-    }, err => console.error('[Reports] Product Master listener failed:', err));
-  }
 }
 
 initReports();

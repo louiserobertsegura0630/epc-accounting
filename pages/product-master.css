@@ -94,6 +94,35 @@
       transition: background 0.2s ease;
     }
     #prod-tbody tr.pm-url-highlight td:first-child { box-shadow: inset 4px 0 0 var(--primary); }
+    .pm-view-tabs {
+      display: flex;
+      gap: 8px;
+      margin: 4px 0 16px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .pm-view-tab {
+      appearance: none;
+      border: 0;
+      border-bottom: 3px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 12px 14px;
+    }
+    .pm-view-tab.active {
+      border-bottom-color: var(--primary);
+      color: var(--primary);
+    }
+    .pm-detail-page .table-toolbar {
+      gap: 14px;
+      justify-content: flex-start;
+    }
+    .pm-detail-body {
+      padding: 20px;
+    }
     .pm-detail-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -112,5 +141,9 @@
     .pm-latest-cost { background: #eff6ff; border-color: #bfdbfe !important; }
     .pm-latest-cost strong { color: var(--primary); font-size: 20px; }
     .pm-history-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--card-border); border-radius: 8px; }
+    .pm-detail-pagination {
+      border-top: 0;
+      padding: 14px 0 0;
+    }
     .pm-average-cost { margin-top: 14px; text-align: right; font-size: 13px; color: var(--text-secondary); }
     .pm-average-cost strong { margin-left: 8px; color: var(--text-primary); font-size: 16px; }

@@ -44,8 +44,13 @@
     <!-- Summary -->
     <div class="summary-row" id="prod-summary"></div>
 
+    <div class="pm-view-tabs">
+      <button class="pm-view-tab active" type="button" id="pm-tab-catalog" onclick="showProductCatalogView()">Product Catalog</button>
+      <button class="pm-view-tab" type="button" id="pm-tab-detail">Product Detail</button>
+    </div>
+
     <!-- Table -->
-    <div class="table-container">
+    <div class="table-container" id="product-catalog-view">
       <div class="table-toolbar">
         <span class="table-toolbar-title">Product Catalog</span>
         <input type="text" class="search-input" id="search-prod" placeholder="Search code, name, category, supplier…">
@@ -70,6 +75,14 @@
         </table>
       </div>
       <div class="pagination-bar" id="prod-pagination"></div>
+    </div>
+
+    <div class="table-container pm-detail-page" id="product-detail-view" style="display:none">
+      <div class="table-toolbar">
+        <button class="btn btn-outline-gray btn-sm" type="button" onclick="showProductCatalogView()">← Back to Product Catalog</button>
+        <span class="table-toolbar-title" id="pm-detail-page-title">Product Detail</span>
+      </div>
+      <div class="pm-detail-body" id="pm-detail-page-body"></div>
     </div>
 
   </div>
@@ -142,20 +155,6 @@
   </div>
 </div>
 
-<!-- Product Cost History Modal -->
-<div class="modal-overlay" id="modal-product-cost-history">
-  <div class="modal-card modal-lg">
-    <div class="modal-header">
-      <span class="modal-title" id="pm-detail-title">Product Details</span>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body" id="pm-detail-body"></div>
-    <div class="modal-footer">
-      <button class="btn btn-outline-gray" data-close-modal>Close</button>
-    </div>
-  </div>
-</div>
-
 <!-- Delete Products Modal -->
 <div class="modal-overlay" id="modal-delete-products">
   <div class="modal-card" style="max-width:460px">
@@ -177,7 +176,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20260609-localrole"></script>
 <script src="../assets/shared-utils.js"></script>
 <script src="product-master.js"></script>
 </body>

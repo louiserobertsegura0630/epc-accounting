@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Report — EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="reports.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Product Report</h1>
+      <p>Full ranking of top products for the selected period</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title" id="fp-title">Top Products</span>
+        <span class="section-subtitle" id="fp-subtitle"></span>
+      </div>
+      <div class="page-title-actions">
+        <a href="reports.html" class="btn btn-outline-gray btn-sm">← Back to Reports</a>
+        <button class="btn btn-outline-gray btn-sm" type="button" id="fp-export-excel" onclick="exportFullProductExcel()">Export to Excel</button>
+        <button class="btn btn-primary btn-sm" type="button" id="fp-export" onclick="exportFullProductReport()">Export to PDF</button>
+      </div>
+    </div>
+
+    <div class="card report-controls" id="fp-controls">
+      <div class="report-preset-row" style="gap:14px">
+        <label style="display:flex;align-items:center;gap:6px">Show top:
+          <input type="number" min="1" class="form-input" id="fp-topn" style="width:90px" onchange="setFullProductN(this.value)">
+          products
+        </label>
+        <span class="report-metric-toggle">
+          <button type="button" class="report-metric-btn" id="fp-metric-revenue" onclick="setFullProductMetric('revenue')">Amount (₱)</button>
+          <button type="button" class="report-metric-btn" id="fp-metric-units" onclick="setFullProductMetric('units')">Units</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="tabs report-tabs">
+      <button class="tab-btn active" data-fp-tab="chart" onclick="setFullProductTab('chart')">Graph</button>
+      <button class="tab-btn" data-fp-tab="list" onclick="setFullProductTab('list')">Product List</button>
+    </div>
+
+    <section class="card" id="fp-chart-card">
+      <div id="fp-chart-scroll" style="width:100%; overflow:auto;">
+        <div id="fp-chart-wrap" style="position:relative;">
+          <canvas id="fp-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="fp-list-card" style="display:none">
+      <div class="table-scroll">
+        <table id="fp-table">
+          <thead id="fp-head"></thead>
+          <tbody id="fp-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="empty-state" id="fp-empty" style="display:none">
+      <p>No product report data found. Open this page from the Reports → Sales tab using the “Open full report” button.</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../assets/app.js?v=20260609-localrole"></script>
+<script src="reports-products.js"></script>
+</body>
+</html>

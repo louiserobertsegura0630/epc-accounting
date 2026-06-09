@@ -54,7 +54,54 @@
       <div class="table-toolbar">
         <span class="table-toolbar-title" id="tab-label">All Movements</span>
         <input type="text" class="search-input" id="search-inv" placeholder="Search item, supplier, category…">
-        <button class="btn btn-outline-gray btn-sm" id="btn-clear-inv" onclick="invTable.clearAll()" style="display:none">Clear Filters</button>
+        <button class="btn btn-outline-gray btn-sm" id="btn-clear-inv" onclick="clearInventoryActiveFilters()" style="display:none">Clear Filters</button>
+      </div>
+      <div class="potential-revenue-panel" id="potential-revenue-panel">
+        <div class="potential-subtabs">
+          <button class="potential-subtab active" id="potential-subtab-included" type="button" onclick="setPotentialSubtab('included')">
+            Inclusions of Potential Revenue
+          </button>
+          <button class="potential-subtab" id="potential-subtab-review" type="button" onclick="setPotentialSubtab('review')">
+            For Review
+          </button>
+          <button class="potential-subtab potential-detail-tab" id="potential-subtab-detail" type="button">
+            Item Detail
+          </button>
+        </div>
+        <div class="potential-settings">
+          <label>
+            Average markup for all items
+            <div class="markup-control">
+              <input type="number" min="0" step="0.01" id="potential-global-markup" placeholder="0">
+              <span>%</span>
+            </div>
+          </label>
+          <label>
+            Category
+            <select id="potential-category-select"></select>
+          </label>
+          <label>
+            Category markup
+            <div class="markup-control">
+              <input type="number" min="0" step="0.01" id="potential-category-markup" placeholder="0">
+              <span>%</span>
+            </div>
+          </label>
+          <button class="btn btn-primary btn-sm" id="btn-save-potential-markup" type="button">
+            Apply Markup
+          </button>
+        </div>
+      </div>
+      <div class="potential-bulk-bar" id="potential-bulk-bar">
+        <span id="potential-bulk-count">0 items selected</span>
+        <label class="potential-bulk-markup" id="potential-bulk-markup-wrap">
+          Set selected markup
+          <input type="number" min="0" step="0.01" id="potential-bulk-markup" placeholder="0">
+          <span>%</span>
+        </label>
+        <button class="btn btn-primary btn-sm" id="btn-apply-selected-potential-markup" type="button">Apply Markup</button>
+        <button class="btn btn-danger btn-sm" id="btn-delete-selected-potential" type="button">Delete Selected</button>
+        <button class="bulk-deselect" id="btn-clear-potential-selection" type="button">Clear Selection</button>
       </div>
       <div class="bulk-action-bar" id="inv-bulk-bar">
         <span class="bulk-selected-count" id="inv-bulk-count">0 rows selected</span>
@@ -71,6 +118,20 @@
       <div class="pagination-bar" id="inv-pagination"></div>
     </div>
 
+  </div>
+</div>
+
+<!-- Potential Revenue Detail Modal -->
+<div class="modal-overlay" id="modal-potential-detail">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="potential-detail-title">Potential Revenue Detail</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="potential-detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Close</button>
+    </div>
   </div>
 </div>
 
@@ -462,7 +523,7 @@ self.onmessage = function(e) {
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20260609-localrole"></script>
 <script src="../assets/shared-utils.js"></script>
 <script src="inventory-tracking.js"></script>
 </body>

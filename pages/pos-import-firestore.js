@@ -29,6 +29,67 @@ const REVIEW_PG = 50;
 const selectedReviewIds = new Set();
 let pendingReviewDeleteIds = [];
 let reviewDeleteInProgress = false;
+let salesPageAuthReady = false;
+
+function canEditSalesPage() {
+  return salesPageAuthReady && typeof canCurrentUserEdit === 'function' && canCurrentUserEdit('pos-import');
+}
+
+function requireSalesEditAccess() {
+  if (canEditSalesPage()) return true;
+  if (salesPageAuthReady) alert('View-only access cannot edit or import sales records.');
+  return false;
+}
+
+function applySalesPagePermissions() {
+  const readOnly = !canEditSalesPage();
+  if (readOnly) {
+    selectedSalesIds.clear();
+    selectedReviewIds.clear();
+  }
+  [
+    'btn-add-sales-entry',
+    'file-input',
+    'btn-rematch-now',
+    'btn-delete-sales-selected',
+    'btn-delete-review-selected',
+    'btn-confirm-delete-sales',
+    'btn-confirm-delete-review',
+    'btn-save-sales-entry',
+    'btn-apply-margin-thresholds',
+    'sales-select-page',
+    'review-select-page'
+  ].forEach(id => {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.disabled = readOnly;
+    element.classList.toggle('role-disabled', readOnly);
+    if (readOnly) element.title = 'View-only access';
+  });
+
+  document.querySelectorAll(
+    '.sales-row-select, .review-row-select, .review-cost-input, .review-actions button, input[name="cost-method"], #sales-info-section input, #sales-info-section select, #btn-save-sales-detail'
+  ).forEach(element => {
+    element.disabled = readOnly;
+    element.classList.toggle('role-disabled', readOnly);
+    if (readOnly) element.title = 'View-only access';
+  });
+
+  const productMasterLink = document.getElementById('btn-open-product-master');
+  if (productMasterLink) {
+    productMasterLink.style.display = readOnly ? 'none' : '';
+    productMasterLink.setAttribute('aria-disabled', readOnly ? 'true' : 'false');
+  }
+
+  const dropZoneEl = document.getElementById('drop-zone');
+  if (dropZoneEl) {
+    dropZoneEl.classList.toggle('is-import-disabled', readOnly);
+    dropZoneEl.title = readOnly ? 'View-only access' : '';
+  }
+
+  document.querySelectorAll('#sales-bulk-toolbar, #sales-select-all-banner, #review-bulk-toolbar, #review-select-all-banner')
+    .forEach(element => { if (readOnly) element.classList.remove('open'); });
+}
 
 // ─── Column aliases ───────────────────────────────────────────────────────────
 const POS_COL_ALIASES = {
@@ -97,6 +158,7 @@ async function loadProductMasterMap() {
 // onProgress(batchSize, total) is called after every committed batch.
 // Returns the saved docs with their Firestore-assigned _id fields.
 async function batchWriteToDB(collName, docs, onProgress) {
+  if (!requireSalesEditAccess()) return [];
   const BATCH_SIZE = 499;
   const saved = [];
   const total = docs.length;
@@ -116,6 +178,7 @@ async function batchWriteToDB(collName, docs, onProgress) {
 }
 
 async function recomputeAllSalesCOGS() {
+  if (!requireSalesEditAccess()) return;
   if (cogsRecomputeInProgress) return;
   const statusEl = document.getElementById('import-status');
   const fillEl = document.getElementById('progress-fill');
@@ -178,11 +241,13 @@ async function recomputeAllSalesCOGS() {
 }
 
 async function addToImportHistory(historyDoc) {
+  if (!requireSalesEditAccess()) return;
   logAudit('Import', 'POS Sales',
     `Imported '${historyDoc.filename}' - ${historyDoc.count.toLocaleString()} records, ${historyDoc.reviewCount.toLocaleString()} under review`);
 }
 
 async function saveSalesDetailChanges() {
+  if (!requireSalesEditAccess()) return;
   const row = _salesData.find(item => item._id === activeSalesDetailId);
   const button = document.getElementById('btn-save-sales-detail');
   const values = getSalesDetailValues();
@@ -227,14 +292,17 @@ async function saveSalesDetailChanges() {
 }
 
 async function deleteSalesRows(ids, onProgress) {
+  if (!requireSalesEditAccess()) return;
   return deleteFromFirestore('salesData', ids, onProgress);
 }
 
 async function deleteReviewRows(ids, onProgress) {
+  if (!requireSalesEditAccess()) return;
   return deleteFromFirestore('underReviewData', ids, onProgress);
 }
 
 async function saveReviewRow(id) {
+  if (!requireSalesEditAccess()) return;
   const inp  = document.getElementById('rc-' + id);
   const cost = parsePeso(inp?.value);
   if (!cost || cost <= 0) {
@@ -338,17 +406,20 @@ async function loadUnderReview() {
 }
 function saveSalesDataBatch(docs, onProgress) { return batchWriteToDB('salesData', docs, onProgress); }
 async function saveManualSalesEntry(doc) {
+  if (!requireSalesEditAccess()) return null;
   const ref = await db.collection('salesData').add(doc);
   return { _id: ref.id, ...doc };
 }
 function saveUnderReviewBatch(docs, onProgress) { return batchWriteToDB('underReviewData', docs, onProgress); }
 function fetchProductMaster() { return loadProductMasterMap(); }
 async function upsertProductMaster(itemCode, productData) {
+  if (!requireSalesEditAccess()) return null;
   const ref = db.collection('productMaster').doc(normalizeItemCode(itemCode));
   await ref.set(productData, { merge:true });
   return ref;
 }
 async function deleteFromFirestore(collectionName, ids, onProgress, batchSize = 499, retries = 3) {
+  if (!requireSalesEditAccess()) return;
   const totalBatches = Math.max(1, Math.ceil(ids.length / batchSize));
   for (let start = 0; start < ids.length; start += batchSize) {
     let attempt = 0;

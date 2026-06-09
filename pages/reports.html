@@ -67,6 +67,10 @@
           <h2 id="report-title">Income Statement</h2>
           <p id="report-subtitle"></p>
         </div>
+        <div class="report-export-controls">
+          <button class="btn btn-outline-gray btn-sm" type="button" id="btn-export-report-excel" onclick="exportActiveReportToExcel()">Export to Excel</button>
+          <button class="btn btn-outline-gray btn-sm" type="button" id="btn-export-report-pdf" onclick="exportActiveReportToPDF()">Export to PDF</button>
+        </div>
       </div>
       <div class="tax-summary-content" id="tax-summary-content">
         <section class="tax-report-section">
@@ -183,24 +187,11 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="modal-inventory-movement-detail">
-  <div class="modal-card modal-lg">
-    <div class="modal-header">
-      <span class="modal-title" id="inventory-detail-title">Inventory Movement Details</span>
-      <button class="modal-close" type="button" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body" id="inventory-detail-body"></div>
-    <div class="modal-footer">
-      <button class="btn btn-outline-gray" type="button" data-close-modal>Close</button>
-    </div>
-  </div>
-</div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20260609-localrole"></script>
 <script src="../assets/shared-utils.js"></script>
 <script src="reports.js"></script>
 </body>
