@@ -48,8 +48,8 @@ const SALES_FILTER_DEFAULTS = {
     productName: '',
     category: '',
     unitsSold: { min:'', max:'' },
-    unitCost: { min:'', max:'' },
-    totalCost: { min:'', max:'' },
+    discount: { min:'', max:'' },
+    srpwdDiscount: { min:'', max:'' },
     sellingPrice: { min:'', max:'' },
     totalRevenue: { min:'', max:'' },
     grossProfit: { min:'', max:'' },
@@ -73,8 +73,8 @@ function loadSalesDataFilters() {
         ...(saved.columns || {}),
         date: { ...SALES_FILTER_DEFAULTS.columns.date, ...(saved.columns?.date || {}) },
         unitsSold: { ...SALES_FILTER_DEFAULTS.columns.unitsSold, ...(saved.columns?.unitsSold || {}) },
-        unitCost: { ...SALES_FILTER_DEFAULTS.columns.unitCost, ...(saved.columns?.unitCost || {}) },
-        totalCost: { ...SALES_FILTER_DEFAULTS.columns.totalCost, ...(saved.columns?.totalCost || {}) },
+        discount: { ...SALES_FILTER_DEFAULTS.columns.discount, ...(saved.columns?.discount || {}) },
+        srpwdDiscount: { ...SALES_FILTER_DEFAULTS.columns.srpwdDiscount, ...(saved.columns?.srpwdDiscount || {}) },
         sellingPrice: { ...SALES_FILTER_DEFAULTS.columns.sellingPrice, ...(saved.columns?.sellingPrice || {}) },
         totalRevenue: { ...SALES_FILTER_DEFAULTS.columns.totalRevenue, ...(saved.columns?.totalRevenue || {}) },
         grossProfit: { ...SALES_FILTER_DEFAULTS.columns.grossProfit, ...(saved.columns?.grossProfit || {}) },
@@ -112,7 +112,7 @@ function matchesSalesRange(value, range) {
 
 function salesSortValue(row, key) {
   if (key === 'flag') return salesFlagType(row);
-  if (['unitsSold','unitCost','totalCost','sellingPrice','totalRevenue','grossProfit','margin'].includes(key)) {
+  if (['unitsSold','discount','srpwdDiscount','sellingPrice','totalRevenue','grossProfit','margin'].includes(key)) {
     return Number(row[key]) || 0;
   }
   return String(row[key] || '').toLowerCase();
@@ -131,8 +131,8 @@ function getFilteredSalesRows() {
     .filter(row => !columns.productName || String(row.productName || '').toLowerCase().includes(columns.productName.toLowerCase()))
     .filter(row => !columns.category || String(row.category || '') === columns.category)
     .filter(row => matchesSalesRange(row.unitsSold, columns.unitsSold))
-    .filter(row => matchesSalesRange(row.unitCost, columns.unitCost))
-    .filter(row => matchesSalesRange(row.totalCost, columns.totalCost))
+    .filter(row => matchesSalesRange(row.discount, columns.discount))
+    .filter(row => matchesSalesRange(row.srpwdDiscount, columns.srpwdDiscount))
     .filter(row => matchesSalesRange(row.sellingPrice, columns.sellingPrice))
     .filter(row => matchesSalesRange(row.totalRevenue, columns.totalRevenue))
     .filter(row => matchesSalesRange(row.grossProfit, columns.grossProfit))
@@ -184,8 +184,8 @@ function renderSalesFilterRow() {
       ${categories.map(category => salesFilterOption(category, category, columns.category)).join('')}
     </select></th>
     <th class="filter-cell">${salesRangeFilter('unitsSold')}</th>
-    <th class="filter-cell">${salesRangeFilter('unitCost')}</th>
-    <th class="filter-cell">${salesRangeFilter('totalCost')}</th>
+    <th class="filter-cell">${salesRangeFilter('discount')}</th>
+    <th class="filter-cell">${salesRangeFilter('srpwdDiscount')}</th>
     <th class="filter-cell">${salesRangeFilter('sellingPrice')}</th>
     <th class="filter-cell">${salesRangeFilter('totalRevenue')}</th>
     <th class="filter-cell">${salesRangeFilter('grossProfit')}</th>
@@ -240,8 +240,8 @@ function activeSalesFilterCount() {
     columns.productName,
     columns.category,
     columns.unitsSold.min || columns.unitsSold.max,
-    columns.unitCost.min || columns.unitCost.max,
-    columns.totalCost.min || columns.totalCost.max,
+    columns.discount.min || columns.discount.max,
+    columns.srpwdDiscount.min || columns.srpwdDiscount.max,
     columns.sellingPrice.min || columns.sellingPrice.max,
     columns.totalRevenue.min || columns.totalRevenue.max,
     columns.grossProfit.min || columns.grossProfit.max,
@@ -340,8 +340,8 @@ function renderTable(rows) {
     <td>${esc(r.productName)}</td>
     <td>${esc(r.category) || '—'}</td>
     <td class="mono">${(r.unitsSold || 0).toLocaleString()}</td>
-    <td class="mono">${formatPeso(r.unitCost)}</td>
-    <td class="mono">${formatPeso(r.totalCost)}</td>
+    <td class="mono">${formatPeso(r.discount)}</td>
+    <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
     <td class="mono">${formatPeso(r.sellingPrice)}</td>
     <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
     <td class="mono" style="color:${Number(r.grossProfit) < 0 ? '#dc2626' : 'var(--success)'}">${formatPeso(r.grossProfit)}</td>
@@ -549,6 +549,73 @@ function recomputeSalesDetailPreview() {
   document.getElementById('sales-detail-saved').textContent = '';
 }
 
+function reviewFilterOption(value, label, selectedValue) {
+  return `<option value="${esc(value)}"${value === selectedValue ? ' selected' : ''}>${esc(label)}</option>`;
+}
+
+function reviewRangeFilter(key) {
+  const range = reviewFilters.columns[key];
+  return `<div class="col-filter-range">
+    <input class="col-filter" type="number" placeholder="Min" step="any" value="${esc(range.min)}" onchange="setReviewRangeFilter('${key}', 'min', this.value)">
+    <span class="range-sep">–</span>
+    <input class="col-filter" type="number" placeholder="Max" step="any" value="${esc(range.max)}" onchange="setReviewRangeFilter('${key}', 'max', this.value)">
+  </div>`;
+}
+
+function renderReviewFilterRow() {
+  const categories = [...new Set(_reviewData.map(row => String(row.category || '').trim()).filter(Boolean))].sort();
+  const columns = reviewFilters.columns;
+  document.getElementById('review-filter-row').innerHTML = `
+    <th class="filter-cell-empty"></th>
+    <th class="filter-cell"><div class="col-filter-range review-filter-date">
+      <input class="col-filter" type="date" value="${esc(columns.date.from)}" onchange="setReviewDateFilter('from', this.value)">
+      <span class="range-sep">–</span>
+      <input class="col-filter" type="date" value="${esc(columns.date.to)}" onchange="setReviewDateFilter('to', this.value)">
+    </div></th>
+    <th class="filter-cell"><input class="col-filter review-filter-text" type="text" value="${esc(columns.itemCode)}" placeholder="Filter..." onchange="setReviewColumnFilter('itemCode', this.value)"></th>
+    <th class="filter-cell"><input class="col-filter review-filter-text" type="text" value="${esc(columns.productName)}" placeholder="Filter..." onchange="setReviewColumnFilter('productName', this.value)"></th>
+    <th class="filter-cell"><select class="col-filter review-filter-category" onchange="setReviewColumnFilter('category', this.value)">
+      ${reviewFilterOption('', 'All Categories', columns.category)}
+      ${categories.map(category => reviewFilterOption(category, category, columns.category)).join('')}
+    </select></th>
+    <th class="filter-cell">${reviewRangeFilter('unitsSold')}</th>
+    <th class="filter-cell">${reviewRangeFilter('sellingPrice')}</th>
+    <th class="filter-cell">${reviewRangeFilter('totalRevenue')}</th>
+    <th class="filter-cell">${reviewRangeFilter('discount')}</th>
+    <th class="filter-cell">${reviewRangeFilter('srpwdDiscount')}</th>
+    <th class="filter-cell-empty"></th>`;
+}
+
+function activeReviewFilterCount() {
+  const columns = reviewFilters.columns;
+  return [
+    reviewFilters.query,
+    columns.date.from || columns.date.to,
+    columns.itemCode,
+    columns.productName,
+    columns.category,
+    columns.unitsSold.min || columns.unitsSold.max,
+    columns.sellingPrice.min || columns.sellingPrice.max,
+    columns.totalRevenue.min || columns.totalRevenue.max,
+    columns.discount.min || columns.discount.max,
+    columns.srpwdDiscount.min || columns.srpwdDiscount.max
+  ].filter(value => String(value || '').trim() !== '').length;
+}
+
+function refreshReviewFilterUI() {
+  document.getElementById('review-search').value = reviewFilters.query;
+  const count = activeReviewFilterCount();
+  document.getElementById('review-active-filter-count').textContent =
+    count ? `${count} filter${count === 1 ? '' : 's'} active` : '';
+  document.querySelectorAll('[data-review-sort]').forEach(icon => {
+    const active = icon.dataset.reviewSort === reviewFilters.sortKey;
+    icon.textContent = active ? (reviewFilters.sortDir === 'asc' ? '↑' : '↓') : '⇅';
+    icon.classList.toggle('sort-active', active);
+    icon.closest('th')?.classList.toggle('is-sorted', active);
+  });
+  renderReviewFilterRow();
+}
+
 function renderUnderReview() {
   const allRows = [..._reviewData].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const count   = allRows.length;
@@ -581,11 +648,7 @@ function renderUnderReview() {
     return;
   }
 
-  const filtered = reviewQuery
-    ? allRows.filter(r =>
-        (r.itemCode   || '').toLowerCase().includes(reviewQuery) ||
-        (r.productName|| '').toLowerCase().includes(reviewQuery))
-    : allRows;
+  const filtered = getFilteredReviewRows();
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / REVIEW_PG));
   if (reviewPage > totalPages) reviewPage = 1;
@@ -598,6 +661,7 @@ function renderUnderReview() {
     filtered.length < count
       ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}. Showing ${start + 1}-${end}`
       : `Showing ${start + 1}–${end} of ${count}`;
+  refreshReviewFilterUI();
 
   const pgEl = document.getElementById('review-pagination');
   pgEl.innerHTML = totalPages <= 1 ? '' :
@@ -622,9 +686,11 @@ function renderUnderReview() {
     <td class="mono">${(r.unitsSold || 0).toLocaleString()}</td>
     <td class="mono">${formatPeso(r.sellingPrice)}</td>
     <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
-    <td><input type="text" class="review-cost-input" id="rc-${r._id}" placeholder="0.00" autocomplete="off"></td>
+    <td class="mono">${formatPeso(r.discount)}</td>
+    <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
     <td class="review-action-col">
       <div class="review-actions">
+        <input type="text" class="review-cost-input" id="rc-${r._id}" placeholder="Unit cost" autocomplete="off">
         <button class="btn btn-primary btn-xs" onclick="saveReviewRow('${r._id}')">
           Add to Product Master
         </button>

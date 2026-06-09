@@ -24,7 +24,50 @@ let salesDeleteInProgress = false;
 let salesFilters;
 let activeTab = 'sales';
 let reviewPage = 1;
-let reviewQuery = '';
+const REVIEW_FILTER_DEFAULTS = {
+  query: '',
+  sortKey: 'date',
+  sortDir: 'desc',
+  columns: {
+    date: { from:'', to:'' },
+    itemCode: '',
+    productName: '',
+    category: '',
+    unitsSold: { min:'', max:'' },
+    sellingPrice: { min:'', max:'' },
+    totalRevenue: { min:'', max:'' },
+    discount: { min:'', max:'' },
+    srpwdDiscount: { min:'', max:'' }
+  }
+};
+
+function freshReviewFilterDefaults() {
+  return JSON.parse(JSON.stringify(REVIEW_FILTER_DEFAULTS));
+}
+
+function loadReviewFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('underReviewFilters')) || {};
+    return {
+      ...REVIEW_FILTER_DEFAULTS,
+      ...saved,
+      columns: {
+        ...REVIEW_FILTER_DEFAULTS.columns,
+        ...(saved.columns || {}),
+        date: { ...REVIEW_FILTER_DEFAULTS.columns.date, ...(saved.columns?.date || {}) },
+        unitsSold: { ...REVIEW_FILTER_DEFAULTS.columns.unitsSold, ...(saved.columns?.unitsSold || {}) },
+        sellingPrice: { ...REVIEW_FILTER_DEFAULTS.columns.sellingPrice, ...(saved.columns?.sellingPrice || {}) },
+        totalRevenue: { ...REVIEW_FILTER_DEFAULTS.columns.totalRevenue, ...(saved.columns?.totalRevenue || {}) },
+        discount: { ...REVIEW_FILTER_DEFAULTS.columns.discount, ...(saved.columns?.discount || {}) },
+        srpwdDiscount: { ...REVIEW_FILTER_DEFAULTS.columns.srpwdDiscount, ...(saved.columns?.srpwdDiscount || {}) }
+      }
+    };
+  } catch {
+    return freshReviewFilterDefaults();
+  }
+}
+
+let reviewFilters = loadReviewFilters();
 const REVIEW_PG = 50;
 const selectedReviewIds = new Set();
 let pendingReviewDeleteIds = [];

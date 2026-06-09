@@ -189,6 +189,12 @@
     #sales-filter-row .sales-filter-flag { min-width:110px; }
     #sales-filter-row .col-filter-range { min-width:118px; }
     #sales-filter-row .col-filter-range .col-filter { min-width:0; }
+    #review-filter-row .col-filter { min-width:74px; }
+    #review-filter-row .review-filter-text { min-width:110px; }
+    #review-filter-row .review-filter-date { min-width:128px; }
+    #review-filter-row .review-filter-category { min-width:120px; }
+    #review-filter-row .col-filter-range { min-width:118px; }
+    #review-filter-row .col-filter-range .col-filter { min-width:0; }
     .sales-detail-grid {
       display:grid; grid-template-columns:repeat(3, minmax(0, 1fr));
       gap:10px; margin-bottom:18px;
@@ -281,7 +287,7 @@
       display:flex; align-items:center; gap:8px;
       flex-wrap:nowrap; white-space:nowrap;
     }
-    .review-action-col { min-width:190px; }
+    .review-action-col { min-width:290px; }
     .review-delete-warning-icon { font-size:32px; margin-bottom:10px; }
     .spinner {
       display:inline-block;

@@ -52,9 +52,37 @@ function parseCSVRow(line) {
 
 function csvToRawRows(text) {
   const rows = [];
-  for (const line of text.split('\n')) {
-    const row = parseCSVRow(line.replace(/\r$/, ''));
-    if (row.some(v => v.trim())) rows.push(row);
+  let row = [];
+  let cur = '';
+  let inQ = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (c === '"') {
+      if (inQ && next === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQ = !inQ;
+      }
+    } else if (c === ',' && !inQ) {
+      row.push(cur.trim());
+      cur = '';
+    } else if ((c === '\n' || c === '\r') && !inQ) {
+      if (c === '\r' && next === '\n') i++;
+      row.push(cur.trim());
+      cur = '';
+      if (row.some(v => v.trim())) rows.push(row);
+      row = [];
+    } else {
+      cur += c;
+    }
+  }
+
+  row.push(cur.trim());
+  if (row.some(v => v.trim())) {
+    rows.push(row);
   }
   return rows;
 }
@@ -141,20 +169,161 @@ function validateAndDetectDates(rawRows, headerIdx) {
   return { valid: true };
 }
 
+// ─── Detailed Sales Report format detection ───────────────────────────────────
+function findDetailedSalesReportHeader(rawRows) {
+  for (let i = 0; i < Math.min(30, rawRows.length); i++) {
+    const normalized = rawRows[i].map(v => normalizeHeaderText(v).replace(/\./g, ''));
+    const hasBarcode = normalized.includes('barcode');
+    const hasItemName = normalized.includes('itemname') || normalized.includes('item name');
+    const hasQty = normalized.includes('qty') || normalized.includes('quantity');
+    const hasTotalAmount = normalized.includes('total amt') || normalized.includes('total amount');
+    if (hasBarcode && hasItemName && hasQty && hasTotalAmount) return i;
+  }
+  return -1;
+}
+
+// Returns true if rawRows look like a "DETAILED SALES REPORT" export.
+function isDetailedSalesReportFormat(rawRows) {
+  return findDetailedSalesReportHeader(rawRows) !== -1 ||
+    rawRows.slice(0, 10).some(row => row.some(cell => normalizeHeaderText(cell).includes('detailed sales report')));
+}
+
+function detailedSalesReportColumns(headerRow) {
+  const cols = {};
+  headerRow.forEach((value, index) => {
+    const n = normalizeHeaderText(value).replace(/\./g, '');
+    if (n === 'date') cols.date = index;
+    if (n === 'barcode') cols.itemCode = index;
+    if (n === 'itemname' || n === 'item name') cols.itemName = index;
+    if (n === 'qty' || n === 'quantity') cols.quantity = index;
+    if (n === 'amount') cols.amount = index;
+    if (n === 'disc') cols.discount = index;
+    if (n === 'sr/pwd disc' || n === 'sr pwd disc') cols.srpwdDiscount = index;
+    if (n === 'total amt' || n === 'total amount') cols.totalAmount = index;
+  });
+  return cols;
+}
+
+// ─── Detailed Sales Report parser (fixed column indices) ─────────────────────
+// Cost and Total Cost are intentionally NOT read from the file; Product Master
+// remains the source of truth for costing.
+function parseDetailedSalesReport(rawRows, filename) {
+  if (!requireSalesEditAccess()) return;
+  xlsData = [];
+  const headerIdx = findDetailedSalesReportHeader(rawRows);
+  if (headerIdx === -1) {
+    alert('Cannot find Detailed Sales Report column headers.');
+    return;
+  }
+  const cols = detailedSalesReportColumns(rawRows[headerIdx]);
+  let lastSeenDate = todayISO();
+
+  function parseDateCol(v) {
+    if (v === '' || v === null || v === undefined) return null;
+    if (typeof v === 'number') {
+      const d = XLSX.SSF.parse_date_code(v);
+      if (d) {
+        const mm = String(d.m).padStart(2, '0');
+        const dd = String(d.d).padStart(2, '0');
+        return `${d.y}-${mm}-${dd}`;
+      }
+    }
+    const s = String(v).trim();
+    if (!s) return null;
+    const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mdy) {
+      return `${mdy[3]}-${mdy[1].padStart(2, '0')}-${mdy[2].padStart(2, '0')}`;
+    }
+    const d = new Date(s);
+    if (!isNaN(d)) return d.toISOString().slice(0, 10);
+    return null;
+  }
+
+  for (let i = headerIdx + 1; i < rawRows.length; i++) {
+    const row = rawRows[i];
+
+    const dateVal = parseDateCol(row[cols.date]);
+    if (dateVal) lastSeenDate = dateVal;
+
+    const itemName = String(row[cols.itemName] ?? '').trim();
+    if (!itemName) continue;
+
+    const itemCode   = String(row[cols.itemCode] ?? '').trim();
+    const quantity   = parsePeso(row[cols.quantity]);
+    const srpUnit    = parsePeso(row[cols.amount]);
+    const srpwdDisc  = parsePeso(row[cols.srpwdDiscount]);
+    const regDisc    = parsePeso(row[cols.discount]);
+    const netTotal   = parsePeso(row[cols.totalAmount]);
+    const discount   = regDisc;
+
+    if (!itemCode || quantity <= 0 || netTotal <= 0) continue;
+
+    xlsData.push({
+      itemCode,
+      productName:  itemName,
+      unitsSold:    quantity,
+      totalRevenue: netTotal,
+      dateSold:     lastSeenDate,
+      srpUnit,
+      discount,
+      srpwdDiscount: srpwdDisc,
+    });
+  }
+
+  // Sanity-check: echo first 3 parsed records (no cost fields).
+  console.log('[DSR Import] First 3 parsed records:',
+    xlsData.slice(0, 3).map(r => ({
+      date: r.dateSold, itemName: r.productName, qty: r.unitsSold,
+      srpUnit: r.srpUnit, discount: r.discount, srpwdDiscount: r.srpwdDiscount, netTotal: r.totalRevenue
+    }))
+  );
+
+  if (!xlsData.length) {
+    alert('No data rows found. Verify this is a valid Detailed Sales Report file.');
+    return;
+  }
+
+  // Reuse detected-mode state: treat as single-date mode (dates are per-row).
+  detectedMode       = 'range';
+  detectedRangeStart = xlsData[0]?.dateSold || todayISO();
+  detectedRangeEnd   = xlsData[xlsData.length - 1]?.dateSold || todayISO();
+  detectedSingleDate = '';
+  detectedDateColIdx = -1;
+
+  autoImportXLS(filename).catch(err => {
+    console.error('[DSR Import] Fatal error:', err);
+    document.getElementById('import-status').style.display = 'none';
+    dropZone.classList.remove('is-import-disabled');
+    fileInput.disabled = false;
+    setCostMethodInputsDisabled(false);
+    xlsData = [];
+    showImportMessage('error', 'Import failed. Please check your connection and try again.');
+  });
+}
+
 // ─── File parsers → processPOSFile ───────────────────────────────────────────
 function parseXLS(buffer, filename) {
   if (typeof XLSX === 'undefined') { alert('SheetJS failed to load. Please refresh.'); return; }
   try {
     const wb      = XLSX.read(buffer, { type: 'array' });
     const ws      = wb.Sheets[wb.SheetNames[0]];
-    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    processPOSFile(rawRows, filename, 9);
+    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true });
+    if (isDetailedSalesReportFormat(rawRows)) {
+      parseDetailedSalesReport(rawRows, filename);
+    } else {
+      processPOSFile(rawRows, filename, 9);
+    }
   } catch (err) { alert('Error reading file: ' + err.message); }
 }
 
 function parseCSV(text, filename) {
   try {
-    processPOSFile(csvToRawRows(text), filename);
+    const rawRows = csvToRawRows(text);
+    if (isDetailedSalesReportFormat(rawRows)) {
+      parseDetailedSalesReport(rawRows, filename);
+    } else {
+      processPOSFile(rawRows, filename);
+    }
   } catch (err) { alert('Error reading CSV: ' + err.message); }
 }
 
@@ -279,6 +448,9 @@ async function autoImportXLS(filename) {
         productName:  prod.productName || r.productName,
         category:     prod.category   || 'Uncategorized',
         unitsSold, unitCost, totalCost, sellingPrice, totalRevenue, grossProfit, margin,
+        ...(r.srpUnit    !== undefined && { srpUnit:   r.srpUnit }),
+        ...(r.discount   !== undefined && { discount:  r.discount }),
+        ...(r.srpwdDiscount !== undefined && { srpwdDiscount: r.srpwdDiscount }),
         importedAt,   filename,
         costMethod,
         dateMode:     detectedMode,
@@ -295,6 +467,9 @@ async function autoImportXLS(filename) {
         productName: r.productName,
         category:    'Uncategorized',
         unitsSold, sellingPrice, totalRevenue,
+        ...(r.srpUnit    !== undefined && { srpUnit:   r.srpUnit }),
+        ...(r.discount   !== undefined && { discount:  r.discount }),
+        ...(r.srpwdDiscount !== undefined && { srpwdDiscount: r.srpwdDiscount }),
         importedAt, filename
       });
       existingReviewCodes.add(codeKey.toUpperCase());

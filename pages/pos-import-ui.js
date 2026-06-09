@@ -201,15 +201,87 @@ function goToReviewPage(p) {
   renderUnderReview();
 }
 
-function getVisibleReviewRows() {
-  const allRows = [..._reviewData].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const filtered = reviewQuery
-    ? allRows.filter(r =>
-        (r.itemCode   || '').toLowerCase().includes(reviewQuery) ||
-        (r.productName|| '').toLowerCase().includes(reviewQuery))
-    : allRows;
+function saveReviewFilters() {
+  localStorage.setItem('underReviewFilters', JSON.stringify(reviewFilters));
+}
+
+function matchesReviewRange(value, range) {
+  const number = Number(value) || 0;
+  if (range?.min !== '' && range?.min != null && number < Number(range.min)) return false;
+  if (range?.max !== '' && range?.max != null && number > Number(range.max)) return false;
+  return true;
+}
+
+function reviewSortValue(row, key) {
+  if (['unitsSold', 'sellingPrice', 'totalRevenue', 'discount', 'srpwdDiscount'].includes(key)) return Number(row[key]) || 0;
+  return String(row[key] || '').toLowerCase();
+}
+
+function getFilteredReviewRows() {
+  const { columns } = reviewFilters;
+  const query = reviewFilters.query.toLowerCase().trim();
+  return [..._reviewData]
+    .filter(row => !query || [row.itemCode, row.productName, row.category]
+      .some(value => String(value || '').toLowerCase().includes(query)))
+    .filter(row => !columns.date.from || String(row.date || '') >= columns.date.from)
+    .filter(row => !columns.date.to || String(row.date || '') <= columns.date.to)
+    .filter(row => !columns.itemCode || String(row.itemCode || '').toLowerCase().includes(columns.itemCode.toLowerCase()))
+    .filter(row => !columns.productName || String(row.productName || '').toLowerCase().includes(columns.productName.toLowerCase()))
+    .filter(row => !columns.category || String(row.category || '') === columns.category)
+    .filter(row => matchesReviewRange(row.unitsSold, columns.unitsSold))
+    .filter(row => matchesReviewRange(row.sellingPrice, columns.sellingPrice))
+    .filter(row => matchesReviewRange(row.totalRevenue, columns.totalRevenue))
+    .filter(row => matchesReviewRange(row.discount, columns.discount))
+    .filter(row => matchesReviewRange(row.srpwdDiscount, columns.srpwdDiscount))
+    .sort((a, b) => {
+      const aValue = reviewSortValue(a, reviewFilters.sortKey);
+      const bValue = reviewSortValue(b, reviewFilters.sortKey);
+      const comparison = typeof aValue === 'number' && typeof bValue === 'number'
+        ? aValue - bValue
+        : String(aValue).localeCompare(String(bValue));
+      return comparison * (reviewFilters.sortDir === 'asc' ? 1 : -1);
+    });
+}
+
+function getVisibleReviewRows(filteredRows = getFilteredReviewRows()) {
   const start = (reviewPage - 1) * REVIEW_PG;
-  return filtered.slice(start, start + REVIEW_PG);
+  return filteredRows.slice(start, start + REVIEW_PG);
+}
+
+function resetReviewPageAndRender() {
+  reviewPage = 1;
+  saveReviewFilters();
+  renderUnderReview();
+}
+
+function setReviewColumnFilter(key, value) {
+  reviewFilters.columns[key] = value;
+  resetReviewPageAndRender();
+}
+
+function setReviewRangeFilter(key, part, value) {
+  reviewFilters.columns[key][part] = value;
+  resetReviewPageAndRender();
+}
+
+function setReviewDateFilter(part, value) {
+  reviewFilters.columns.date[part] = value;
+  resetReviewPageAndRender();
+}
+
+function setReviewSort(key) {
+  if (reviewFilters.sortKey === key) {
+    reviewFilters.sortDir = reviewFilters.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    reviewFilters.sortKey = key;
+    reviewFilters.sortDir = key === 'date' ? 'desc' : 'asc';
+  }
+  resetReviewPageAndRender();
+}
+
+function clearReviewFilters() {
+  reviewFilters = freshReviewFilterDefaults();
+  resetReviewPageAndRender();
 }
 
 function syncReviewSelectionUI(pageRows = getVisibleReviewRows()) {
@@ -234,16 +306,17 @@ function syncReviewSelectionUI(pageRows = getVisibleReviewRows()) {
     `${count} item${count !== 1 ? 's' : ''} selected`;
   document.getElementById('review-bulk-toolbar').classList.toggle('open', count > 0);
 
-  const allSelected = _reviewData.length > 0 && count === _reviewData.length;
+  const filteredRows = getFilteredReviewRows();
+  const allSelected = filteredRows.length > 0 && count === filteredRows.length;
   const canSelectAll = visibleIds.length > 0 && selectedVisible === visibleIds.length &&
-    _reviewData.length > visibleIds.length && !allSelected;
+    filteredRows.length > visibleIds.length && !allSelected;
   const banner = document.getElementById('review-select-all-banner');
   banner.classList.toggle('open', canSelectAll);
   if (canSelectAll) {
     document.getElementById('review-select-page-message').textContent =
       `${visibleIds.length} item${visibleIds.length !== 1 ? 's' : ''} on this page are selected.`;
     document.getElementById('btn-select-all-review').textContent =
-      `Select all ${_reviewData.length.toLocaleString()} items in Under Review`;
+      `Select all ${filteredRows.length.toLocaleString()} matching items in Under Review`;
   }
 }
 
@@ -270,7 +343,7 @@ function deselectAllReviewRows() {
 
 function selectAllReviewRows() {
   if (!canEditSalesPage()) return;
-  _reviewData.forEach(row => selectedReviewIds.add(row._id));
+  getFilteredReviewRows().forEach(row => selectedReviewIds.add(row._id));
   syncReviewSelectionUI();
 }
 
@@ -341,8 +414,8 @@ function salesCSVValue(value) {
 function exportSalesCSV() {
   const rows = getFilteredSalesRows();
   const headers = [
-    'Date', 'Item Code', 'Product Name', 'Category', 'Units Sold', 'Unit Cost',
-    'Total Cost', 'Selling Price', 'Total Revenue', 'Gross Profit', 'Margin %', 'Flag'
+    'Date', 'Item Code', 'Product Name', 'Category', 'Units Sold', 'Discount',
+    'SR/PWD Discount', 'Selling Price', 'Total Revenue', 'Gross Profit', 'Margin %', 'Flag'
   ];
   const body = rows.map(row => [
     row.date,
@@ -350,8 +423,8 @@ function exportSalesCSV() {
     row.productName,
     row.category,
     row.unitsSold,
-    row.unitCost,
-    row.totalCost,
+    row.discount,
+    row.srpwdDiscount,
     row.sellingPrice,
     row.totalRevenue,
     row.grossProfit,
@@ -532,10 +605,10 @@ document.querySelectorAll('input[name="cost-method"]').forEach(input => {
   });
 });
 document.getElementById('review-search').addEventListener('input', function() {
-  reviewQuery = this.value.toLowerCase().trim();
-  reviewPage  = 1;
-  renderUnderReview();
+  reviewFilters.query = this.value;
+  resetReviewPageAndRender();
 });
+document.getElementById('btn-clear-review-filters').addEventListener('click', clearReviewFilters);
 document.getElementById('review-select-page').addEventListener('change', function() {
   toggleVisibleReviewRows(this.checked);
 });
