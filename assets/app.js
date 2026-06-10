@@ -1074,6 +1074,8 @@ function posSrpwdDiscount(row) {
 }
 
 function posTotalDiscount(row) {
+  const derivedDiscount = posGrossRevenue(row) - posNetRevenue(row);
+  if (derivedDiscount > 0) return derivedDiscount;
   return Number(row?.discount) || 0;
 }
 

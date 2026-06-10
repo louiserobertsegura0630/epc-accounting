@@ -17,8 +17,8 @@ const REPORT_COLLECTIONS = {
   productMaster: { collection:'productMaster', fallback:'', dataKey:'productMaster' },
 };
 const REPORT_TAB_COLLECTIONS = {
-  income: ['sales', 'expenses', 'supplies', 'productMaster'],
-  sales: ['sales'],
+  income: ['sales', 'expenses', 'supplies', 'inventory', 'productMaster'],
+  sales: ['sales', 'inventory', 'productMaster'],
   purchases: ['purchases'],
   tax: ['esales', 'purchases', 'expenses', 'supplies', 'ewtRemittances'],
   inventory: ['inventory', 'sales', 'productMaster'],
@@ -525,19 +525,64 @@ function salesFlag(row) {
   return 'Normal';
 }
 
+function reportInventoryCostDate(row) {
+  return String(row?.dateDelivered || row?.rowDate || row?.date || row?.importedAt || '').slice(0, 10);
+}
+
+function reportInventoryUnitCostMap() {
+  const latestByCode = {};
+  REPORT_DATA.inventory.forEach(row => {
+    const code = String(row.itemCode || row.code || '').trim();
+    const unitCost = Number(row.unitCost) || 0;
+    if (!code || unitCost <= 0) return;
+    if (String(row.type || 'Incoming').toLowerCase() === 'outgoing') return;
+    const date = reportInventoryCostDate(row);
+    const saved = latestByCode[code] || latestByCode[code.toUpperCase()];
+    if (!saved || date >= saved.date) {
+      const entry = { unitCost, date };
+      latestByCode[code] = entry;
+      latestByCode[code.toUpperCase()] = entry;
+    }
+  });
+  return Object.fromEntries(Object.entries(latestByCode).map(([code, entry]) => [code, entry.unitCost]));
+}
+
+function reportProductMap() {
+  const map = {};
+  REPORT_DATA.productMaster.forEach(product => {
+    const code = String(product.itemCode || product.code || '').trim();
+    if (!code) return;
+    map[code] = product;
+    map[code.toUpperCase()] = product;
+  });
+  return map;
+}
+
+function reportProductCost(product, method) {
+  if (!product) return 0;
+  const latest = Number(product.latestCost ?? product.unitCost ?? product.cost) || 0;
+  const average = Number(product.averageCost) || 0;
+  return method === 'average' ? (average || latest) : (latest || average);
+}
+
 function reportCostedSales(rows) {
   const method = localStorage.getItem('costMethod') === 'average' ? 'average' : 'latest';
-  if (window.EPCSalesCost?.fullyCostedSales) {
-    return window.EPCSalesCost.fullyCostedSales(rows, REPORT_DATA.productMaster, method);
-  }
+  const inventoryCosts = reportInventoryUnitCostMap();
+  const products = reportProductMap();
   return rows.map(row => {
     const unitsSold = Number(row.unitsSold ?? row.qty ?? row.quantity) || 0;
     const totalRevenue = Number(row.totalRevenue ?? row.revenue ?? row.totalSales ?? row.total) || 0;
-    const unitCost = Number(row.unitCost ?? row.latestCost ?? row.cost) || 0;
-    const storedCost = Number(row.totalCost ?? row.cogs ?? row.costOfGoodsSold) || 0;
-    const totalCost = unitCost > 0 && unitsSold > 0 ? unitCost * unitsSold : storedCost;
-    if (!(totalRevenue > 0) || !(totalCost > 0)) return null;
-    return { ...row, totalRevenue, totalCost };
+    const sellingPrice = Number(row.sellingPrice ?? row.srpUnit ?? row.srp) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
+    const code = String(row.itemCode || row.code || '').trim();
+    const product = products[code] || products[code.toUpperCase()];
+    const unitCost = Number(inventoryCosts[code] || inventoryCosts[code.toUpperCase()]) ||
+      Number(row.unitCost ?? row.latestCost ?? row.cost) ||
+      reportProductCost(product, method);
+    const totalCost = unitCost * unitsSold;
+    if (!(totalRevenue > 0) || !(unitCost > 0)) return null;
+    const grossProfit = sellingPrice - unitCost;
+    const margin = Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(4));
+    return { ...row, unitsSold, sellingPrice, unitCost, totalRevenue, totalCost, grossProfit, margin, costMethod: method };
   }).filter(Boolean);
 }
 
@@ -746,7 +791,7 @@ function reportPurchasesData() {
 }
 
 function renderSalesReport() {
-  const rows = salesFilters(REPORT_DATA.sales.filter(inReportRange));
+  const rows = salesFilters(reportCostedSales(REPORT_DATA.sales.filter(inReportRange)));
   const revenue = sum(rows, 'totalRevenue');
   const units = sum(rows, 'unitsSold');
   const totals = getPOSTotals(rows);
