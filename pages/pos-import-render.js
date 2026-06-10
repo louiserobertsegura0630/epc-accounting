@@ -53,6 +53,7 @@ const SALES_FILTER_DEFAULTS = {
     srpwdDiscount: { min:'', max:'' },
     sellingPrice: { min:'', max:'' },
     totalRevenue: { min:'', max:'' },
+    unitCost: { min:'', max:'' },
     grossProfit: { min:'', max:'' },
     margin: { min:'', max:'' },
     flag: ''
@@ -78,6 +79,7 @@ function loadSalesDataFilters() {
         srpwdDiscount: { ...SALES_FILTER_DEFAULTS.columns.srpwdDiscount, ...(saved.columns?.srpwdDiscount || {}) },
         sellingPrice: { ...SALES_FILTER_DEFAULTS.columns.sellingPrice, ...(saved.columns?.sellingPrice || {}) },
         totalRevenue: { ...SALES_FILTER_DEFAULTS.columns.totalRevenue, ...(saved.columns?.totalRevenue || {}) },
+        unitCost: { ...SALES_FILTER_DEFAULTS.columns.unitCost, ...(saved.columns?.unitCost || {}) },
         grossProfit: { ...SALES_FILTER_DEFAULTS.columns.grossProfit, ...(saved.columns?.grossProfit || {}) },
         margin: { ...SALES_FILTER_DEFAULTS.columns.margin, ...(saved.columns?.margin || {}) }
       }
@@ -113,7 +115,7 @@ function matchesSalesRange(value, range) {
 
 function salesSortValue(row, key) {
   if (key === 'flag') return salesFlagType(row);
-  if (['unitsSold','discount','srpwdDiscount','sellingPrice','totalRevenue','grossProfit','margin'].includes(key)) {
+  if (['unitsSold','discount','srpwdDiscount','sellingPrice','totalRevenue','unitCost','grossProfit','margin'].includes(key)) {
     return Number(row[key]) || 0;
   }
   return String(row[key] || '').toLowerCase();
@@ -136,6 +138,7 @@ function getFilteredSalesRows() {
     .filter(row => matchesSalesRange(row.srpwdDiscount, columns.srpwdDiscount))
     .filter(row => matchesSalesRange(row.sellingPrice, columns.sellingPrice))
     .filter(row => matchesSalesRange(row.totalRevenue, columns.totalRevenue))
+    .filter(row => matchesSalesRange(row.unitCost, columns.unitCost))
     .filter(row => matchesSalesRange(row.grossProfit, columns.grossProfit))
     .filter(row => matchesSalesRange(row.margin, columns.margin))
     .filter(row => matchesSalesFlagFilter(row, columns.flag))
@@ -189,6 +192,7 @@ function renderSalesFilterRow() {
     <th class="filter-cell">${salesRangeFilter('discount')}</th>
     <th class="filter-cell">${salesRangeFilter('srpwdDiscount')}</th>
     <th class="filter-cell">${salesRangeFilter('totalRevenue')}</th>
+    <th class="filter-cell">${salesRangeFilter('unitCost')}</th>
     <th class="filter-cell">${salesRangeFilter('grossProfit')}</th>
     <th class="filter-cell">${salesRangeFilter('margin')}</th>
     <th class="filter-cell"><select class="col-filter sales-filter-flag" onchange="setSalesColumnFilter('flag', this.value)">
@@ -245,6 +249,7 @@ function activeSalesFilterCount() {
     columns.srpwdDiscount.min || columns.srpwdDiscount.max,
     columns.sellingPrice.min || columns.sellingPrice.max,
     columns.totalRevenue.min || columns.totalRevenue.max,
+    columns.unitCost.min || columns.unitCost.max,
     columns.grossProfit.min || columns.grossProfit.max,
     columns.margin.min || columns.margin.max,
     columns.flag
@@ -329,7 +334,7 @@ function renderTable(rows) {
     const message = _salesData.length
       ? 'No sales records match your active filters.'
       : 'No sales data yet. Upload an XLS, XLSX, or CSV file above.';
-    tbody.innerHTML = `<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">📊</div><p>${message}</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14"><div class="empty-state"><div class="empty-icon">📊</div><p>${message}</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(r => {
@@ -345,6 +350,7 @@ function renderTable(rows) {
     <td class="mono">${formatPeso(r.discount)}</td>
     <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
     <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
+    <td class="mono">${formatPeso(r.unitCost)}</td>
     <td class="mono" style="color:${Number(r.grossProfit) < 0 ? '#dc2626' : 'var(--success)'}">${formatPeso(r.grossProfit)}</td>
     <td class="mono">${Number(r.margin || 0).toFixed(4)}%</td>
     <td>${flag ? `<span class="badge ${flag.badgeClass} sales-flag-badge">${flag.label}</span>` : ''}</td>

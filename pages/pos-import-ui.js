@@ -423,7 +423,7 @@ function exportSalesCSV() {
   const rows = getFilteredSalesRows();
   const headers = [
     'Date', 'Item Code', 'Product Name', 'Category', 'Selling Price', 'Quantity',
-    'Discount', 'SR/PWD Discount', 'Total Revenue Received', 'Gross Profit', 'Margin %', 'Flag'
+    'Discount', 'SR/PWD Discount', 'Total Revenue Received', 'Unit Cost', 'Gross Profit', 'Margin %', 'Flag'
   ];
   const body = rows.map(row => [
     row.date,
@@ -435,6 +435,7 @@ function exportSalesCSV() {
     row.discount,
     row.srpwdDiscount,
     row.totalRevenue,
+    row.unitCost,
     row.grossProfit,
     Number(row.margin || 0).toFixed(4),
     salesFlagType(row)
