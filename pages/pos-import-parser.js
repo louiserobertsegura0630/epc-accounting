@@ -254,7 +254,8 @@ function parseDetailedSalesReport(rawRows, filename) {
     const srpwdDisc  = parsePeso(row[cols.srpwdDiscount]);
     const regDisc    = parsePeso(row[cols.discount]);
     const netTotal   = parsePeso(row[cols.totalAmount]);
-    const discount   = regDisc;
+    const sellingPrice = srpUnit;
+    const discount   = srpwdDisc + regDisc;
 
     if (!itemCode || quantity <= 0 || netTotal <= 0) continue;
 
@@ -262,6 +263,7 @@ function parseDetailedSalesReport(rawRows, filename) {
       itemCode,
       productName:  itemName,
       unitsSold:    quantity,
+      sellingPrice,
       totalRevenue: netTotal,
       dateSold:     lastSeenDate,
       srpUnit,
@@ -270,11 +272,14 @@ function parseDetailedSalesReport(rawRows, filename) {
     });
   }
 
-  // Sanity-check: echo first 3 parsed records (no cost fields).
-  console.log('[DSR Import] First 3 parsed records:',
-    xlsData.slice(0, 3).map(r => ({
-      date: r.dateSold, itemName: r.productName, qty: r.unitsSold,
-      srpUnit: r.srpUnit, discount: r.discount, srpwdDiscount: r.srpwdDiscount, netTotal: r.totalRevenue
+  // Sanity-check: echo first 5 parsed records (no cost fields).
+  console.log('[DSR Import] First 5 parsed records:',
+    xlsData.slice(0, 5).map(r => ({
+      itemName: r.productName,
+      qty: r.unitsSold,
+      sellingPrice: r.sellingPrice,
+      discount: r.discount,
+      totalRevenue: r.totalRevenue
     }))
   );
 
@@ -436,7 +441,7 @@ async function autoImportXLS(filename) {
       const unitsSold    = r.unitsSold    || 0;
       const totalCost    = unitCost * unitsSold;
       const totalRevenue = r.totalRevenue || 0;
-      const sellingPrice = unitsSold > 0 ? totalRevenue / unitsSold : 0;
+      const sellingPrice = Number(r.sellingPrice ?? r.srpUnit) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
       const grossProfit  = totalRevenue  - totalCost;
       const margin       = totalRevenue  > 0 ? Number((grossProfit / totalRevenue * 100).toFixed(1)) : 0;
       imported.push({
@@ -457,7 +462,7 @@ async function autoImportXLS(filename) {
     } else {
       const unitsSold    = r.unitsSold    || 0;
       const totalRevenue = r.totalRevenue || 0;
-      const sellingPrice = unitsSold  > 0 ? totalRevenue / unitsSold : 0;
+      const sellingPrice = Number(r.sellingPrice ?? r.srpUnit) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
       toReview.push({
         date:        r.dateSold,
         itemCode:    r.itemCode,
