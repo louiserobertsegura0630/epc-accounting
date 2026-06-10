@@ -52,9 +52,14 @@ let purchasesTopN = 5;
 let salesMetric = 'revenue';            // 'revenue' | 'units'
 let flaggedSourceRows = [];             // raw flagged sales rows for the current period
 let salesRankedAll = [];                // full product ranking for the current period
+const salesRankingFilters = {
+  product: '', itemCode: '', category: '',
+  totalMin: '', totalMax: '', unitsMin: '', unitsMax: '',
+  marginMin: '', marginMax: '', flag: ''
+};
 const flaggedState = {
   page: 1, pageSize: 50, sortKey: 'date', sortDir: 'desc',
-  filters: { from: '', to: '', product: '', flag: '' }
+  filters: { from: '', to: '', product: '', marginMin: '', marginMax: '', flag: '' }
 };
 let inventoryTrendMode = 'item';        // 'item' | 'category'
 let inventoryTrendSelections = [];      // [{ key, label }] — one line each
@@ -494,14 +499,86 @@ function setRankingTableSort(type, key) {
   renderActiveReport();
 }
 
+function setSalesRankingFilter(key, value) {
+  salesRankingFilters[key] = value;
+  renderActiveReport();
+}
+
+function passesNumberRange(value, min, max) {
+  const num = Number(value) || 0;
+  return (min === '' || num >= Number(min)) && (max === '' || num <= Number(max));
+}
+
+function salesRankingFilterRows(rows) {
+  const f = salesRankingFilters;
+  const text = value => String(value || '').toLowerCase();
+  return rows
+    .filter(row => !f.product || text(row.name).includes(text(f.product)))
+    .filter(row => !f.itemCode || text(row.itemCode).includes(text(f.itemCode)))
+    .filter(row => !f.category || row.category === f.category)
+    .filter(row => passesNumberRange(row.total, f.totalMin, f.totalMax))
+    .filter(row => passesNumberRange(row.units, f.unitsMin, f.unitsMax))
+    .filter(row => passesNumberRange(row.margin, f.marginMin, f.marginMax))
+    .filter(row => !f.flag || row.flag === f.flag);
+}
+
+function reportFlagBadge(flag) {
+  if (flag === 'Loss') return '<span class="report-flag-badge low">Low Margin</span>';
+  if (flag === 'High Margin') return '<span class="report-flag-badge high">High Margin</span>';
+  return '<span class="report-flag-badge normal">Normal</span>';
+}
+
+function reportMarginClass(flag) {
+  if (flag === 'Loss') return 'report-margin-low';
+  if (flag === 'High Margin') return 'report-margin-high';
+  return 'report-margin-normal';
+}
+
+function salesRankingFilterCell(column) {
+  const f = salesRankingFilters;
+  const categories = [...new Set(salesRankedAll.map(row => row.category).filter(Boolean))].sort();
+  const range = (minKey, maxKey) => `<div class="report-range-filter">
+    <input type="number" class="form-input" placeholder="Min" value="${escReport(f[minKey])}" onchange="setSalesRankingFilter('${minKey}',this.value)">
+    <span>-</span>
+    <input type="number" class="form-input" placeholder="Max" value="${escReport(f[maxKey])}" onchange="setSalesRankingFilter('${maxKey}',this.value)">
+  </div>`;
+  if (column.key === 'name') {
+    return `<input type="text" class="form-input" placeholder="Filter..." value="${escReport(f.product)}" onchange="setSalesRankingFilter('product',this.value)">`;
+  }
+  if (column.key === 'itemCode') {
+    return `<input type="text" class="form-input" placeholder="Filter..." value="${escReport(f.itemCode)}" onchange="setSalesRankingFilter('itemCode',this.value)">`;
+  }
+  if (column.key === 'category') {
+    return `<select class="form-select" onchange="setSalesRankingFilter('category',this.value)">
+      <option value="">All Categories</option>
+      ${categories.map(category => `<option value="${escReport(category)}"${category === f.category ? ' selected' : ''}>${escReport(category)}</option>`).join('')}
+    </select>`;
+  }
+  if (column.key === 'total') return range('totalMin', 'totalMax');
+  if (column.key === 'units') return range('unitsMin', 'unitsMax');
+  if (column.key === 'margin') return range('marginMin', 'marginMax');
+  if (column.key === 'flag') {
+    return `<select class="form-select" onchange="setSalesRankingFilter('flag',this.value)">
+      <option value="">All</option>
+      <option value="Loss"${f.flag === 'Loss' ? ' selected' : ''}>Low Margin</option>
+      <option value="High Margin"${f.flag === 'High Margin' ? ' selected' : ''}>High Margin</option>
+      <option value="Normal"${f.flag === 'Normal' ? ' selected' : ''}>Normal</option>
+    </select>`;
+  }
+  return '';
+}
+
 function renderRankingTable(title, type, columns, rows) {
   const sort = rankingTableSort[type];
   renderTable('primary', title, columns.map(column => column.label), sortRankingRows(rows, type).map(row => `
     <tr>${columns.map(column => `<td class="${column.numeric ? 'mono' : ''}">${column.render(row)}</td>`).join('')}</tr>`));
+  const filterRow = type === 'sales'
+    ? `<tr class="report-filter-row">${columns.map(column => `<th>${salesRankingFilterCell(column)}</th>`).join('')}</tr>`
+    : '';
   document.getElementById('report-primary-head').innerHTML = `<tr>${columns.map(column => `
     <th><button class="sortable-report-header" onclick="setRankingTableSort('${type}','${column.key}')">
       ${column.label}${sort.key === column.key ? (sort.direction === 'asc' ? ' ↑' : ' ↓') : ''}
-    </button></th>`).join('')}</tr>`;
+    </button></th>`).join('')}</tr>${filterRow}`;
 }
 
 function grouped(rows, labelFn, valueFn) {
@@ -602,7 +679,7 @@ function renderIncomeStatement() {
   const operatingExpenses = sum(expenses, 'amount');
   const suppliesExpense = supplies.reduce((total, row) => total + (Number(row.totalCost ?? row.amount) || 0), 0);
   const totalExpenses = operatingExpenses + suppliesExpense;
-  const netIncome = netRevenue - cogs - totalExpenses;
+  const netIncome = grossProfit - totalExpenses;
   const chartData = [
     grossRevenue, netRevenue, cogs, grossProfit, operatingExpenses, suppliesExpense, totalExpenses, netIncome
   ].map(value => Math.abs(value));
@@ -697,7 +774,11 @@ function salesRankAllProducts(rows) {
   const metricVal = r => salesMetric === 'units' ? r.units : r.total;
   return [...products.values()]
     .sort((a, b) => metricVal(b) - metricVal(a))
-    .map((row, index) => ({ ...row, rank:index + 1, margin:row.cogs ? row.profit / row.cogs * 100 : 0 }));
+    .map((row, index) => {
+      const ranked = { ...row, rank:index + 1, margin:row.cogs ? row.profit / row.cogs * 100 : 0 };
+      ranked.flag = salesFlag(ranked);
+      return ranked;
+    });
 }
 
 function salesRankingColumns() {
@@ -708,7 +789,8 @@ function salesRankingColumns() {
     { key:'category', label:'Category', render:row => escReport(row.category) },
     { key:'total', label:'Total Revenue', numeric:true, render:row => formatPeso(row.total) },
     { key:'units', label:'Units Sold', numeric:true, render:row => row.units.toLocaleString() },
-    { key:'margin', label:'Avg Margin %', numeric:true, render:row => `${Number(row.margin || 0).toFixed(4)}%` },
+    { key:'margin', label:'Avg Margin %', numeric:true, render:row => `<span class="${reportMarginClass(row.flag)}">${Number(row.margin || 0).toFixed(4)}%</span>` },
+    { key:'flag', label:'Flag', render:row => reportFlagBadge(row.flag) },
   ];
 }
 
@@ -816,7 +898,8 @@ function renderSalesReport() {
   renderTopNControl(salesTopN, 'products', true);
 
   const metricLabel = salesMetric === 'units' ? 'Units Sold' : 'Revenue';
-  const top = salesRankedAll.slice(0, salesTopN);
+  const rankedForDisplay = salesRankingFilterRows(salesRankedAll);
+  const top = rankedForDisplay.slice(0, salesTopN);
   document.getElementById('report-category-chart-card').style.display = '';
   renderTopNChart(top, `Top ${salesTopN} Products by ${metricLabel}`, '#3b82f6', salesTopN, 'sales',
     { units: salesMetric === 'units', valueFn: row => salesMetric === 'units' ? row.units : row.total });
@@ -847,6 +930,7 @@ function renderFlaggedItems() {
     .filter(r => !f.from || r.date >= f.from)
     .filter(r => !f.to || r.date <= f.to)
     .filter(r => !f.product || r.product.toLowerCase().includes(f.product.toLowerCase()))
+    .filter(r => passesNumberRange(r.margin, f.marginMin, f.marginMax))
     .filter(r => !f.flag || r.flag === f.flag);
   rows.sort((a, b) => {
     const l = a[flaggedState.sortKey], r = b[flaggedState.sortKey];
@@ -864,13 +948,13 @@ function renderFlaggedItems() {
     <tr class="flagged-filter-row">
       <th><div class="flagged-date-filter"><input type="date" class="form-input" value="${f.from}" onchange="setFlaggedFilter('from',this.value)"><input type="date" class="form-input" value="${f.to}" onchange="setFlaggedFilter('to',this.value)"></div></th>
       <th><input type="text" class="form-input" placeholder="Filter…" value="${escReport(f.product)}" onchange="setFlaggedFilter('product',this.value)"></th>
-      <th></th>
+      <th><div class="report-range-filter"><input type="number" class="form-input" placeholder="Min" value="${escReport(f.marginMin)}" onchange="setFlaggedFilter('marginMin',this.value)"><span>-</span><input type="number" class="form-input" placeholder="Max" value="${escReport(f.marginMax)}" onchange="setFlaggedFilter('marginMax',this.value)"></div></th>
       <th><select class="form-select" onchange="setFlaggedFilter('flag',this.value)">
-        <option value="">All</option><option${f.flag==='Loss'?' selected':''}>Loss</option><option${f.flag==='High Margin'?' selected':''}>High Margin</option>
+        <option value="">All</option><option value="Loss"${f.flag==='Loss'?' selected':''}>Low Margin</option><option value="High Margin"${f.flag==='High Margin'?' selected':''}>High Margin</option>
       </select></th>
     </tr>`;
   document.getElementById('report-secondary-body').innerHTML = visible.length
-    ? visible.map(r => `<tr><td>${formatDate(r.date)}</td><td>${escReport(r.product)}</td><td>${r.margin.toFixed(4)}%</td><td>${escReport(r.flag)}</td></tr>`).join('')
+    ? visible.map(r => `<tr><td>${formatDate(r.date)}</td><td>${escReport(r.product)}</td><td><span class="${reportMarginClass(r.flag)}">${r.margin.toFixed(4)}%</span></td><td>${reportFlagBadge(r.flag)}</td></tr>`).join('')
     : `<tr><td colspan="4"><div class="empty-state"><p>No flagged items match the filters.</p></div></td></tr>`;
   document.getElementById('flagged-pagination')?.remove();
   const startNum = rows.length ? startIdx + 1 : 0;
