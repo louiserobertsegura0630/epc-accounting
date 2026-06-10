@@ -436,7 +436,7 @@ function exportSalesCSV() {
     row.srpwdDiscount,
     row.totalRevenue,
     row.grossProfit,
-    row.margin,
+    Number(row.margin || 0).toFixed(4),
     salesFlagType(row)
   ].map(salesCSVValue).join(','));
   const csv = [headers.join(','), ...body].join('\n');
@@ -500,7 +500,8 @@ async function saveManualSalesEntryFromModal() {
     return;
   }
 
-  const unitCost = productCostForMethod(manualSalesProduct);
+  const inventoryCostMap = await loadInventoryUnitCostMap();
+  const unitCost = inventoryUnitCostForCode(inventoryCostMap, itemCode) || productCostForMethod(manualSalesProduct);
   const totalRevenue = unitsSold * sellingPrice;
   const totalCost = unitsSold * unitCost;
   const grossProfit = salesGrossProfitAmount({ unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });

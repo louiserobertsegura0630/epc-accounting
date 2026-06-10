@@ -53,7 +53,7 @@ function renderIS() {
   const netRevenue    = totPos.netRevenue + totReview.netRevenue;
   const cogs          = totPos.cogs;
   const gross         = grossRevenue - cogs;
-  const salesMargin   = cogs > 0 ? ((grossRevenue - cogs) / cogs * 100).toFixed(1) + '%' : '0.0%';
+  const salesMargin   = cogs > 0 ? ((grossRevenue - cogs) / cogs * 100).toFixed(4) + '%' : '0.0000%';
 
   // Partial data note
   const reviewNote = document.getElementById('is-review-note');

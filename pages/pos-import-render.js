@@ -14,7 +14,7 @@ function populateMonthFilter() {
 // ─── Render: Summary Cards ────────────────────────────────────────────────────
 function renderSummary(rows) {
   const tot            = getPOSTotals(rows);
-  const avgMargin      = tot.cogs > 0 ? ((tot.grossRevenue - tot.cogs) / tot.cogs * 100).toFixed(1) : '0.0';
+  const avgMargin      = tot.cogs > 0 ? ((tot.grossRevenue - tot.cogs) / tot.cogs * 100).toFixed(4) : '0.0000';
   const pendingRevenue = _reviewData.reduce((s, r) => s + (r.totalRevenue || 0), 0);
   const pendingCard    = `<div class="summary-card" style="border-color:#f59e0b">
         <div class="kpi-label" style="color:#d97706">Pending Revenue</div>
@@ -346,7 +346,7 @@ function renderTable(rows) {
     <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
     <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
     <td class="mono" style="color:${Number(r.grossProfit) < 0 ? '#dc2626' : 'var(--success)'}">${formatPeso(r.grossProfit)}</td>
-    <td class="mono">${r.margin}%</td>
+    <td class="mono">${Number(r.margin || 0).toFixed(4)}%</td>
     <td>${flag ? `<span class="badge ${flag.badgeClass} sales-flag-badge">${flag.label}</span>` : ''}</td>
   </tr>`;
   }).join('');
@@ -450,7 +450,7 @@ function renderSalesInfo(row) {
     <div class="sales-record-totals">
       <div><span>Total Revenue</span><strong id="sales-detail-total-revenue">${formatPeso(row.totalRevenue)}</strong></div>
       <div><span>Gross Profit</span><strong id="sales-detail-gross-profit">${formatPeso(row.grossProfit)}</strong></div>
-      <div><span>Margin %</span><strong id="sales-detail-margin">${Number(row.margin || 0).toFixed(1)}%</strong></div>
+      <div><span>Margin %</span><strong id="sales-detail-margin">${Number(row.margin || 0).toFixed(4)}%</strong></div>
     </div>
     <div class="sales-record-actions">
       <button class="btn btn-primary" type="button" id="btn-save-sales-detail" onclick="saveSalesDetailChanges()">Save Changes</button>
@@ -546,7 +546,7 @@ function recomputeSalesDetailPreview() {
   if (!values) return;
   document.getElementById('sales-detail-total-revenue').textContent = formatPeso(values.totalRevenue);
   document.getElementById('sales-detail-gross-profit').textContent = formatPeso(values.grossProfit);
-  document.getElementById('sales-detail-margin').textContent = `${values.margin.toFixed(1)}%`;
+  document.getElementById('sales-detail-margin').textContent = `${values.margin.toFixed(4)}%`;
   document.getElementById('sales-detail-saved').textContent = '';
 }
 

@@ -553,7 +553,7 @@ function renderIncomeStatement() {
   const netRevenue = totals.netRevenue;
   const cogs = totals.cogs;
   const grossProfit = totals.profit;
-  const margin = cogs > 0 ? ((grossRevenue - cogs) / cogs * 100).toFixed(1) : '0.0';
+  const margin = cogs > 0 ? ((grossRevenue - cogs) / cogs * 100).toFixed(4) : '0.0000';
   const operatingExpenses = sum(expenses, 'amount');
   const suppliesExpense = supplies.reduce((total, row) => total + (Number(row.totalCost ?? row.amount) || 0), 0);
   const totalExpenses = operatingExpenses + suppliesExpense;
@@ -646,7 +646,7 @@ function salesRankAllProducts(rows) {
     current.grossRevenue += grossRevenue;
     current.cogs += cogs;
     current.units += Number(row.unitsSold) || 0;
-    current.profit += Number.isFinite(grossProfit) ? grossProfit : grossRevenue - cogs;
+    current.profit += grossRevenue - cogs;
     products.set(key, current);
   });
   const metricVal = r => salesMetric === 'units' ? r.units : r.total;
@@ -663,7 +663,7 @@ function salesRankingColumns() {
     { key:'category', label:'Category', render:row => escReport(row.category) },
     { key:'total', label:'Total Revenue', numeric:true, render:row => formatPeso(row.total) },
     { key:'units', label:'Units Sold', numeric:true, render:row => row.units.toLocaleString() },
-    { key:'margin', label:'Avg Margin %', numeric:true, render:row => `${Number(row.margin || 0).toFixed(1)}%` },
+    { key:'margin', label:'Avg Margin %', numeric:true, render:row => `${Number(row.margin || 0).toFixed(4)}%` },
   ];
 }
 
@@ -749,7 +749,8 @@ function renderSalesReport() {
   const rows = salesFilters(REPORT_DATA.sales.filter(inReportRange));
   const revenue = sum(rows, 'totalRevenue');
   const units = sum(rows, 'unitsSold');
-  const profit = sum(rows, 'grossProfit');
+  const totals = getPOSTotals(rows);
+  const profit = totals.profit;
   const flagged = rows.filter(row => salesFlag(row) !== 'Normal');
   const categories = [...new Set(REPORT_DATA.sales.map(row => row.category).filter(Boolean))].sort();
   document.getElementById('report-extra-filters').innerHTML = `
@@ -762,7 +763,7 @@ function renderSalesReport() {
   renderCards([
     { label:'Total Revenue', value:formatPeso(revenue), cls:'green' },
     { label:'Total Units Sold', value:units.toLocaleString() },
-    { label:'Avg Margin %', value:`${revenue ? (profit / revenue * 100).toFixed(1) : '0.0'}%`, cls:'blue' },
+    { label:'Avg Margin %', value:`${totals.cogs ? (profit / totals.cogs * 100).toFixed(4) : '0.0000'}%`, cls:'blue' },
     { label:'Flagged Items', value:flagged.length.toLocaleString(), cls:'red' },
   ]);
   salesRankedAll = salesRankAllProducts(rows);
@@ -824,7 +825,7 @@ function renderFlaggedItems() {
       </select></th>
     </tr>`;
   document.getElementById('report-secondary-body').innerHTML = visible.length
-    ? visible.map(r => `<tr><td>${formatDate(r.date)}</td><td>${escReport(r.product)}</td><td>${r.margin.toFixed(1)}%</td><td>${escReport(r.flag)}</td></tr>`).join('')
+    ? visible.map(r => `<tr><td>${formatDate(r.date)}</td><td>${escReport(r.product)}</td><td>${r.margin.toFixed(4)}%</td><td>${escReport(r.flag)}</td></tr>`).join('')
     : `<tr><td colspan="4"><div class="empty-state"><p>No flagged items match the filters.</p></div></td></tr>`;
   document.getElementById('flagged-pagination')?.remove();
   const startNum = rows.length ? startIdx + 1 : 0;

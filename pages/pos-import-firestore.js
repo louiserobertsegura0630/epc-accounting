@@ -174,6 +174,36 @@ function productCostForMethod(product) {
   return latest;
 }
 
+function inventoryCostDate(row) {
+  return String(row?.dateDelivered || row?.rowDate || row?.date || row?.importedAt || '').slice(0, 10);
+}
+
+function inventoryUnitCostForCode(costMap, itemCode) {
+  if (!costMap) return 0;
+  const rawCode = String(itemCode || '').trim();
+  return Number(costMap[rawCode] || costMap[rawCode.toUpperCase()] || 0) || 0;
+}
+
+async function loadInventoryUnitCostMap() {
+  const snap = await db.collection('inventoryData').get();
+  const latestByCode = {};
+  snap.forEach(doc => {
+    const row = doc.data();
+    const code = String(row.itemCode || row.code || '').trim();
+    const unitCost = Number(row.unitCost) || 0;
+    if (!code || unitCost <= 0) return;
+    if (String(row.type || 'Incoming').toLowerCase() === 'outgoing') return;
+    const date = inventoryCostDate(row);
+    const saved = latestByCode[code] || latestByCode[code.toUpperCase()];
+    if (!saved || date >= saved.date) {
+      const entry = { unitCost, date };
+      latestByCode[code] = entry;
+      latestByCode[code.toUpperCase()] = entry;
+    }
+  });
+  return Object.fromEntries(Object.entries(latestByCode).map(([code, entry]) => [code, entry.unitCost]));
+}
+
 function salesGrossSrp(row) {
   const unitsSold = Number(row?.unitsSold) || 0;
   const sellingPrice = Number(row?.sellingPrice ?? row?.srpUnit) || 0;
@@ -191,18 +221,22 @@ function salesMarginPercent(grossProfit, row) {
   const totalCost = Number(row?.totalCost) || ((Number(row?.unitCost) || 0) * unitsSold);
   const unitCost = unitsSold > 0 ? totalCost / unitsSold : Number(row?.unitCost) || 0;
   void grossProfit;
-  return unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(1)) : 0;
+  return unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(4)) : 0;
 }
 
 function salesGrossProfitAmount(row) {
-  const totalCost = Number(row?.totalCost) || ((Number(row?.unitCost) || 0) * (Number(row?.unitsSold) || 0));
-  return salesGrossSrp(row) - totalCost;
+  const unitsSold = Number(row?.unitsSold) || 0;
+  const totalCost = Number(row?.totalCost) || ((Number(row?.unitCost) || 0) * unitsSold);
+  const unitCost = unitsSold > 0 ? totalCost / unitsSold : Number(row?.unitCost) || 0;
+  const sellingPrice = Number(row?.sellingPrice ?? row?.srpUnit) || 0;
+  return sellingPrice - unitCost;
 }
 
-function normalizeSalesFinancials(row) {
+function normalizeSalesFinancials(row, inventoryCostMap = null) {
   const unitsSold = Number(row.unitsSold) || 0;
-  const unitCost = Number(row.unitCost) || 0;
-  const totalCost = Number(row.totalCost) || (unitCost * unitsSold);
+  const inventoryUnitCost = inventoryUnitCostForCode(inventoryCostMap, row.itemCode);
+  const unitCost = inventoryUnitCost || Number(row.unitCost) || 0;
+  const totalCost = unitCost * unitsSold;
   const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost, totalCost });
   return {
     ...row,
@@ -273,9 +307,10 @@ async function recomputeAllSalesCOGS() {
   setCostMethodInputsDisabled(true);
 
   try {
-    const [salesSnapshot, productMap] = await Promise.all([
+    const [salesSnapshot, productMap, inventoryCostMap] = await Promise.all([
       db.collection('salesData').get(),
       loadProductMasterMap(),
+      loadInventoryUnitCostMap(),
     ]);
     const rows = salesSnapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
     const batchSize = 499;
@@ -287,7 +322,8 @@ async function recomputeAllSalesCOGS() {
       chunk.forEach(row => {
         const codeKey = String(row.itemCode || '').trim();
         const product = productMap[codeKey] || productMap[codeKey.toUpperCase()];
-        const unitCost = product ? productCostForMethod(product) : (Number(row.unitCost) || 0);
+        const unitCost = inventoryUnitCostForCode(inventoryCostMap, codeKey) ||
+          (product ? productCostForMethod(product) : (Number(row.unitCost) || 0));
         const unitsSold = Number(row.unitsSold) || 0;
         const totalRevenue = Number(row.totalRevenue) || 0;
         const totalCost = unitCost * unitsSold;
@@ -478,8 +514,11 @@ async function saveReviewRow(id) {
 
 // ─── Firestore collection API ────────────────────────────────────────────────
 async function loadSalesData() {
-  const snap = await db.collection('salesData').orderBy('date', 'desc').get();
-  return snap.docs.map(doc => normalizeSalesFinancials({ _id: doc.id, ...doc.data() }));
+  const [snap, inventoryCostMap] = await Promise.all([
+    db.collection('salesData').orderBy('date', 'desc').get(),
+    loadInventoryUnitCostMap(),
+  ]);
+  return snap.docs.map(doc => normalizeSalesFinancials({ _id: doc.id, ...doc.data() }, inventoryCostMap));
 }
 async function loadUnderReview() {
   const snap = await db.collection('underReviewData').get();

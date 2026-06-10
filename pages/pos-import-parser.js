@@ -427,7 +427,10 @@ async function autoImportXLS(filename) {
   setCostMethodInputsDisabled(true);
 
   // 1. Fetch Product Master once, keyed by itemCode field value (not doc ID)
-  const pmSnap = await db.collection('productMaster').get();
+  const [pmSnap, inventoryCostMap] = await Promise.all([
+    db.collection('productMaster').get(),
+    loadInventoryUnitCostMap(),
+  ]);
   const productMap = {};
   pmSnap.forEach(doc => {
     const d    = doc.data();
@@ -446,7 +449,7 @@ async function autoImportXLS(filename) {
     const prod    = productMap[codeKey];
 
     if (prod) {
-      const unitCost     = productCostForMethod(prod);
+      const unitCost     = inventoryUnitCostForCode(inventoryCostMap, codeKey) || productCostForMethod(prod);
       const unitsSold    = r.unitsSold    || 0;
       const totalCost    = unitCost * unitsSold;
       const totalRevenue = r.totalRevenue || 0;

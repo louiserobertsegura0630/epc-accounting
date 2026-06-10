@@ -43,8 +43,8 @@ window.EPCSalesCost = window.EPCSalesCost || (() => {
     const totalCost = unitCost > 0 ? unitCost * unitsSold : storedCost;
     if (!(totalCost > 0)) return null;
 
-    const grossProfit = (sellingPrice * unitsSold) - totalCost;
-    const margin = unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(1)) : 0;
+    const grossProfit = sellingPrice - unitCost;
+    const margin = unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(4)) : 0;
     return { ...row, unitCost, totalCost, totalRevenue, sellingPrice, grossProfit, margin, costMethod: method };
   }
 
@@ -105,9 +105,9 @@ async function rematchUnderReview() {
       const totalRevenue = Number(item.totalRevenue) || 0;
       const sellingPrice = Number(item.sellingPrice ?? item.srpUnit ?? item.srp) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
       const totalCost    = unitCost * unitsSold;
-      const grossProfit  = (sellingPrice * unitsSold) - totalCost;
+      const grossProfit  = sellingPrice - unitCost;
       const margin       = unitCost > 0
-        ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(1)) : 0;
+        ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(4)) : 0;
 
       const salesRef = db.collection('salesData').doc();
       batch.set(salesRef, {
