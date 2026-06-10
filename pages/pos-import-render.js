@@ -14,8 +14,7 @@ function populateMonthFilter() {
 // ─── Render: Summary Cards ────────────────────────────────────────────────────
 function renderSummary(rows) {
   const tot            = getPOSTotals(rows);
-  const grossSrp       = rows.reduce((sum, row) => sum + salesGrossSrp(row), 0);
-  const avgMargin      = tot.cogs > 0 ? ((grossSrp - tot.cogs) / tot.cogs * 100).toFixed(1) : '0.0';
+  const avgMargin      = tot.cogs > 0 ? ((tot.grossRevenue - tot.cogs) / tot.cogs * 100).toFixed(1) : '0.0';
   const pendingRevenue = _reviewData.reduce((s, r) => s + (r.totalRevenue || 0), 0);
   const pendingCard    = `<div class="summary-card" style="border-color:#f59e0b">
         <div class="kpi-label" style="color:#d97706">Pending Revenue</div>
@@ -23,7 +22,8 @@ function renderSummary(rows) {
         <div style="font-size:11px;color:#92400e;margin-top:2px">cost entry needed</div>
       </div>`;
   document.getElementById('pos-summary').innerHTML = `
-    <div class="summary-card"><div class="kpi-label">Total Revenue</div><div class="kpi-value green">${formatPeso(tot.revenue)}</div></div>
+    <div class="summary-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-value green">${formatPeso(tot.grossRevenue)}</div></div>
+    <div class="summary-card"><div class="kpi-label">Net Revenue</div><div class="kpi-value green">${formatPeso(tot.netRevenue)}</div></div>
     <div class="summary-card"><div class="kpi-label">Total COGS</div><div class="kpi-value red">${formatPeso(tot.cogs)}</div></div>
     <div class="summary-card"><div class="kpi-label">Gross Profit</div><div class="kpi-value blue">${formatPeso(tot.profit)}</div></div>
     <div class="summary-card"><div class="kpi-label">Avg Margin %</div><div class="kpi-value">${avgMargin}%</div></div>
@@ -536,7 +536,7 @@ function getSalesDetailValues() {
   const unitCost     = Number(row.unitCost) || 0;
   const totalRevenue = unitsSold * sellingPrice;
   const totalCost    = unitsSold * unitCost;
-  const grossProfit  = totalRevenue - totalCost;
+  const grossProfit  = salesGrossProfitAmount({ unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });
   const margin       = salesMarginPercent(grossProfit, { unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });
   return { date, productName, itemCode, category, unitsSold, sellingPrice, unitCost, totalRevenue, totalCost, grossProfit, margin };
 }

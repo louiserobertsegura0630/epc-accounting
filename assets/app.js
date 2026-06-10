@@ -1053,14 +1053,60 @@ function getPOSByMonth(month) {
   // month = 'YYYY-MM'
   return DB.get('pos_sales').filter(r => r.date && r.date.startsWith(month));
 }
+
+function posGrossRevenue(row) {
+  const unitsSold = Number(row?.unitsSold ?? row?.qty ?? row?.quantity) || 0;
+  const sellingPrice = Number(row?.sellingPrice ?? row?.srpUnit ?? row?.srp) || 0;
+  const grossFromSrp = unitsSold * sellingPrice;
+  if (grossFromSrp > 0) return grossFromSrp;
+
+  const netRevenue = Number(row?.totalRevenue ?? row?.revenue ?? row?.totalSales ?? row?.total) || 0;
+  const totalDiscount = Number(row?.discount) || 0;
+  return netRevenue + totalDiscount;
+}
+
+function posNetRevenue(row) {
+  return Number(row?.totalRevenue ?? row?.revenue ?? row?.totalSales ?? row?.total) || 0;
+}
+
+function posSrpwdDiscount(row) {
+  return Number(row?.srpwdDiscount ?? row?.srPwdDiscount ?? row?.sr_pwd_discount) || 0;
+}
+
+function posTotalDiscount(row) {
+  return Number(row?.discount) || 0;
+}
+
+function posRegularDiscount(row) {
+  return Math.max(0, posTotalDiscount(row) - posSrpwdDiscount(row));
+}
+
 function getPOSTotals(rows) {
   return rows.reduce((acc, r) => {
-    acc.revenue  += r.totalRevenue  || 0;
-    acc.cogs     += r.totalCost     || 0;
-    acc.profit   += r.grossProfit   || 0;
-    acc.unitsSold += r.unitsSold    || 0;
+    const grossRevenue = posGrossRevenue(r);
+    const netRevenue = posNetRevenue(r);
+    const totalCost = Number(r.totalCost) || ((Number(r.unitCost) || 0) * (Number(r.unitsSold) || 0));
+    acc.grossRevenue += grossRevenue;
+    acc.netRevenue += netRevenue;
+    acc.revenue += netRevenue;
+    acc.discounts += posRegularDiscount(r);
+    acc.srpwdDiscounts += posSrpwdDiscount(r);
+    acc.totalDiscounts += posTotalDiscount(r);
+    acc.cogs += totalCost;
+    acc.profit += grossRevenue - totalCost;
+    acc.unitsSold += r.unitsSold || 0;
     return acc;
-  }, { revenue:0, cogs:0, profit:0, unitsSold:0 });
+  }, {
+    grossRevenue:0,
+    netRevenue:0,
+    revenue:0,
+    discounts:0,
+    srpwdDiscounts:0,
+    totalDiscounts:0,
+    cogs:0,
+    profit:0,
+    unitsSold:0
+  });
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────

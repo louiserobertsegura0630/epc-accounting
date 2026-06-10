@@ -42,22 +42,25 @@ function renderIS() {
   // POS revenue plus purchase ledger COGS for the selected month.
   const posRows      = _isSalesRows.filter(r => r.date?.startsWith(period));
   const totPos       = getPOSTotals(posRows);
-  const purchases    = DB.get('purchases').filter(p => p.date?.startsWith(period));
 
   // Unmatched items in pos_review — contribute revenue only
   const reviewRows    = _isReviewRows.filter(r => r.date?.startsWith(period));
-  const reviewRevenue = reviewRows.reduce((s, r) => s + (r.totalRevenue || 0), 0);
+  const totReview     = getPOSTotals(reviewRows);
 
-  const revenue = totPos.revenue + reviewRevenue;
-  const cogs    = purchases.reduce((sum, row) => sum + purchaseNetAmount(row), 0);
-  const gross   = revenue - cogs;
+  const grossRevenue  = totPos.grossRevenue + totReview.grossRevenue;
+  const discounts     = totPos.discounts + totReview.discounts;
+  const srpwdDiscounts = totPos.srpwdDiscounts + totReview.srpwdDiscounts;
+  const netRevenue    = totPos.netRevenue + totReview.netRevenue;
+  const cogs          = totPos.cogs;
+  const gross         = grossRevenue - cogs;
+  const salesMargin   = cogs > 0 ? ((grossRevenue - cogs) / cogs * 100).toFixed(1) + '%' : '0.0%';
 
   // Partial data note
   const reviewNote = document.getElementById('is-review-note');
   if (reviewRows.length > 0) {
     reviewNote.style.display = '';
     reviewNote.innerHTML = `<strong>Partial data: pending cost entry.</strong>
-      ${reviewRows.length} item${reviewRows.length !== 1 ? 's' : ''} (${formatPeso(reviewRevenue)} revenue)
+      ${reviewRows.length} item${reviewRows.length !== 1 ? 's' : ''} (${formatPeso(totReview.netRevenue)} net revenue)
       are awaiting unit costs in
       <a href="pos-import.html" style="color:#92400e;font-weight:600;text-decoration:underline">Sales Under Review</a>.
       COGS and Gross Profit are understated until costs are entered.`;
@@ -77,16 +80,19 @@ function renderIS() {
   });
 
   // Income
-  const ibt       = gross - totalExp;
+  const ibt       = netRevenue - cogs - totalExp;
   const taxable   = Math.max(0, ibt);
   const taxDue    = taxable * 0.25;
   const netIncome = ibt - taxDue;
 
   // Render
-  document.getElementById('is-revenue').textContent     = formatPeso(revenue);
+  document.getElementById('is-gross-revenue').textContent = formatPeso(grossRevenue);
+  document.getElementById('is-discounts').textContent = formatPeso(-discounts);
+  document.getElementById('is-srpwd-discounts').textContent = formatPeso(-srpwdDiscounts);
+  document.getElementById('is-net-revenue').textContent = formatPeso(netRevenue);
   document.getElementById('is-cogs').textContent        = formatPeso(cogs);
   document.getElementById('is-gross-profit').textContent = formatPeso(gross);
-  document.getElementById('is-gross-margin').textContent = revenue ? pct(gross, revenue) : '0.0%';
+  document.getElementById('is-gross-margin').textContent = salesMargin;
   document.getElementById('is-total-exp').textContent   = formatPeso(totalExp);
   document.getElementById('is-ibt').textContent         = formatPeso(ibt);
   document.getElementById('is-taxable').textContent     = formatPeso(taxable);
@@ -119,7 +125,10 @@ function renderIS() {
 
   // If no POS data at all
   if (!posRows.length && !reviewRows.length) {
-    document.getElementById('is-revenue').textContent = '₱0.00';
+    document.getElementById('is-gross-revenue').textContent = '₱0.00';
+    document.getElementById('is-discounts').textContent = '₱0.00';
+    document.getElementById('is-srpwd-discounts').textContent = '₱0.00';
+    document.getElementById('is-net-revenue').textContent = '₱0.00';
     document.getElementById('is-cogs').textContent    = '₱0.00';
     document.getElementById('is-gross-profit').textContent = '₱0.00';
   }

@@ -194,14 +194,16 @@ function salesMarginPercent(grossProfit, row) {
   return unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(1)) : 0;
 }
 
+function salesGrossProfitAmount(row) {
+  const totalCost = Number(row?.totalCost) || ((Number(row?.unitCost) || 0) * (Number(row?.unitsSold) || 0));
+  return salesGrossSrp(row) - totalCost;
+}
+
 function normalizeSalesFinancials(row) {
   const unitsSold = Number(row.unitsSold) || 0;
   const unitCost = Number(row.unitCost) || 0;
-  const totalRevenue = Number(row.totalRevenue) || 0;
   const totalCost = Number(row.totalCost) || (unitCost * unitsSold);
-  const grossProfit = Number.isFinite(Number(row.grossProfit))
-    ? Number(row.grossProfit)
-    : totalRevenue - totalCost;
+  const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost, totalCost });
   return {
     ...row,
     totalCost,
@@ -289,7 +291,7 @@ async function recomputeAllSalesCOGS() {
         const unitsSold = Number(row.unitsSold) || 0;
         const totalRevenue = Number(row.totalRevenue) || 0;
         const totalCost = unitCost * unitsSold;
-        const grossProfit = totalRevenue - totalCost;
+        const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost, totalCost });
         const margin = salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost, totalCost });
         Object.assign(row, { unitCost, totalCost, grossProfit, margin, costMethod });
         batch.update(db.collection('salesData').doc(row._id), {
@@ -403,7 +405,7 @@ async function saveReviewRow(id) {
     const unitsSold   = row.unitsSold    || 0;
     const totalCost   = cost * unitsSold;
     const totalRev    = row.totalRevenue || 0;
-    const grossProfit = totalRev - totalCost;
+    const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost: cost, totalCost });
     const margin      = salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost: cost, totalCost });
     const markup      = row.sellingPrice > 0 && cost > 0
       ? parseFloat(((row.sellingPrice - cost) / cost * 100).toFixed(2)) : 0;

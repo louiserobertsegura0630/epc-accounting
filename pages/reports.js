@@ -520,7 +520,7 @@ function monthLabel(row) {
 function salesFlag(row) {
   const margin = Number(row.margin) || 0;
   const high = Number(localStorage.getItem('marginHighThreshold') ?? 30);
-  if (Number(row.grossProfit) < 0 || margin < 0) return 'Loss';
+  if (margin < 0) return 'Loss';
   if (margin > high) return 'High Margin';
   return 'Normal';
 }
@@ -546,34 +546,43 @@ function renderIncomeStatement() {
   const expenses = REPORT_DATA.expenses.filter(inReportRange);
   const supplies = REPORT_DATA.supplies.filter(inReportRange);
   const costedSales = reportCostedSales(sales);
-  const revenue = sum(costedSales, 'totalRevenue');
-  const cogs = sum(costedSales, 'totalCost');
-  const grossProfit = revenue - cogs;
+  const totals = getPOSTotals(costedSales);
+  const grossRevenue = totals.grossRevenue;
+  const discounts = totals.discounts;
+  const srpwdDiscounts = totals.srpwdDiscounts;
+  const netRevenue = totals.netRevenue;
+  const cogs = totals.cogs;
+  const grossProfit = totals.profit;
+  const margin = cogs > 0 ? ((grossRevenue - cogs) / cogs * 100).toFixed(1) : '0.0';
   const operatingExpenses = sum(expenses, 'amount');
   const suppliesExpense = supplies.reduce((total, row) => total + (Number(row.totalCost ?? row.amount) || 0), 0);
   const totalExpenses = operatingExpenses + suppliesExpense;
-  const netIncome = grossProfit - totalExpenses;
+  const netIncome = netRevenue - cogs - totalExpenses;
   const chartData = [
-    revenue, cogs, grossProfit, operatingExpenses, suppliesExpense, totalExpenses, netIncome
+    grossRevenue, netRevenue, cogs, grossProfit, operatingExpenses, suppliesExpense, totalExpenses, netIncome
   ].map(value => Math.abs(value));
   const chartColors = [
-    '#16a34a', '#dc2626', '#2563eb', '#dc2626', '#d97706', '#dc2626',
+    '#16a34a', '#16a34a', '#dc2626', '#2563eb', '#dc2626', '#d97706', '#dc2626',
     netIncome >= 0 ? '#16a34a' : '#dc2626'
   ];
   drawChart('bar',
-    ['Revenue', 'COGS', 'Gross Profit', 'Op. Expenses', 'Supplies', 'Total Expenses', 'Net Income'],
+    ['Gross Revenue', 'Net Revenue', 'COGS', 'Gross Profit', 'Op. Expenses', 'Supplies', 'Total Expenses', 'Net Income'],
     chartData,
     'Income Statement',
     chartColors,
     { forceZero:true, hideLegend:true, pesoTooltips:true });
   renderTable('primary', 'Income Statement', ['Line Item', 'Amount'], [
     `<tr class="section-header"><td colspan="2">REVENUE</td></tr>`,
-    statementRow('Sales Revenue', revenue),
+    statementRow('Gross Revenue', grossRevenue),
+    statementRow('Less: Discounts', -discounts, true),
+    statementRow('Less: SR/PWD Discounts', -srpwdDiscounts, true),
+    statementRow('Net Revenue', netRevenue, false, 'subtotal'),
     `<tr class="statement-rule"><td colspan="2"></td></tr>`,
     `<tr class="section-header"><td colspan="2">COST OF GOODS SOLD</td></tr>`,
     statementRow('COGS', cogs, true),
     `<tr class="statement-rule"><td colspan="2"></td></tr>`,
     statementRow('GROSS PROFIT', grossProfit, false, 'subtotal'),
+    statementRow('MARGIN %', `${margin}%`, false),
     `<tr class="statement-spacer"><td colspan="2"></td></tr>`,
     `<tr class="section-header"><td colspan="2">OPERATING EXPENSES</td></tr>`,
     statementRow('General Expenses', operatingExpenses, true),
@@ -586,6 +595,7 @@ function renderIncomeStatement() {
 }
 
 function formatStatementAmount(value, parentheses = false, signedColor = false) {
+  if (typeof value === 'string') return value;
   const amount = Number(value) || 0;
   const formatted = formatPeso(Math.abs(amount));
   const display = parentheses || amount < 0 ? `(${formatted})` : formatted;
@@ -626,19 +636,23 @@ function salesRankAllProducts(rows) {
     const key = `${name}\u0000${row.itemCode || ''}\u0000${row.category || 'Uncategorized'}`;
     const current = products.get(key) || {
       name, itemCode:row.itemCode || '', category:row.category || 'Uncategorized',
-      total:0, units:0, profit:0
+      total:0, grossRevenue:0, cogs:0, units:0, profit:0
     };
     const revenue = Number(row.totalRevenue) || 0;
+    const grossRevenue = posGrossRevenue(row);
+    const cogs = Number(row.totalCost) || 0;
     const grossProfit = Number(row.grossProfit);
     current.total += revenue;
+    current.grossRevenue += grossRevenue;
+    current.cogs += cogs;
     current.units += Number(row.unitsSold) || 0;
-    current.profit += Number.isFinite(grossProfit) ? grossProfit : revenue * (Number(row.margin) || 0) / 100;
+    current.profit += Number.isFinite(grossProfit) ? grossProfit : grossRevenue - cogs;
     products.set(key, current);
   });
   const metricVal = r => salesMetric === 'units' ? r.units : r.total;
   return [...products.values()]
     .sort((a, b) => metricVal(b) - metricVal(a))
-    .map((row, index) => ({ ...row, rank:index + 1, margin:row.total ? row.profit / row.total * 100 : 0 }));
+    .map((row, index) => ({ ...row, rank:index + 1, margin:row.cogs ? row.profit / row.cogs * 100 : 0 }));
 }
 
 function salesRankingColumns() {
@@ -649,7 +663,7 @@ function salesRankingColumns() {
     { key:'category', label:'Category', render:row => escReport(row.category) },
     { key:'total', label:'Total Revenue', numeric:true, render:row => formatPeso(row.total) },
     { key:'units', label:'Units Sold', numeric:true, render:row => row.units.toLocaleString() },
-    { key:'margin', label:'Avg Margin %', numeric:true, render:row => `${row.total ? (row.profit / row.total * 100).toFixed(1) : '0.0'}%` },
+    { key:'margin', label:'Avg Margin %', numeric:true, render:row => `${Number(row.margin || 0).toFixed(1)}%` },
   ];
 }
 

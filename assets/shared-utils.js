@@ -32,6 +32,7 @@ window.EPCSalesCost = window.EPCSalesCost || (() => {
   function computeCostedSale(row, products = [], method = getCostMethod()) {
     const unitsSold = Number(row.unitsSold ?? row.qty ?? row.quantity) || 0;
     const totalRevenue = Number(row.totalRevenue ?? row.revenue ?? row.totalSales ?? row.total) || 0;
+    const sellingPrice = Number(row.sellingPrice ?? row.srpUnit ?? row.srp) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
     if (!unitsSold || !totalRevenue) return null;
 
     const productsByCode = Array.isArray(products) ? productMap(products) : products;
@@ -42,9 +43,9 @@ window.EPCSalesCost = window.EPCSalesCost || (() => {
     const totalCost = unitCost > 0 ? unitCost * unitsSold : storedCost;
     if (!(totalCost > 0)) return null;
 
-    const grossProfit = totalRevenue - totalCost;
-    const margin = totalRevenue > 0 ? Number((grossProfit / totalRevenue * 100).toFixed(1)) : 0;
-    return { ...row, unitCost, totalCost, totalRevenue, grossProfit, margin, costMethod: method };
+    const grossProfit = (sellingPrice * unitsSold) - totalCost;
+    const margin = unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(1)) : 0;
+    return { ...row, unitCost, totalCost, totalRevenue, sellingPrice, grossProfit, margin, costMethod: method };
   }
 
   function fullyCostedSales(rows = [], products = [], method = getCostMethod()) {
@@ -102,10 +103,11 @@ async function rematchUnderReview() {
         : (Number(pm.latestCost)  || Number(pm.averageCost) || 0);
       const unitsSold    = Number(item.unitsSold)    || 0;
       const totalRevenue = Number(item.totalRevenue) || 0;
+      const sellingPrice = Number(item.sellingPrice ?? item.srpUnit ?? item.srp) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
       const totalCost    = unitCost * unitsSold;
-      const grossProfit  = totalRevenue - totalCost;
-      const margin       = totalRevenue > 0
-        ? Number(((grossProfit / totalRevenue) * 100).toFixed(1)) : 0;
+      const grossProfit  = (sellingPrice * unitsSold) - totalCost;
+      const margin       = unitCost > 0
+        ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(1)) : 0;
 
       const salesRef = db.collection('salesData').doc();
       batch.set(salesRef, {
