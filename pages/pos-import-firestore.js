@@ -174,6 +174,38 @@ function productCostForMethod(product) {
   return latest;
 }
 
+function salesGrossSrp(row) {
+  const unitsSold = Number(row?.unitsSold) || 0;
+  const sellingPrice = Number(row?.sellingPrice ?? row?.srpUnit) || 0;
+  const grossFromUnitPrice = unitsSold * sellingPrice;
+  if (grossFromUnitPrice > 0) return grossFromUnitPrice;
+
+  const totalRevenue = Number(row?.totalRevenue) || 0;
+  const discount = Number(row?.discount) || 0;
+  return totalRevenue + discount;
+}
+
+function salesMarginPercent(grossProfit, row) {
+  const grossSrp = salesGrossSrp(row);
+  return grossSrp > 0 ? Number((Number(grossProfit || 0) / grossSrp * 100).toFixed(1)) : 0;
+}
+
+function normalizeSalesFinancials(row) {
+  const unitsSold = Number(row.unitsSold) || 0;
+  const unitCost = Number(row.unitCost) || 0;
+  const totalRevenue = Number(row.totalRevenue) || 0;
+  const totalCost = Number(row.totalCost) || (unitCost * unitsSold);
+  const grossProfit = Number.isFinite(Number(row.grossProfit))
+    ? Number(row.grossProfit)
+    : totalRevenue - totalCost;
+  return {
+    ...row,
+    totalCost,
+    grossProfit,
+    margin: salesMarginPercent(grossProfit, row),
+  };
+}
+
 function setCostMethodInputsDisabled(disabled) {
   document.querySelectorAll('input[name="cost-method"]').forEach(input => {
     input.disabled = disabled;
@@ -254,7 +286,7 @@ async function recomputeAllSalesCOGS() {
         const totalRevenue = Number(row.totalRevenue) || 0;
         const totalCost = unitCost * unitsSold;
         const grossProfit = totalRevenue - totalCost;
-        const margin = totalRevenue > 0 ? Number((grossProfit / totalRevenue * 100).toFixed(1)) : 0;
+        const margin = salesMarginPercent(grossProfit, row);
         Object.assign(row, { unitCost, totalCost, grossProfit, margin, costMethod });
         batch.update(db.collection('salesData').doc(row._id), {
           unitCost, totalCost, grossProfit, margin, costMethod
@@ -368,7 +400,7 @@ async function saveReviewRow(id) {
     const totalCost   = cost * unitsSold;
     const totalRev    = row.totalRevenue || 0;
     const grossProfit = totalRev - totalCost;
-    const margin      = totalRev > 0 ? Number((grossProfit / totalRev * 100).toFixed(1)) : 0;
+    const margin      = salesMarginPercent(grossProfit, row);
     const markup      = row.sellingPrice > 0 && cost > 0
       ? parseFloat(((row.sellingPrice - cost) / cost * 100).toFixed(2)) : 0;
 
@@ -441,7 +473,7 @@ async function saveReviewRow(id) {
 // ─── Firestore collection API ────────────────────────────────────────────────
 async function loadSalesData() {
   const snap = await db.collection('salesData').orderBy('date', 'desc').get();
-  return snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+  return snap.docs.map(doc => normalizeSalesFinancials({ _id: doc.id, ...doc.data() }));
 }
 async function loadUnderReview() {
   const snap = await db.collection('underReviewData').get();
