@@ -170,6 +170,18 @@ function validateAndDetectDates(rawRows, headerIdx) {
 }
 
 // ─── Detailed Sales Report format detection ───────────────────────────────────
+const DETAILED_SALES_DATA_START_ROW = 16;
+const DETAILED_SALES_COLS = Object.freeze({
+  date: 6,
+  itemCode: 8,
+  itemName: 12,
+  quantity: 16,
+  srpwdDiscount: 22,
+  discount: 24,
+  sellingPrice: 26,
+  totalRevenue: 35,
+});
+
 function findDetailedSalesReportHeader(rawRows) {
   for (let i = 0; i < Math.min(30, rawRows.length); i++) {
     const normalized = rawRows[i].map(v => normalizeHeaderText(v).replace(/\./g, ''));
@@ -188,34 +200,17 @@ function isDetailedSalesReportFormat(rawRows) {
     rawRows.slice(0, 10).some(row => row.some(cell => normalizeHeaderText(cell).includes('detailed sales report')));
 }
 
-function detailedSalesReportColumns(headerRow) {
-  const cols = {};
-  headerRow.forEach((value, index) => {
-    const n = normalizeHeaderText(value).replace(/\./g, '');
-    if (n === 'date') cols.date = index;
-    if (n === 'barcode') cols.itemCode = index;
-    if (n === 'itemname' || n === 'item name') cols.itemName = index;
-    if (n === 'qty' || n === 'quantity') cols.quantity = index;
-    if (n === 'amount') cols.amount = index;
-    if (n === 'disc') cols.discount = index;
-    if (n === 'sr/pwd disc' || n === 'sr pwd disc') cols.srpwdDiscount = index;
-    if (n === 'total amt' || n === 'total amount') cols.totalAmount = index;
-  });
-  return cols;
-}
-
 // ─── Detailed Sales Report parser (fixed column indices) ─────────────────────
 // Cost and Total Cost are intentionally NOT read from the file; Product Master
 // remains the source of truth for costing.
 function parseDetailedSalesReport(rawRows, filename) {
   if (!requireSalesEditAccess()) return;
   xlsData = [];
-  const headerIdx = findDetailedSalesReportHeader(rawRows);
-  if (headerIdx === -1) {
-    alert('Cannot find Detailed Sales Report column headers.');
+  if (rawRows.length <= DETAILED_SALES_DATA_START_ROW) {
+    alert('No data rows found. Verify this is a valid Detailed Sales Report file.');
     return;
   }
-  const cols = detailedSalesReportColumns(rawRows[headerIdx]);
+  const cols = DETAILED_SALES_COLS;
   let lastSeenDate = todayISO();
 
   function parseDateCol(v) {
@@ -239,7 +234,7 @@ function parseDetailedSalesReport(rawRows, filename) {
     return null;
   }
 
-  for (let i = headerIdx + 1; i < rawRows.length; i++) {
+  for (let i = DETAILED_SALES_DATA_START_ROW; i < rawRows.length; i++) {
     const row = rawRows[i];
 
     const dateVal = parseDateCol(row[cols.date]);
@@ -250,11 +245,10 @@ function parseDetailedSalesReport(rawRows, filename) {
 
     const itemCode   = String(row[cols.itemCode] ?? '').trim();
     const quantity   = parsePeso(row[cols.quantity]);
-    const srpUnit    = parsePeso(row[cols.amount]);
     const srpwdDisc  = parsePeso(row[cols.srpwdDiscount]);
     const regDisc    = parsePeso(row[cols.discount]);
-    const netTotal   = parsePeso(row[cols.totalAmount]);
-    const sellingPrice = srpUnit;
+    const sellingPrice = parsePeso(row[cols.sellingPrice]);
+    const netTotal   = parsePeso(row[cols.totalRevenue]);
     const discount   = srpwdDisc + regDisc;
 
     if (!itemCode || quantity <= 0 || netTotal <= 0) continue;
@@ -266,13 +260,13 @@ function parseDetailedSalesReport(rawRows, filename) {
       sellingPrice,
       totalRevenue: netTotal,
       dateSold:     lastSeenDate,
-      srpUnit,
+      srpUnit:      sellingPrice,
       discount,
       srpwdDiscount: srpwdDisc,
     });
   }
 
-  // Sanity-check: echo first 5 parsed records (no cost fields).
+  // Sanity-check: echo parsed records before Firestore writes (no cost fields).
   console.log('[DSR Import] First 5 parsed records:',
     xlsData.slice(0, 5).map(r => ({
       itemName: r.productName,
@@ -281,6 +275,21 @@ function parseDetailedSalesReport(rawRows, filename) {
       discount: r.discount,
       totalRevenue: r.totalRevenue
     }))
+  );
+  console.log('[DSR Import] Verification rows:',
+    xlsData
+      .filter(r => [
+        'REBISCO SANDWICH FAMILY BUNCH 20`SX10',
+        'SURF BAR CHERRY BLOSSOM',
+      ].some(name => normalizeHeaderText(r.productName).includes(normalizeHeaderText(name))))
+      .map(r => ({
+        itemName: r.productName,
+        qty: r.unitsSold,
+        sellingPrice: r.sellingPrice,
+        srpwdDiscount: r.srpwdDiscount,
+        discount: r.discount,
+        totalRevenue: r.totalRevenue,
+      }))
   );
 
   if (!xlsData.length) {

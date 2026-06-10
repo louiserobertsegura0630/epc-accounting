@@ -134,11 +134,11 @@
                 <th class="sortable" onclick="setSalesSort('itemCode')">Item Code <span class="sort-icon" data-sales-sort="itemCode">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('productName')">Product Name <span class="sort-icon" data-sales-sort="productName">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('category')">Category <span class="sort-icon" data-sales-sort="category">⇅</span></th>
-                <th class="sortable" onclick="setSalesSort('unitsSold')">Units Sold <span class="sort-icon" data-sales-sort="unitsSold">⇅</span></th>
+                <th class="sortable" onclick="setSalesSort('sellingPrice')">Selling Price <span class="sort-icon" data-sales-sort="sellingPrice">⇅</span></th>
+                <th class="sortable" onclick="setSalesSort('unitsSold')">Quantity <span class="sort-icon" data-sales-sort="unitsSold">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('discount')">Discount <span class="sort-icon" data-sales-sort="discount">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('srpwdDiscount')">SR/PWD Discount <span class="sort-icon" data-sales-sort="srpwdDiscount">⇅</span></th>
-                <th class="sortable" onclick="setSalesSort('sellingPrice')">Selling Price <span class="sort-icon" data-sales-sort="sellingPrice">⇅</span></th>
-                <th class="sortable" onclick="setSalesSort('totalRevenue')">Total Revenue <span class="sort-icon" data-sales-sort="totalRevenue">⇅</span></th>
+                <th class="sortable" onclick="setSalesSort('totalRevenue')">Total Revenue Received <span class="sort-icon" data-sales-sort="totalRevenue">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('grossProfit')">Gross Profit <span class="sort-icon" data-sales-sort="grossProfit">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('margin')">Margin % <span class="sort-icon" data-sales-sort="margin">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('flag')">Flag <span class="sort-icon" data-sales-sort="flag">⇅</span></th>
@@ -186,11 +186,11 @@
                 <th class="sortable" onclick="setReviewSort('itemCode')">Item Code <span class="sort-icon" data-review-sort="itemCode">⇅</span></th>
                 <th class="sortable" onclick="setReviewSort('productName')">Product Name <span class="sort-icon" data-review-sort="productName">⇅</span></th>
                 <th class="sortable" onclick="setReviewSort('category')">Category <span class="sort-icon" data-review-sort="category">⇅</span></th>
-                <th class="sortable" onclick="setReviewSort('unitsSold')">Units Sold <span class="sort-icon" data-review-sort="unitsSold">⇅</span></th>
                 <th class="sortable" onclick="setReviewSort('sellingPrice')">Selling Price <span class="sort-icon" data-review-sort="sellingPrice">⇅</span></th>
-                <th class="sortable" onclick="setReviewSort('totalRevenue')">Total Revenue <span class="sort-icon" data-review-sort="totalRevenue">⇅</span></th>
+                <th class="sortable" onclick="setReviewSort('unitsSold')">Quantity <span class="sort-icon" data-review-sort="unitsSold">⇅</span></th>
                 <th class="sortable" onclick="setReviewSort('discount')">Discount <span class="sort-icon" data-review-sort="discount">⇅</span></th>
                 <th class="sortable" onclick="setReviewSort('srpwdDiscount')">SR/PWD Discount <span class="sort-icon" data-review-sort="srpwdDiscount">⇅</span></th>
+                <th class="sortable" onclick="setReviewSort('totalRevenue')">Total Revenue Received <span class="sort-icon" data-review-sort="totalRevenue">⇅</span></th>
                 <th>Action</th>
               </tr>
               <tr class="filter-row" id="review-filter-row"></tr>
@@ -302,7 +302,7 @@
     </div>
     <div class="modal-body">
       <div class="review-delete-warning-icon">⚠️</div>
-      <p style="margin:0;font-size:14px;color:var(--text-secondary)">
+      <p id="delete-review-message" style="margin:0;font-size:14px;color:var(--text-secondary)">
         This will permanently remove these items from Under Review. This cannot be undone.
       </p>
     </div>
@@ -316,8 +316,8 @@
 <script src="../assets/app.js?v=20260609-localrole"></script>
 <script src="../assets/shared-utils.js"></script>
 <script src="pos-import-firestore.js?v=20260609-discounts"></script>
-<script src="pos-import-parser.js?v=20260610-selling-price-discount"></script>
-<script src="pos-import-render.js?v=20260609-discounts"></script>
-<script src="pos-import-ui.js?v=20260609-discounts"></script>
+<script src="pos-import-parser.js?v=20260610-fixed-dsr-columns"></script>
+<script src="pos-import-render.js?v=20260610-sales-column-order"></script>
+<script src="pos-import-ui.js?v=20260610-sales-column-order"></script>
 </body>
 </html>

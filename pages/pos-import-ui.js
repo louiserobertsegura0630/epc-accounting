@@ -304,6 +304,8 @@ function syncReviewSelectionUI(pageRows = getVisibleReviewRows()) {
   const count = selectedReviewIds.size;
   document.getElementById('review-bulk-count').textContent =
     `${count} item${count !== 1 ? 's' : ''} selected`;
+  document.getElementById('btn-delete-review-selected').textContent =
+    count > 1 ? 'Delete All Selected' : 'Delete Selected';
   document.getElementById('review-bulk-toolbar').classList.toggle('open', count > 0);
 
   const filteredRows = getFilteredReviewRows();
@@ -353,7 +355,13 @@ function openReviewDeleteModal(ids) {
   if (!pendingReviewDeleteIds.length) return;
   const count = pendingReviewDeleteIds.length;
   document.getElementById('delete-review-title').textContent =
-    `Delete ${count} item${count !== 1 ? 's' : ''}?`;
+    count > 1
+      ? `Delete all ${count.toLocaleString()} selected items?`
+      : 'Delete this item?';
+  document.getElementById('delete-review-message').textContent =
+    count > 1
+      ? `This will permanently remove all ${count.toLocaleString()} selected items from Under Review. This cannot be undone.`
+      : 'This will permanently remove this item from Under Review. This cannot be undone.';
   setReviewDeleteModalBusy(false);
   openModal('modal-delete-review');
 }
@@ -414,18 +422,18 @@ function salesCSVValue(value) {
 function exportSalesCSV() {
   const rows = getFilteredSalesRows();
   const headers = [
-    'Date', 'Item Code', 'Product Name', 'Category', 'Units Sold', 'Discount',
-    'SR/PWD Discount', 'Selling Price', 'Total Revenue', 'Gross Profit', 'Margin %', 'Flag'
+    'Date', 'Item Code', 'Product Name', 'Category', 'Selling Price', 'Quantity',
+    'Discount', 'SR/PWD Discount', 'Total Revenue Received', 'Gross Profit', 'Margin %', 'Flag'
   ];
   const body = rows.map(row => [
     row.date,
     row.itemCode,
     row.productName,
     row.category,
+    row.sellingPrice,
     row.unitsSold,
     row.discount,
     row.srpwdDiscount,
-    row.sellingPrice,
     row.totalRevenue,
     row.grossProfit,
     row.margin,

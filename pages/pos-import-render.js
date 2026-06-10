@@ -183,10 +183,10 @@ function renderSalesFilterRow() {
       ${salesFilterOption('', 'All Categories', columns.category)}
       ${categories.map(category => salesFilterOption(category, category, columns.category)).join('')}
     </select></th>
+    <th class="filter-cell">${salesRangeFilter('sellingPrice')}</th>
     <th class="filter-cell">${salesRangeFilter('unitsSold')}</th>
     <th class="filter-cell">${salesRangeFilter('discount')}</th>
     <th class="filter-cell">${salesRangeFilter('srpwdDiscount')}</th>
-    <th class="filter-cell">${salesRangeFilter('sellingPrice')}</th>
     <th class="filter-cell">${salesRangeFilter('totalRevenue')}</th>
     <th class="filter-cell">${salesRangeFilter('grossProfit')}</th>
     <th class="filter-cell">${salesRangeFilter('margin')}</th>
@@ -339,10 +339,10 @@ function renderTable(rows) {
     <td class="mono">${esc(r.itemCode)}</td>
     <td>${esc(r.productName)}</td>
     <td>${esc(r.category) || '—'}</td>
+    <td class="mono">${formatPeso(r.sellingPrice)}</td>
     <td class="mono">${(r.unitsSold || 0).toLocaleString()}</td>
     <td class="mono">${formatPeso(r.discount)}</td>
     <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
-    <td class="mono">${formatPeso(r.sellingPrice)}</td>
     <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
     <td class="mono" style="color:${Number(r.grossProfit) < 0 ? '#dc2626' : 'var(--success)'}">${formatPeso(r.grossProfit)}</td>
     <td class="mono">${r.margin}%</td>
@@ -578,11 +578,11 @@ function renderReviewFilterRow() {
       ${reviewFilterOption('', 'All Categories', columns.category)}
       ${categories.map(category => reviewFilterOption(category, category, columns.category)).join('')}
     </select></th>
-    <th class="filter-cell">${reviewRangeFilter('unitsSold')}</th>
     <th class="filter-cell">${reviewRangeFilter('sellingPrice')}</th>
-    <th class="filter-cell">${reviewRangeFilter('totalRevenue')}</th>
+    <th class="filter-cell">${reviewRangeFilter('unitsSold')}</th>
     <th class="filter-cell">${reviewRangeFilter('discount')}</th>
     <th class="filter-cell">${reviewRangeFilter('srpwdDiscount')}</th>
+    <th class="filter-cell">${reviewRangeFilter('totalRevenue')}</th>
     <th class="filter-cell-empty"></th>`;
 }
 
@@ -640,7 +640,7 @@ function renderUnderReview() {
 
   if (!count) {
     toolbar.style.display = 'none';
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">
       <div class="empty-icon">✅</div>
       <p>No items under review. All imported items have known costs.</p>
     </div></td></tr>`;
@@ -670,7 +670,7 @@ function renderUnderReview() {
     `<button onclick="goToReviewPage(${reviewPage + 1})" ${reviewPage === totalPages ? 'disabled' : ''}>Next</button>`;
 
   if (!pageRows.length) {
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">
       <p>No Under Review items match your search.</p>
     </div></td></tr>`;
     syncReviewSelectionUI([]);
@@ -683,11 +683,11 @@ function renderUnderReview() {
     <td class="mono">${esc(r.itemCode)}</td>
     <td>${esc(r.productName) || '—'}</td>
     <td>${esc(r.category) || '—'}</td>
-    <td class="mono">${(r.unitsSold || 0).toLocaleString()}</td>
     <td class="mono">${formatPeso(r.sellingPrice)}</td>
-    <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
+    <td class="mono">${(r.unitsSold || 0).toLocaleString()}</td>
     <td class="mono">${formatPeso(r.discount)}</td>
     <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
+    <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
     <td class="review-action-col">
       <div class="review-actions">
         <input type="text" class="review-cost-input" id="rc-${r._id}" placeholder="Unit cost" autocomplete="off">
