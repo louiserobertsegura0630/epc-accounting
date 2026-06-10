@@ -15,7 +15,7 @@ function populateMonthFilter() {
 function renderSummary(rows) {
   const tot            = getPOSTotals(rows);
   const grossSrp       = rows.reduce((sum, row) => sum + salesGrossSrp(row), 0);
-  const avgMargin      = grossSrp > 0 ? (tot.profit / grossSrp * 100).toFixed(1) : '0.0';
+  const avgMargin      = tot.cogs > 0 ? ((grossSrp - tot.cogs) / tot.cogs * 100).toFixed(1) : '0.0';
   const pendingRevenue = _reviewData.reduce((s, r) => s + (r.totalRevenue || 0), 0);
   const pendingCard    = `<div class="summary-card" style="border-color:#f59e0b">
         <div class="kpi-label" style="color:#d97706">Pending Revenue</div>
@@ -274,7 +274,7 @@ function clearSalesFilters() {
 
 function getSalesMarginFlag(row) {
   const margin = Number(row.margin) || 0;
-  if (Number(row.grossProfit) < 0 || margin < marginLowThreshold) {
+  if (margin < marginLowThreshold) {
     return { type:'loss', rowClass:'sales-row-loss', badgeClass:'badge-red', label:'🔴 Loss' };
   }
   if (margin > marginHighThreshold) {
@@ -537,7 +537,7 @@ function getSalesDetailValues() {
   const totalRevenue = unitsSold * sellingPrice;
   const totalCost    = unitsSold * unitCost;
   const grossProfit  = totalRevenue - totalCost;
-  const margin       = salesMarginPercent(grossProfit, { unitsSold, sellingPrice, totalRevenue });
+  const margin       = salesMarginPercent(grossProfit, { unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });
   return { date, productName, itemCode, category, unitsSold, sellingPrice, unitCost, totalRevenue, totalCost, grossProfit, margin };
 }
 

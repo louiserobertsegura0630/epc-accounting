@@ -186,8 +186,12 @@ function salesGrossSrp(row) {
 }
 
 function salesMarginPercent(grossProfit, row) {
-  const grossSrp = salesGrossSrp(row);
-  return grossSrp > 0 ? Number((Number(grossProfit || 0) / grossSrp * 100).toFixed(1)) : 0;
+  const unitsSold = Number(row?.unitsSold) || 0;
+  const sellingPrice = Number(row?.sellingPrice ?? row?.srpUnit) || 0;
+  const totalCost = Number(row?.totalCost) || ((Number(row?.unitCost) || 0) * unitsSold);
+  const unitCost = unitsSold > 0 ? totalCost / unitsSold : Number(row?.unitCost) || 0;
+  void grossProfit;
+  return unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(1)) : 0;
 }
 
 function normalizeSalesFinancials(row) {
@@ -286,7 +290,7 @@ async function recomputeAllSalesCOGS() {
         const totalRevenue = Number(row.totalRevenue) || 0;
         const totalCost = unitCost * unitsSold;
         const grossProfit = totalRevenue - totalCost;
-        const margin = salesMarginPercent(grossProfit, row);
+        const margin = salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost, totalCost });
         Object.assign(row, { unitCost, totalCost, grossProfit, margin, costMethod });
         batch.update(db.collection('salesData').doc(row._id), {
           unitCost, totalCost, grossProfit, margin, costMethod
@@ -400,7 +404,7 @@ async function saveReviewRow(id) {
     const totalCost   = cost * unitsSold;
     const totalRev    = row.totalRevenue || 0;
     const grossProfit = totalRev - totalCost;
-    const margin      = salesMarginPercent(grossProfit, row);
+    const margin      = salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost: cost, totalCost });
     const markup      = row.sellingPrice > 0 && cost > 0
       ? parseFloat(((row.sellingPrice - cost) / cost * 100).toFixed(2)) : 0;
 

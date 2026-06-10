@@ -452,7 +452,7 @@ async function autoImportXLS(filename) {
       const totalRevenue = r.totalRevenue || 0;
       const sellingPrice = Number(r.sellingPrice ?? r.srpUnit) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
       const grossProfit  = totalRevenue  - totalCost;
-      const margin       = salesMarginPercent(grossProfit, { ...r, unitsSold, sellingPrice, totalRevenue });
+      const margin       = salesMarginPercent(grossProfit, { ...r, unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });
       imported.push({
         date:         r.dateSold,
         itemCode:     r.itemCode,

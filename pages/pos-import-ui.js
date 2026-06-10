@@ -504,7 +504,7 @@ async function saveManualSalesEntryFromModal() {
   const totalRevenue = unitsSold * sellingPrice;
   const totalCost = unitsSold * unitCost;
   const grossProfit = totalRevenue - totalCost;
-  const margin = salesMarginPercent(grossProfit, { unitsSold, sellingPrice, totalRevenue });
+  const margin = salesMarginPercent(grossProfit, { unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });
   const doc = {
     date,
     itemCode,
