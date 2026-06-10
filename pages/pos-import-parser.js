@@ -427,9 +427,6 @@ async function autoImportXLS(filename) {
   const imported    = [];   // matched
   const toReview    = [];   // unmatched
 
-  // Deduplicate: skip itemCodes already in _reviewData from prior imports
-  const existingReviewCodes = new Set(_reviewData.map(r => String(r.itemCode || '').trim().toUpperCase()));
-
   for (const r of xlsData) {
     const codeKey = String(r.itemCode || '').trim();
     const prod    = productMap[codeKey];
@@ -457,7 +454,7 @@ async function autoImportXLS(filename) {
         dateRangeStart: detectedRangeStart,
         dateRangeEnd:   detectedRangeEnd
       });
-    } else if (!existingReviewCodes.has(codeKey.toUpperCase())) {
+    } else {
       const unitsSold    = r.unitsSold    || 0;
       const totalRevenue = r.totalRevenue || 0;
       const sellingPrice = unitsSold  > 0 ? totalRevenue / unitsSold : 0;
@@ -472,7 +469,6 @@ async function autoImportXLS(filename) {
         ...(r.srpwdDiscount !== undefined && { srpwdDiscount: r.srpwdDiscount }),
         importedAt, filename
       });
-      existingReviewCodes.add(codeKey.toUpperCase());
     }
   }
 
