@@ -1084,16 +1084,14 @@ function posRegularDiscount(row) {
 }
 
 function getPOSTotals(rows) {
-  return rows.reduce((acc, r) => {
+  const totals = rows.reduce((acc, r) => {
     const grossRevenue = posGrossRevenue(r);
     const netRevenue = posNetRevenue(r);
     const totalCost = Number(r.totalCost) || ((Number(r.unitCost) || 0) * (Number(r.unitsSold) || 0));
     acc.grossRevenue += grossRevenue;
     acc.netRevenue += netRevenue;
     acc.revenue += netRevenue;
-    acc.discounts += posRegularDiscount(r);
     acc.srpwdDiscounts += posSrpwdDiscount(r);
-    acc.totalDiscounts += posTotalDiscount(r);
     acc.cogs += totalCost;
     acc.profit += grossRevenue - totalCost;
     acc.unitsSold += r.unitsSold || 0;
@@ -1109,6 +1107,9 @@ function getPOSTotals(rows) {
     profit:0,
     unitsSold:0
   });
+  totals.totalDiscounts = Math.max(0, totals.grossRevenue - totals.netRevenue);
+  totals.discounts = Math.max(0, totals.totalDiscounts - totals.srpwdDiscounts);
+  return totals;
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
