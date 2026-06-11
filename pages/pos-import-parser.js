@@ -170,100 +170,200 @@ function validateAndDetectDates(rawRows, headerIdx) {
 }
 
 // ─── Detailed Sales Report format detection ───────────────────────────────────
-const DETAILED_SALES_DATA_START_ROW = 16;
-const DETAILED_SALES_COLS = Object.freeze({
-  date: 6,
-  itemCode: 8,
-  itemName: 12,
-  quantity: 16,
-  srpwdDiscount: 22,
-  discount: 24,
-  sellingPrice: 26,
-  totalRevenue: 35,
+const DETAILED_SALES_COL_OFFSETS = Object.freeze({
+  documentNo: 0,
+  date: 5,
+  itemCode: 7,
+  itemName: 11,
+  quantity: 15,
+  uom: 17,
+  srpwdDiscount: 21,
+  discount: 23,
+  sellingPrice: 25,
+  totalRevenue: 34,
 });
+
+function detailedSalesNorm(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function isDetailedSalesDocumentNo(value) {
+  return /^SI/i.test(detailedSalesNorm(value));
+}
 
 function findDetailedSalesReportHeader(rawRows) {
   for (let i = 0; i < Math.min(30, rawRows.length); i++) {
-    const normalized = rawRows[i].map(v => normalizeHeaderText(v).replace(/\./g, ''));
-    const hasBarcode = normalized.includes('barcode');
-    const hasItemName = normalized.includes('itemname') || normalized.includes('item name');
-    const hasQty = normalized.includes('qty') || normalized.includes('quantity');
-    const hasTotalAmount = normalized.includes('total amt') || normalized.includes('total amount');
-    if (hasBarcode && hasItemName && hasQty && hasTotalAmount) return i;
+    const row = rawRows[i] || [];
+    for (let c = 0; c < row.length; c++) {
+      if (detailedSalesNorm(row[c]) === 'Document No.') {
+        return { rowIndex: i, anchorCol: c };
+      }
+    }
   }
-  return -1;
+  return null;
+}
+
+function detailedSalesColsFromAnchor(anchorCol) {
+  return Object.fromEntries(Object.entries(DETAILED_SALES_COL_OFFSETS)
+    .map(([key, offset]) => [key, anchorCol + offset]));
+}
+
+function detailedSalesColsFromHeaders(rawRows, header) {
+  const cols = detailedSalesColsFromAnchor(header.anchorCol);
+  const headerRow = rawRows[header.rowIndex] || [];
+  const upperRows = rawRows.slice(Math.max(0, header.rowIndex - 3), header.rowIndex + 1);
+  const labelNorm = value => detailedSalesNorm(value).toLowerCase().replace(/\./g, '');
+  headerRow.forEach((value, index) => {
+    const label = labelNorm(value);
+    if (label === 'date') cols.date = index;
+    if (label === 'barcode') cols.itemCode = index;
+    if (label === 'itemname' || label === 'item name') cols.itemName = index;
+    if (label === 'qty' || label === 'quantity') cols.quantity = index;
+    if (label === 'disc') cols.discount = index;
+    if (label === 'amount') cols.sellingPrice = index;
+    if (label === 'total amt' || label === 'total amount') cols.totalRevenue = index;
+  });
+  upperRows.forEach(row => (row || []).forEach((value, index) => {
+    const label = labelNorm(value);
+    if (label === 'sr/pwd disc' || label === 'sr pwd disc') cols.srpwdDiscount = index;
+  }));
+  return cols;
+}
+
+function detailedSalesParseDateCol(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  if (typeof v === 'number') {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (d) {
+      const mm = String(d.m).padStart(2, '0');
+      const dd = String(d.d).padStart(2, '0');
+      return `${d.y}-${mm}-${dd}`;
+    }
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy) {
+    return `${mdy[3]}-${mdy[1].padStart(2, '0')}-${mdy[2].padStart(2, '0')}`;
+  }
+  const d = new Date(s);
+  if (!isNaN(d)) return d.toISOString().slice(0, 10);
+  return null;
+}
+
+function detailedSalesContinuationLooksValid(rawRows, cols) {
+  return rawRows.slice(0, 10).some(row => {
+    const values = row || [];
+    if (isDetailedSalesDocumentNo(values[cols.documentNo])) return true;
+    const itemCode = String(values[cols.itemCode] ?? '').trim();
+    const itemName = String(values[cols.itemName] ?? '').trim();
+    return !!itemCode && !!itemName && detailedSalesNorm(itemName) !== 'Itemname';
+  });
+}
+
+function collectDetailedSalesRows(rawRows, startRow, cols, state) {
+  const parsed = [];
+  for (let i = startRow; i < rawRows.length; i++) {
+    const row = rawRows[i] || [];
+
+    const docNo = detailedSalesNorm(row[cols.documentNo]);
+    if (isDetailedSalesDocumentNo(docNo)) state.lastSeenDocumentNo = docNo;
+
+    const dateVal = detailedSalesParseDateCol(row[cols.date]);
+    if (dateVal) state.lastSeenDate = dateVal;
+
+    const itemName = String(row[cols.itemName] ?? '').trim();
+    const itemCode = String(row[cols.itemCode] ?? '').trim();
+    if (!itemCode || !itemName || detailedSalesNorm(itemName) === 'Itemname') continue;
+
+    const quantity = parsePeso(row[cols.quantity]);
+    const srpwdDisc = parsePeso(row[cols.srpwdDiscount]);
+    const regDisc = parsePeso(row[cols.discount]);
+    const sellingPrice = parsePeso(row[cols.sellingPrice]);
+    const netTotal = parsePeso(row[cols.totalRevenue]);
+    const discount = srpwdDisc + regDisc;
+
+    parsed.push({
+      documentNo: state.lastSeenDocumentNo,
+      itemCode,
+      productName: itemName,
+      unitsSold: quantity,
+      uom: String(row[cols.uom] ?? '').trim(),
+      sellingPrice,
+      totalRevenue: netTotal,
+      dateSold: state.lastSeenDate,
+      srpUnit: sellingPrice,
+      discount,
+      srpwdDiscount: srpwdDisc,
+    });
+  }
+  return parsed;
 }
 
 // Returns true if rawRows look like a "DETAILED SALES REPORT" export.
 function isDetailedSalesReportFormat(rawRows) {
-  return findDetailedSalesReportHeader(rawRows) !== -1 ||
+  return !!findDetailedSalesReportHeader(rawRows) ||
     rawRows.slice(0, 10).some(row => row.some(cell => normalizeHeaderText(cell).includes('detailed sales report')));
 }
 
 // ─── Detailed Sales Report parser (fixed column indices) ─────────────────────
 // Cost and Total Cost are intentionally NOT read from the file; Product Master
 // remains the source of truth for costing.
-function parseDetailedSalesReport(rawRows, filename) {
+function parseDetailedSalesWorkbook(sheetRows, filename) {
   if (!requireSalesEditAccess()) return;
   xlsData = [];
-  if (rawRows.length <= DETAILED_SALES_DATA_START_ROW) {
+  const sheets = sheetRows.map((sheet, index) => ({
+    name: sheet.name || `Sheet${index + 1}`,
+    rawRows: sheet.rawRows || [],
+    header: findDetailedSalesReportHeader(sheet.rawRows || []),
+  }));
+  const headerSheetIndex = sheets.findIndex(sheet => !!sheet.header);
+  if (headerSheetIndex === -1) {
     alert('No data rows found. Verify this is a valid Detailed Sales Report file.');
     return;
   }
-  const cols = DETAILED_SALES_COLS;
-  let lastSeenDate = todayISO();
 
-  function parseDateCol(v) {
-    if (v === '' || v === null || v === undefined) return null;
-    if (typeof v === 'number') {
-      const d = XLSX.SSF.parse_date_code(v);
-      if (d) {
-        const mm = String(d.m).padStart(2, '0');
-        const dd = String(d.d).padStart(2, '0');
-        return `${d.y}-${mm}-${dd}`;
+  const headerSheet = sheets[headerSheetIndex];
+  const anchorCol = headerSheet.header.anchorCol;
+  const anchoredCols = detailedSalesColsFromAnchor(anchorCol);
+  const state = { lastSeenDate: todayISO(), lastSeenDocumentNo: '' };
+  const sheetSummaries = [];
+
+  sheets.forEach((sheet, index) => {
+    let role = 'skipped';
+    let rows = [];
+    if (index === headerSheetIndex) {
+      role = 'header';
+      rows = collectDetailedSalesRows(sheet.rawRows, sheet.header.rowIndex + 1, anchoredCols, state);
+      if (!rows.length) {
+        const headerCols = detailedSalesColsFromHeaders(sheet.rawRows, sheet.header);
+        rows = collectDetailedSalesRows(sheet.rawRows, sheet.header.rowIndex + 1, headerCols, state);
+        console.warn('[DSR Import] Header sheet anchor-offset parse returned 0 rows; retried with header labels.', {
+          sheet: sheet.name,
+          header: sheet.header,
+          anchoredCols,
+          headerCols,
+          rawRows: sheet.rawRows.length,
+        });
       }
+    } else if (detailedSalesContinuationLooksValid(sheet.rawRows, anchoredCols)) {
+      role = 'continuation';
+      rows = collectDetailedSalesRows(sheet.rawRows, 0, anchoredCols, state);
     }
-    const s = String(v).trim();
-    if (!s) return null;
-    const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mdy) {
-      return `${mdy[3]}-${mdy[1].padStart(2, '0')}-${mdy[2].padStart(2, '0')}`;
-    }
-    const d = new Date(s);
-    if (!isNaN(d)) return d.toISOString().slice(0, 10);
-    return null;
-  }
-
-  for (let i = DETAILED_SALES_DATA_START_ROW; i < rawRows.length; i++) {
-    const row = rawRows[i];
-
-    const dateVal = parseDateCol(row[cols.date]);
-    if (dateVal) lastSeenDate = dateVal;
-
-    const itemName = String(row[cols.itemName] ?? '').trim();
-    if (!itemName) continue;
-
-    const itemCode   = String(row[cols.itemCode] ?? '').trim();
-    const quantity   = parsePeso(row[cols.quantity]);
-    const srpwdDisc  = parsePeso(row[cols.srpwdDiscount]);
-    const regDisc    = parsePeso(row[cols.discount]);
-    const sellingPrice = parsePeso(row[cols.sellingPrice]);
-    const netTotal   = parsePeso(row[cols.totalRevenue]);
-    const discount   = srpwdDisc + regDisc;
-
-    if (!itemCode || quantity <= 0 || netTotal <= 0) continue;
-
-    xlsData.push({
-      itemCode,
-      productName:  itemName,
-      unitsSold:    quantity,
-      sellingPrice,
-      totalRevenue: netTotal,
-      dateSold:     lastSeenDate,
-      srpUnit:      sellingPrice,
-      discount,
-      srpwdDiscount: srpwdDisc,
+    xlsData.push(...rows);
+    sheetSummaries.push({
+      sheet: sheet.name,
+      role,
+      lineItems: rows.length,
     });
+  });
+
+  console.log('[DSR Import] Sheet parse summary:', sheetSummaries);
+  console.log('[DSR Import] Grand total line-items:', xlsData.length);
+
+  if (!xlsData.length) {
+    alert('No data rows found. Verify this is a valid Detailed Sales Report file.');
+    return;
   }
 
   // Sanity-check: echo parsed records before Firestore writes (no cost fields).
@@ -292,11 +392,6 @@ function parseDetailedSalesReport(rawRows, filename) {
       }))
   );
 
-  if (!xlsData.length) {
-    alert('No data rows found. Verify this is a valid Detailed Sales Report file.');
-    return;
-  }
-
   // Reuse detected-mode state: treat as single-date mode (dates are per-row).
   detectedMode       = 'range';
   detectedRangeStart = xlsData[0]?.dateSold || todayISO();
@@ -315,16 +410,23 @@ function parseDetailedSalesReport(rawRows, filename) {
   });
 }
 
+function parseDetailedSalesReport(rawRows, filename) {
+  parseDetailedSalesWorkbook([{ name: filename, rawRows }], filename);
+}
+
 // ─── File parsers → processPOSFile ───────────────────────────────────────────
 function parseXLS(buffer, filename) {
   if (typeof XLSX === 'undefined') { alert('SheetJS failed to load. Please refresh.'); return; }
   try {
     const wb      = XLSX.read(buffer, { type: 'array' });
-    const ws      = wb.Sheets[wb.SheetNames[0]];
-    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true });
-    if (isDetailedSalesReportFormat(rawRows)) {
-      parseDetailedSalesReport(rawRows, filename);
+    const sheets  = wb.SheetNames.map(name => ({
+      name,
+      rawRows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', blankrows: true }),
+    }));
+    if (sheets.some(sheet => isDetailedSalesReportFormat(sheet.rawRows))) {
+      parseDetailedSalesWorkbook(sheets, filename);
     } else {
+      const rawRows = sheets[0]?.rawRows || [];
       processPOSFile(rawRows, filename, 9);
     }
   } catch (err) { alert('Error reading file: ' + err.message); }
@@ -462,6 +564,8 @@ async function autoImportXLS(filename) {
         productName:  prod.productName || r.productName,
         category:     prod.category   || 'Uncategorized',
         unitsSold, unitCost, totalCost, sellingPrice, totalRevenue, grossProfit, margin,
+        ...(r.documentNo !== undefined && { documentNo: r.documentNo }),
+        ...(r.uom !== undefined && { uom: r.uom }),
         ...(r.srpUnit    !== undefined && { srpUnit:   r.srpUnit }),
         ...(r.discount   !== undefined && { discount:  r.discount }),
         ...(r.srpwdDiscount !== undefined && { srpwdDiscount: r.srpwdDiscount }),
@@ -481,6 +585,8 @@ async function autoImportXLS(filename) {
         productName: r.productName,
         category:    'Uncategorized',
         unitsSold, sellingPrice, totalRevenue,
+        ...(r.documentNo !== undefined && { documentNo: r.documentNo }),
+        ...(r.uom !== undefined && { uom: r.uom }),
         ...(r.srpUnit    !== undefined && { srpUnit:   r.srpUnit }),
         ...(r.discount   !== undefined && { discount:  r.discount }),
         ...(r.srpwdDiscount !== undefined && { srpwdDiscount: r.srpwdDiscount }),
