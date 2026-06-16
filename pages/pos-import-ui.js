@@ -587,8 +587,8 @@ function updateRecordsQueryControls() {
   } else if (loaded) {
     document.getElementById('records-query-status').textContent =
       total == null
-        ? `${loadedCount.toLocaleString()} ${isSales ? 'sales' : 'under-review'} records loaded`
-        : `Showing ${loadedCount.toLocaleString()} of ${total.toLocaleString()} ${isSales ? 'sales' : 'under-review'} records`;
+        ? `${loadedCount.toLocaleString()} shown | total unavailable`
+        : `${loadedCount.toLocaleString()} shown | ${total.toLocaleString()} total`;
   } else {
     document.getElementById('records-query-status').textContent = '';
   }
@@ -608,6 +608,7 @@ async function loadSelectedRecords(append = false) {
       salesHasMoreRecords = false;
       salesRecordsLoaded = false;
       salesTotalRecords = null;
+      salesTotalRevenue = null;
       salesBrowseData = [];
       salesSearchMode = false;
       salesSearchTerm = '';
@@ -617,6 +618,7 @@ async function loadSelectedRecords(append = false) {
       reviewHasMoreRecords = false;
       reviewRecordsLoaded = false;
       reviewTotalRecords = null;
+      reviewTotalRevenue = null;
       reviewBrowseData = [];
       reviewSearchMode = false;
       reviewSearchTerm = '';
@@ -628,6 +630,7 @@ async function loadSelectedRecords(append = false) {
       salesHasMoreRecords = false;
       salesRecordsLoaded = false;
       salesTotalRecords = null;
+      salesTotalRevenue = null;
       salesBrowseData = [];
       salesSearchMode = false;
       salesSearchTerm = '';
@@ -638,6 +641,7 @@ async function loadSelectedRecords(append = false) {
       reviewHasMoreRecords = false;
       reviewRecordsLoaded = false;
       reviewTotalRecords = null;
+      reviewTotalRevenue = null;
       reviewBrowseData = [];
       reviewSearchMode = false;
       reviewSearchTerm = '';

@@ -34,6 +34,7 @@ let salesHasMoreRecords = false;
 let salesRecordsLoaded = false;
 let salesRecordsLoading = false;
 let salesTotalRecords = null;
+let salesTotalRevenue = null;
 let salesSearchMode = false;
 let salesSearchTerm = '';
 let reviewBrowseData = [];
@@ -42,6 +43,7 @@ let reviewHasMoreRecords = false;
 let reviewRecordsLoaded = false;
 let reviewRecordsLoading = false;
 let reviewTotalRecords = null;
+let reviewTotalRevenue = null;
 let reviewSearchMode = false;
 let reviewSearchTerm = '';
 let inventoryUnitCostCache = Object.create(null);
@@ -615,17 +617,24 @@ function buildRangeCountQuery(collectionName) {
 
 async function countRangeRecords(collectionName) {
   const query = buildRangeCountQuery(collectionName);
+  if (typeof firestoreCount === 'function') return firestoreCount(query, `${collectionName} count`);
   if (typeof query.count !== 'function') return null;
-  const snap = await query.count().get()
-    .then(result => {
-      if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess(`${collectionName} count`);
-      return result;
-    })
-    .catch(err => {
-      if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
-      throw err;
-    });
+  const snap = await query.count().get();
   return Number(snap.data().count) || 0;
+}
+
+async function sumRangeRecords(collectionName, fieldName) {
+  const query = buildRangeCountQuery(collectionName);
+  if (typeof firestoreSum !== 'function') return null;
+  return firestoreSum(query, fieldName, `${collectionName} ${fieldName} sum`);
+}
+
+async function loadRangeAggregates(collectionName) {
+  const [count, totalRevenue] = await Promise.all([
+    countRangeRecords(collectionName),
+    sumRangeRecords(collectionName, 'totalRevenue')
+  ]);
+  return { count, totalRevenue };
 }
 
 function mergeRecordResults(snapshots) {
@@ -676,9 +685,9 @@ async function searchCollectionRecords(collectionName, term) {
 
 async function loadSalesData({ append = false } = {}) {
   if (!salesRangeStart || !salesRangeEnd) return [];
-  if (!append) salesTotalRecords = await countRangeRecords('salesData');
+  const aggregatePromise = !append ? loadRangeAggregates('salesData') : Promise.resolve(null);
   const query = buildRangeQuery('salesData', append, salesLastDocSnapshot);
-  const snap = await query.get()
+  const snapPromise = query.get()
       .then(result => {
         if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('sales read');
         return result;
@@ -687,6 +696,11 @@ async function loadSalesData({ append = false } = {}) {
         if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
         throw err;
       });
+  const [aggregate, snap] = await Promise.all([aggregatePromise, snapPromise]);
+  if (aggregate) {
+    salesTotalRecords = aggregate.count;
+    salesTotalRevenue = aggregate.totalRevenue;
+  }
   salesLastDocSnapshot = snap.docs[snap.docs.length - 1] || salesLastDocSnapshot;
   salesHasMoreRecords = salesTotalRecords == null
     ? snap.docs.length === SALES_QUERY_LIMIT
@@ -703,8 +717,8 @@ async function loadSalesData({ append = false } = {}) {
 
 async function loadUnderReview({ append = false } = {}) {
   if (!salesRangeStart || !salesRangeEnd) return [];
-  if (!append) reviewTotalRecords = await countRangeRecords('underReviewData');
-  const snap = await buildRangeQuery('underReviewData', append, reviewLastDocSnapshot).get()
+  const aggregatePromise = !append ? loadRangeAggregates('underReviewData') : Promise.resolve(null);
+  const snapPromise = buildRangeQuery('underReviewData', append, reviewLastDocSnapshot).get()
     .then(result => {
       if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('under-review read');
       return result;
@@ -713,6 +727,11 @@ async function loadUnderReview({ append = false } = {}) {
       if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
       throw err;
     });
+  const [aggregate, snap] = await Promise.all([aggregatePromise, snapPromise]);
+  if (aggregate) {
+    reviewTotalRecords = aggregate.count;
+    reviewTotalRevenue = aggregate.totalRevenue;
+  }
   reviewLastDocSnapshot = snap.docs[snap.docs.length - 1] || reviewLastDocSnapshot;
   reviewHasMoreRecords = reviewTotalRecords == null
     ? snap.docs.length === SALES_QUERY_LIMIT

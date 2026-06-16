@@ -1,4 +1,16 @@
 // ─── Month Filter ─────────────────────────────────────────────────────────────
+function loadedTotalLabel(loaded, total) {
+  return total == null
+    ? `${loaded.toLocaleString()} shown | total unavailable`
+    : `${loaded.toLocaleString()} shown | ${total.toLocaleString()} total`;
+}
+
+function loadedOfTotalLabel(loaded, total) {
+  return total == null
+    ? `Showing ${loaded.toLocaleString()} loaded`
+    : `Showing ${loaded.toLocaleString()} of ${total.toLocaleString()}`;
+}
+
 function populateMonthFilter() {
   const months = [...new Set(_salesData.map(r => r.date?.slice(0, 7)))].filter(Boolean).sort().reverse();
   const sel = document.getElementById('filter-month');
@@ -323,12 +335,11 @@ function renderSalesPagination(filteredRows) {
     pageInfo.textContent =
       `Search results for '${salesSearchTerm}' - showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()}`;
   } else {
-    const totalLabel = salesTotalRecords == null
-      ? `${_salesData.length.toLocaleString()} loaded`
-      : `${salesTotalRecords.toLocaleString()} records`;
+    const loadedLabel = loadedTotalLabel(_salesData.length, salesTotalRecords);
+    const showingLabel = loadedOfTotalLabel(_salesData.length, salesTotalRecords);
     pageInfo.textContent = filteredRows.length === _salesData.length
-      ? `Showing ${_salesData.length.toLocaleString()} of ${totalLabel}`
-      : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()} filtered results (${_salesData.length.toLocaleString()} loaded, ${totalLabel})`;
+      ? showingLabel
+      : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()} filtered results (${loadedLabel})`;
   }
   document.getElementById('sales-pagination').innerHTML = totalPages <= 1 ? '' :
     `<button onclick="goToSalesPage(${salesPage - 1})" ${salesPage === 1 ? 'disabled' : ''}>Prev</button>` +
@@ -638,22 +649,26 @@ function refreshReviewFilterUI() {
 function renderUnderReview() {
   const allRows = [..._reviewData].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const count   = allRows.length;
+  const trueTotal = reviewTotalRecords ?? count;
 
   const badge = document.getElementById('review-badge');
-  const badgeCount = reviewSearchMode ? count : (reviewTotalRecords ?? count);
+  const badgeCount = reviewSearchMode ? count : trueTotal;
   badge.textContent   = badgeCount.toLocaleString();
   badge.style.display = badgeCount > 0 ? '' : 'none';
 
   const infoBar = document.getElementById('review-info-bar');
   if (count > 0) {
     const pendingRev = allRows.reduce((s, r) => s + (r.totalRevenue || 0), 0);
+    const totalPendingRevenueHtml = reviewTotalRevenue == null
+      ? ''
+      : ` True total pending revenue: <strong>${formatPeso(reviewTotalRevenue)}</strong>.`;
     infoBar.style.display = '';
     infoBar.innerHTML = reviewSearchMode
       ? `<strong>Search results for '${esc(reviewSearchTerm)}'.</strong>
       &nbsp;Showing ${count.toLocaleString()} result${count !== 1 ? 's' : ''}.
       <button class="btn btn-outline-gray btn-xs" type="button" onclick="clearRecordSearch('review')">Clear search</button>`
-      : `<strong>⚠ ${(reviewTotalRecords ?? count).toLocaleString()} item${(reviewTotalRecords ?? count) !== 1 ? 's' : ''} pending cost entry.</strong>
-      &nbsp;Showing ${count.toLocaleString()} loaded. Loaded pending revenue: <strong>${formatPeso(pendingRev)}</strong>.
+      : `<strong>⚠ ${count.toLocaleString()} of ${trueTotal.toLocaleString()} item${trueTotal !== 1 ? 's' : ''} pending cost entry.</strong>
+      &nbsp;${loadedTotalLabel(count, reviewTotalRecords)}. Loaded pending revenue: <strong>${formatPeso(pendingRev)}</strong>.${totalPendingRevenueHtml}
       Enter each item's Unit Cost and click <em>Add to Product Master</em> to move it to Sales Data.`;
   } else {
     infoBar.style.display = reviewSearchMode ? '' : 'none';
@@ -697,7 +712,7 @@ function renderUnderReview() {
       ? `Search results for '${reviewSearchTerm}' - showing ${start + 1}–${end} of ${filtered.length.toLocaleString()}`
       : filtered.length < count
       ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}. Showing ${start + 1}-${end}`
-      : `Showing ${count.toLocaleString()} of ${(reviewTotalRecords ?? count).toLocaleString()} records`;
+      : loadedOfTotalLabel(count, reviewTotalRecords);
   refreshReviewFilterUI();
 
   const pgEl = document.getElementById('review-pagination');
