@@ -146,7 +146,17 @@ function firestoreIndexUrlFromError(err) {
   return match ? match[0] : '';
 }
 
+function clampRecordsLoadLimit(inputId, { syncInput = true } = {}) {
+  const input = typeof document !== 'undefined' ? document.getElementById(inputId) : null;
+  const raw = input ? Number(input.value) : 200;
+  const parsed = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 200;
+  const clamped = Math.min(1000, Math.max(50, parsed));
+  if (input && syncInput) input.value = String(clamped);
+  return clamped;
+}
+
 function reportFirestoreAggregateError(err, label = 'aggregate query') {
+  console.error(`[Firestore] ${label} real aggregate error:`, err);
   const indexUrl = firestoreIndexUrlFromError(err);
   if (indexUrl) {
     console.error(`[Firestore] ${label} needs an index: ${indexUrl}`, err);
@@ -157,7 +167,11 @@ function reportFirestoreAggregateError(err, label = 'aggregate query') {
 }
 
 async function firestoreCount(query, label = 'count') {
-  if (!query || typeof query.count !== 'function') return null;
+  if (!query || typeof query.count !== 'function') {
+    const err = new Error('[Firestore] count() is not available on this query. Check the firebase-firestore-compat SDK version; use firebasejs 10.12.0 or newer.');
+    console.error(`[Firestore] ${label} real aggregate error:`, err);
+    return null;
+  }
   try {
     const snap = await query.count().get();
     return Number(snap.data().count || 0);
@@ -169,7 +183,11 @@ async function firestoreCount(query, label = 'count') {
 
 async function firestoreSum(query, field, label = 'sum') {
   const aggregateField = typeof firebase !== 'undefined' ? firebase.firestore?.AggregateField : null;
-  if (!query || typeof query.aggregate !== 'function' || !aggregateField?.sum) return null;
+  if (!query || typeof query.aggregate !== 'function' || !aggregateField?.sum) {
+    const err = new Error('[Firestore] sum() is not available. Check the firebase-firestore-compat SDK version; use firebasejs 10.12.0 or newer.');
+    console.error(`[Firestore] ${label} real aggregate error:`, err);
+    return null;
+  }
   try {
     const snap = await query.aggregate({ value: aggregateField.sum(field) }).get();
     return Number(snap.data().value || 0);
@@ -1343,18 +1361,21 @@ class TrackingTable {
       ? this.remoteTotal
       : total;
     const { page, pageSize } = this;
-    const totalPages = Math.max(1, Math.ceil(displayTotal / pageSize));
-    if (displayTotal === 0) { el.innerHTML = ''; return; }
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (total === 0) { el.innerHTML = ''; return; }
     const from = (page - 1) * pageSize + 1;
-    const to   = Math.min(page * pageSize, displayTotal);
+    const to   = Math.min(page * pageSize, total);
     const id   = this.cfg.id;
+    const info = displayTotal !== total
+      ? `Showing ${from}–${to} of ${total.toLocaleString()} loaded (${total.toLocaleString()} shown | ${displayTotal.toLocaleString()} total)`
+      : `Showing ${from}–${to} of ${total.toLocaleString()} entries`;
     const btns = this._pageWindow(page, totalPages).map(n =>
       n === '…'
         ? `<span class="page-ellipsis">…</span>`
         : `<button class="page-btn${n === page ? ' active' : ''}" onclick="TrackingTable.get('${id}').setPage(${n})">${n}</button>`
     ).join('');
     el.innerHTML = `
-      <div class="pagination-info">Showing ${from}–${to} of ${displayTotal.toLocaleString()} entries</div>
+      <div class="pagination-info">${info}</div>
       <div class="pagination-controls">
         <button class="page-btn" ${page <= 1 ? 'disabled' : ''} onclick="TrackingTable.get('${id}').setPage(${page - 1})">‹ Prev</button>
         ${btns}

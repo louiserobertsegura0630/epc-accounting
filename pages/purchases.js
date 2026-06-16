@@ -371,6 +371,39 @@ function purchaseDateRangeQuery() {
   return query;
 }
 
+function purchaseLoadLimit() {
+  return clampRecordsLoadLimit('purchases-load-limit');
+}
+
+async function loadPurchasesBatch({ append = false } = {}) {
+  const db = getFirestoreDB();
+  if (!db) return DB.get('purchases');
+  if (!append) purchaseLastDocSnapshot = null;
+  const { from, to } = purchaseDateRange();
+  let query = db.collection('purchases');
+  if (from) query = query.where('date', '>=', from);
+  if (to) query = query.where('date', '<=', to);
+  query = query.orderBy('date', 'desc').limit(purchaseLoadLimit());
+  if (append && purchaseLastDocSnapshot) query = query.startAfter(purchaseLastDocSnapshot);
+  const snap = await query.get();
+  purchaseLastDocSnapshot = snap.docs[snap.docs.length - 1] || purchaseLastDocSnapshot;
+  const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  DB.set('purchases', append ? [...DB.get('purchases'), ...rows] : rows);
+  const total = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals?.count : null;
+  purchaseHasMoreRecords = total == null
+    ? snap.docs.length === clampRecordsLoadLimit('purchases-load-limit', { syncInput: false })
+    : DB.get('purchases').length < total;
+  updatePurchaseLoadMoreControl();
+  return DB.get('purchases');
+}
+
+function updatePurchaseLoadMoreControl() {
+  const button = document.getElementById('btn-load-more-purchases');
+  if (!button) return;
+  button.style.display = purchaseHasMoreRecords ? '' : 'none';
+  button.disabled = !purchaseHasMoreRecords;
+}
+
 function hasPurchaseNonDateFilters() {
   const search = document.getElementById('search-purchases')?.value.trim();
   const supplier = document.getElementById('filter-supplier-purchases')?.value;
@@ -392,8 +425,22 @@ async function refreshPurchaseAggregates() {
   if (requestId !== purchaseAggregateRequestId || scope !== purchaseDateScopeKey()) return;
   purchaseAggregateScope = scope;
   purchaseAggregateTotals = { count, totalNet, totalVAT, totalGross, totalEwt };
+  purchaseHasMoreRecords = count == null
+    ? purchaseHasMoreRecords
+    : DB.get('purchases').length < count;
+  updatePurchaseLoadMoreControl();
   renderSummary();
   renderTable();
+}
+
+async function reloadPurchasesForDateRange() {
+  purchaseCurrentPage = 1;
+  selectedPurchaseIds.clear();
+  await refreshPurchaseAggregates();
+  await loadPurchasesBatch({ append: false });
+  populatePurchasesFilterSuppliers();
+  renderTable();
+  renderSummary();
 }
 
 // ─── Sort & Filter State ──────────────────────────────────────────────────────
@@ -402,6 +449,8 @@ let purchaseCurrentPage = 1;
 let purchaseAggregateScope = '';
 let purchaseAggregateTotals = null;
 let purchaseAggregateRequestId = 0;
+let purchaseLastDocSnapshot = null;
+let purchaseHasMoreRecords = false;
 const selectedPurchaseIds = new Set();
 const purchaseColumnFilters = {};
 const PURCHASE_ROWS_PER_PAGE = 100;
@@ -650,11 +699,7 @@ function purchasePageRows(rows) {
 
 function setPurchasePage(page) {
   const rows = getPurchaseRows();
-  const aggregate = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals : null;
-  const displayCount = !hasPurchaseNonDateFilters()
-    ? (aggregate?.count ?? rows.length)
-    : rows.length;
-  const totalPages = purchaseTotalPages(displayCount);
+  const totalPages = purchaseTotalPages(rows.length);
   purchaseCurrentPage = Math.min(Math.max(1, page), totalPages);
   renderTable();
 }
@@ -668,9 +713,9 @@ function purchasePageNumbers(totalPages) {
 }
 
 function renderPurchasePagination(filteredCount, displayCount = filteredCount) {
-  const totalPages = purchaseTotalPages(displayCount);
-  const start = displayCount ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
-  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, displayCount);
+  const totalPages = purchaseTotalPages(filteredCount);
+  const start = filteredCount ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
+  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, filteredCount);
   const pageNumbers = purchasePageNumbers(totalPages);
   const buttons = [];
   let last = 0;
@@ -680,7 +725,7 @@ function renderPurchasePagination(filteredCount, displayCount = filteredCount) {
     last = page;
   });
   document.getElementById('purchase-pagination').innerHTML = `
-    <span class="purchase-page-info">Showing ${start.toLocaleString()}-${end.toLocaleString()} of ${displayCount.toLocaleString()} purchases</span>
+    <span class="purchase-page-info">Showing ${start.toLocaleString()}-${end.toLocaleString()} of ${filteredCount.toLocaleString()} loaded (${filteredCount.toLocaleString()} shown | ${displayCount.toLocaleString()} total)</span>
     <div class="purchase-page-controls">
       <button class="purchase-page-btn" type="button" ${purchaseCurrentPage === 1 ? 'disabled' : ''} onclick="setPurchasePage(${purchaseCurrentPage - 1})">Prev</button>
       ${buttons.join('')}
@@ -700,15 +745,15 @@ function renderTable() {
   const displayCount = !hasPurchaseNonDateFilters()
     ? (aggregate?.count ?? rows.length)
     : rows.length;
-  const totalPages = purchaseTotalPages(displayCount);
+  const totalPages = purchaseTotalPages(rows.length);
   if (purchaseCurrentPage > totalPages) purchaseCurrentPage = totalPages;
   const pageRows = purchasePageRows(rows);
-  const start = displayCount ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
-  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, displayCount);
+  const start = rows.length ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
+  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, rows.length);
 
   document.getElementById('purchases-count').textContent =
     !hasPurchaseNonDateFilters()
-      ? `Showing ${start.toLocaleString()}-${end.toLocaleString()} of ${displayCount.toLocaleString()} records`
+      ? `${rows.length.toLocaleString()} shown | ${displayCount.toLocaleString()} total`
       : `Showing ${start}-${end} of ${rows.length} filtered records`;
 
   renderPurchaseHeader(pageRows);
@@ -909,12 +954,19 @@ purchaseImportDropzone.addEventListener('drop', event => {
 // ─── Filter wiring ────────────────────────────────────────────────────────────
 populatePurchasesFilterSuppliers();
 ['search-purchases', 'filter-date-from', 'filter-date-to'].forEach(id => {
-  document.getElementById(id).addEventListener('input', () => {
+  document.getElementById(id).addEventListener('input', async () => {
     purchaseCurrentPage = 1;
-    renderTable();
-    if (id === 'filter-date-from' || id === 'filter-date-to') refreshPurchaseAggregates();
+    if (id === 'filter-date-from' || id === 'filter-date-to') await reloadPurchasesForDateRange();
+    else renderTable();
   });
 });
+document.getElementById('btn-load-more-purchases')?.addEventListener('click', async () => {
+  await loadPurchasesBatch({ append: true });
+  renderTable();
+  renderSummary();
+});
+document.getElementById('purchases-load-limit')?.addEventListener('change', () => clampRecordsLoadLimit('purchases-load-limit'));
+document.getElementById('purchases-load-limit')?.addEventListener('blur', () => clampRecordsLoadLimit('purchases-load-limit'));
 document.getElementById('filter-supplier-purchases').addEventListener('change', () => {
   purchaseCurrentPage = 1;
   renderTable();
@@ -925,15 +977,13 @@ document.getElementById('btn-clear-filters-purchases').addEventListener('click',
   });
   document.getElementById('filter-supplier-purchases').value = '';
   Object.keys(purchaseColumnFilters).forEach(key => delete purchaseColumnFilters[key]);
-  purchaseCurrentPage = 1;
-  renderTable();
-  refreshPurchaseAggregates();
+  reloadPurchasesForDateRange();
 });
 
 renderTable();
 renderSummary();
 Promise.all([
-  loadPurchasesFromFirestore(),
+  loadPurchasesBatch({ append: false }),
   loadSuppliersFromFirestore()
 ])
   .then(() => {

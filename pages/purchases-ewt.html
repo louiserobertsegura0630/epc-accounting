@@ -69,6 +69,12 @@
         <select id="filter-supplier-purchases" class="filter-select">
           <option value="">All Suppliers</option>
         </select>
+        <button class="btn btn-outline-gray btn-sm" id="btn-load-more-purchases" type="button" style="display:none">Load more</button>
+        <label for="purchases-load-limit" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary)">
+          Load
+          <input type="number" class="filter-date-input" id="purchases-load-limit" min="50" max="1000" step="50" value="200" style="width:84px">
+          at a time
+        </label>
         <button id="btn-clear-filters-purchases" class="btn btn-outline-gray btn-sm">Clear Filters</button>
         <span id="purchases-count" class="records-badge"></span>
       </div>
@@ -276,7 +282,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="../assets/app.js?v=20260609-localrole"></script>
-<script src="purchases.js"></script>
+<script src="../assets/app.js?v=20260616-count-load-size"></script>
+<script src="purchases.js?v=20260616-count-load-size"></script>
 </body>
 </html>

@@ -3,6 +3,8 @@ initSidebar('supplies');
 
 const expandedSupplyRows = new Set();
 let suppliesAggregateTotals = null;
+let suppliesLastDocSnapshot = null;
+let suppliesHasMoreRecords = false;
 
 function supplyUsageHistory(row) {
   if (Array.isArray(row.usageHistory)) return row.usageHistory;
@@ -83,6 +85,37 @@ async function loadSuppliesFromFirestore() {
   }
   for (const row of localRows) await upsertSupplyInFirestore(row);
   return localRows;
+}
+
+function suppliesLoadLimit() {
+  return clampRecordsLoadLimit('sup-load-limit');
+}
+
+function updateSuppliesLoadMoreControl() {
+  const button = document.getElementById('btn-load-more-sup');
+  if (!button) return;
+  button.style.display = suppliesHasMoreRecords ? '' : 'none';
+  button.disabled = !suppliesHasMoreRecords;
+}
+
+async function loadSuppliesBatch({ append = false } = {}) {
+  const db = getFirestoreDB();
+  if (!db) return DB.get('supplies_movements');
+  if (!append) suppliesLastDocSnapshot = null;
+  let query = db.collection('suppliesData')
+    .orderBy(firebase.firestore.FieldPath.documentId())
+    .limit(suppliesLoadLimit());
+  if (append && suppliesLastDocSnapshot) query = query.startAfter(suppliesLastDocSnapshot);
+  const snapshot = await query.get();
+  suppliesLastDocSnapshot = snapshot.docs[snapshot.docs.length - 1] || suppliesLastDocSnapshot;
+  const rows = snapshot.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  DB.set('supplies_movements', append ? [...DB.get('supplies_movements'), ...rows] : rows);
+  const total = suppliesAggregateTotals?.count;
+  suppliesHasMoreRecords = total == null
+    ? snapshot.docs.length === clampRecordsLoadLimit('sup-load-limit', { syncInput: false })
+    : DB.get('supplies_movements').length < total;
+  updateSuppliesLoadMoreControl();
+  return DB.get('supplies_movements');
 }
 
 function calcSupTotal() {
@@ -183,9 +216,14 @@ async function refreshSuppliesAggregates() {
   const inVal = incomingGross || incomingPurchaseCost;
   const hasUsageHistory = DB.get('supplies_movements').some(row => supplyUsedTotal(row) > 0);
   suppliesAggregateTotals = {
+    count: count ?? suppliesAggregateTotals?.count,
     inVal: inVal || suppliesAggregateTotals?.inVal,
     outVal: hasUsageHistory ? null : (outgoingTotalCost || suppliesAggregateTotals?.outVal)
   };
+  suppliesHasMoreRecords = suppliesAggregateTotals.count == null
+    ? suppliesHasMoreRecords
+    : DB.get('supplies_movements').length < suppliesAggregateTotals.count;
+  updateSuppliesLoadMoreControl();
   renderSummary();
 }
 
@@ -471,6 +509,13 @@ const supTable = new TrackingTable({
   emptyHtml: '<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">📋</div><p>No supply movements yet.</p></div></td></tr>',
 });
 supTable.render();
-loadSuppliesFromFirestore()
+document.getElementById('btn-load-more-sup')?.addEventListener('click', async () => {
+  await loadSuppliesBatch({ append: true });
+  supTable.render();
+  renderSummary();
+});
+document.getElementById('sup-load-limit')?.addEventListener('change', () => clampRecordsLoadLimit('sup-load-limit'));
+document.getElementById('sup-load-limit')?.addEventListener('blur', () => clampRecordsLoadLimit('sup-load-limit'));
+loadSuppliesBatch({ append: false })
   .then(() => { supTable.render(); renderSummary(); refreshSuppliesAggregates(); })
   .catch(err => console.error('[Supplies] Firestore load failed:', err));

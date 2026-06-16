@@ -14,6 +14,8 @@ let potentialSortKey = 'potentialRevenue';
 let potentialSortDir = 'desc';
 let potentialFilters = {};
 let inventoryAggregateTotals = null;
+let inventoryLastDocSnapshot = null;
+let inventoryHasMoreRecords = false;
 const POTENTIAL_PAGE_SIZE = 50;
 const POTENTIAL_MARKUP_KEY = 'inventoryPotentialMarkupSettings';
 const POTENTIAL_COLUMNS = [
@@ -562,10 +564,46 @@ async function refreshInventoryAggregates() {
   ]);
   if (count != null) invTable.setRemoteTotal(count);
   inventoryAggregateTotals = {
+    count: count ?? inventoryAggregateTotals?.count,
     inVal: inVal ?? inventoryAggregateTotals?.inVal,
     outVal: outVal ?? inventoryAggregateTotals?.outVal
   };
+  inventoryHasMoreRecords = inventoryAggregateTotals.count == null
+    ? inventoryHasMoreRecords
+    : DB.get('inventory_movements').length < inventoryAggregateTotals.count;
+  updateInventoryLoadMoreControl();
   renderSummary();
+}
+
+function inventoryLoadLimit() {
+  return clampRecordsLoadLimit('inv-load-limit');
+}
+
+function updateInventoryLoadMoreControl() {
+  const button = document.getElementById('btn-load-more-inv');
+  if (!button) return;
+  button.style.display = inventoryHasMoreRecords ? '' : 'none';
+  button.disabled = !inventoryHasMoreRecords;
+}
+
+async function loadInventoryBatch({ append = false } = {}) {
+  const db = getFirestoreDB();
+  if (!db) return DB.get('inventory_movements');
+  if (!append) inventoryLastDocSnapshot = null;
+  let query = db.collection('inventoryData')
+    .orderBy(firebase.firestore.FieldPath.documentId())
+    .limit(inventoryLoadLimit());
+  if (append && inventoryLastDocSnapshot) query = query.startAfter(inventoryLastDocSnapshot);
+  const snap = await query.get();
+  inventoryLastDocSnapshot = snap.docs[snap.docs.length - 1] || inventoryLastDocSnapshot;
+  const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  DB.set('inventory_movements', append ? [...DB.get('inventory_movements'), ...rows] : rows);
+  const total = inventoryAggregateTotals?.count;
+  inventoryHasMoreRecords = total == null
+    ? snap.docs.length === clampRecordsLoadLimit('inv-load-limit', { syncInput: false })
+    : DB.get('inventory_movements').length < total;
+  updateInventoryLoadMoreControl();
+  return DB.get('inventory_movements');
 }
 
 async function saveInv() {
@@ -1539,6 +1577,13 @@ document.getElementById('potential-category-select').addEventListener('change', 
     settings.categoryMarkup?.[document.getElementById('potential-category-select').value] || '';
 });
 renderSummary();
+document.getElementById('btn-load-more-inv')?.addEventListener('click', async () => {
+  await loadInventoryBatch({ append: true });
+  invTable.render();
+  renderSummary();
+});
+document.getElementById('inv-load-limit')?.addEventListener('change', () => clampRecordsLoadLimit('inv-load-limit'));
+document.getElementById('inv-load-limit')?.addEventListener('blur', () => clampRecordsLoadLimit('inv-load-limit'));
 
 // ─── TrackingTable ────────────────────────────────────────────────────────────
 const invTable = new TrackingTable({
@@ -2439,7 +2484,7 @@ function watchInventoryProductMaster() {
 }
 
 Promise.all([
-  loadInventoryFromFirestore(),
+  loadInventoryBatch({ append: false }),
   loadSuppliersFromFirestore(),
   loadProductMasterFromFirestore()
 ])

@@ -105,6 +105,12 @@
       </div>
       <div class="bulk-action-bar" id="inv-bulk-bar">
         <span class="bulk-selected-count" id="inv-bulk-count">0 rows selected</span>
+        <button class="btn btn-outline-gray btn-sm" id="btn-load-more-inv" type="button" style="display:none">Load more</button>
+        <label for="inv-load-limit" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary)">
+          Load
+          <input type="number" class="form-input" id="inv-load-limit" min="50" max="1000" step="50" value="200" style="width:84px;padding:6px 8px">
+          at a time
+        </label>
         <button class="btn btn-primary btn-sm" id="btn-make-outgoing">Make Outgoing</button>
         <button class="btn btn-danger btn-sm" id="btn-delete-selected">Delete Selected</button>
         <button class="bulk-deselect" id="btn-deselect-inv" type="button">Deselect All</button>
@@ -523,8 +529,8 @@ self.onmessage = function(e) {
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="../assets/app.js?v=20260609-localrole"></script>
+<script src="../assets/app.js?v=20260616-count-load-size"></script>
 <script src="../assets/shared-utils.js"></script>
-<script src="inventory-tracking.js"></script>
+<script src="inventory-tracking.js?v=20260616-count-load-size"></script>
 </body>
 </html>
