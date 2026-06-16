@@ -24,17 +24,26 @@ let salesDeleteInProgress = false;
 let salesFilters;
 let activeTab = 'sales';
 let reviewPage = 1;
-const SALES_QUERY_LIMIT = 100;
+const SALES_QUERY_LIMIT = 200;
+const RECORD_SEARCH_LIMIT = 100;
 let salesRangeStart = '';
 let salesRangeEnd = '';
+let salesBrowseData = [];
 let salesLastDocSnapshot = null;
 let salesHasMoreRecords = false;
 let salesRecordsLoaded = false;
 let salesRecordsLoading = false;
+let salesTotalRecords = null;
+let salesSearchMode = false;
+let salesSearchTerm = '';
+let reviewBrowseData = [];
 let reviewLastDocSnapshot = null;
 let reviewHasMoreRecords = false;
 let reviewRecordsLoaded = false;
 let reviewRecordsLoading = false;
+let reviewTotalRecords = null;
+let reviewSearchMode = false;
+let reviewSearchTerm = '';
 let inventoryUnitCostCache = Object.create(null);
 let inventoryFullCostMapPromise = null;
 const REVIEW_FILTER_DEFAULTS = {
@@ -586,14 +595,67 @@ function buildRangeQuery(collectionName, append, lastDocSnapshot) {
   let query = db.collection(collectionName)
     .where('date', '>=', salesRangeStart)
     .where('date', '<=', salesRangeEnd)
-    .orderBy('date', 'desc')
+    .orderBy('date')
     .limit(SALES_QUERY_LIMIT);
   if (append && lastDocSnapshot) query = query.startAfter(lastDocSnapshot);
   return query;
 }
 
+function buildRangeCountQuery(collectionName) {
+  return db.collection(collectionName)
+    .where('date', '>=', salesRangeStart)
+    .where('date', '<=', salesRangeEnd);
+}
+
+async function countRangeRecords(collectionName) {
+  const query = buildRangeCountQuery(collectionName);
+  if (typeof query.count !== 'function') return null;
+  const snap = await query.count().get()
+    .then(result => {
+      if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess(`${collectionName} count`);
+      return result;
+    })
+    .catch(err => {
+      if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+      throw err;
+    });
+  return Number(snap.data().count) || 0;
+}
+
+function mergeRecordResults(snapshots) {
+  const rowsById = new Map();
+  snapshots.forEach(snap => {
+    snap.docs.forEach(doc => rowsById.set(doc.id, { _id: doc.id, ...doc.data() }));
+  });
+  return [...rowsById.values()]
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+    .slice(0, RECORD_SEARCH_LIMIT);
+}
+
+async function searchCollectionRecords(collectionName, term) {
+  const value = String(term || '').trim();
+  if (!value) return [];
+  const upperBound = value + '\uf8ff';
+  const queries = [
+    db.collection(collectionName).where('itemCode', '==', value).limit(RECORD_SEARCH_LIMIT),
+    db.collection(collectionName).orderBy('productName').startAt(value).endAt(upperBound).limit(RECORD_SEARCH_LIMIT),
+  ];
+  const snapshots = await Promise.all(queries.map(query => query.get()
+    .then(result => {
+      if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess(`${collectionName} search`);
+      return result;
+    })
+    .catch(err => {
+      if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+      throw err;
+    })
+  ));
+  return mergeRecordResults(snapshots);
+}
+
 async function loadSalesData({ append = false } = {}) {
   if (!salesRangeStart || !salesRangeEnd) return [];
+  if (!append) salesTotalRecords = await countRangeRecords('salesData');
   const query = buildRangeQuery('salesData', append, salesLastDocSnapshot);
   const snap = await query.get()
       .then(result => {
@@ -605,16 +667,22 @@ async function loadSalesData({ append = false } = {}) {
         throw err;
       });
   salesLastDocSnapshot = snap.docs[snap.docs.length - 1] || salesLastDocSnapshot;
-  salesHasMoreRecords = snap.docs.length === SALES_QUERY_LIMIT;
+  salesHasMoreRecords = salesTotalRecords == null
+    ? snap.docs.length === SALES_QUERY_LIMIT
+    : (append ? salesBrowseData.length + snap.docs.length : snap.docs.length) < salesTotalRecords;
   salesRecordsLoaded = true;
   const rawRows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
   const inventoryCostMap = await loadInventoryUnitCostMap(rawRows.map(row => row.itemCode));
   const rows = rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
-  return append ? [..._salesData, ...rows] : rows;
+  salesBrowseData = append ? [...salesBrowseData, ...rows] : rows;
+  salesSearchMode = false;
+  salesSearchTerm = '';
+  return salesBrowseData;
 }
 
 async function loadUnderReview({ append = false } = {}) {
   if (!salesRangeStart || !salesRangeEnd) return [];
+  if (!append) reviewTotalRecords = await countRangeRecords('underReviewData');
   const snap = await buildRangeQuery('underReviewData', append, reviewLastDocSnapshot).get()
     .then(result => {
       if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('under-review read');
@@ -625,10 +693,31 @@ async function loadUnderReview({ append = false } = {}) {
       throw err;
     });
   reviewLastDocSnapshot = snap.docs[snap.docs.length - 1] || reviewLastDocSnapshot;
-  reviewHasMoreRecords = snap.docs.length === SALES_QUERY_LIMIT;
+  reviewHasMoreRecords = reviewTotalRecords == null
+    ? snap.docs.length === SALES_QUERY_LIMIT
+    : (append ? reviewBrowseData.length + snap.docs.length : snap.docs.length) < reviewTotalRecords;
   reviewRecordsLoaded = true;
   const rows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
-  return append ? [..._reviewData, ...rows] : rows;
+  reviewBrowseData = append ? [...reviewBrowseData, ...rows] : rows;
+  reviewSearchMode = false;
+  reviewSearchTerm = '';
+  return reviewBrowseData;
+}
+
+async function searchSalesData(term) {
+  const rawRows = await searchCollectionRecords('salesData', term);
+  const inventoryCostMap = await loadInventoryUnitCostMap(rawRows.map(row => row.itemCode));
+  salesSearchMode = true;
+  salesSearchTerm = String(term || '').trim();
+  salesHasMoreRecords = false;
+  return rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
+}
+
+async function searchUnderReview(term) {
+  reviewSearchMode = true;
+  reviewSearchTerm = String(term || '').trim();
+  reviewHasMoreRecords = false;
+  return searchCollectionRecords('underReviewData', term);
 }
 function saveSalesDataBatch(docs, onProgress) { return batchWriteToDB('salesData', docs, onProgress); }
 async function saveManualSalesEntry(doc) {

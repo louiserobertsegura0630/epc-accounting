@@ -318,11 +318,18 @@ function renderSalesPagination(filteredRows) {
   if (salesPage > totalPages) salesPage = 1;
   const start = filteredRows.length ? (salesPage - 1) * SALES_PG + 1 : 0;
   const end = Math.min(salesPage * SALES_PG, filteredRows.length);
-  const loadedLabel = salesHasMoreRecords ? `${_salesData.length.toLocaleString()}+ loaded` : `${_salesData.length.toLocaleString()} loaded`;
-  document.getElementById('sales-page-info').textContent =
-    filteredRows.length === _salesData.length
-      ? `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${loadedLabel}`
-      : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()} filtered results (${loadedLabel})`;
+  const pageInfo = document.getElementById('sales-page-info');
+  if (salesSearchMode) {
+    pageInfo.textContent =
+      `Search results for '${salesSearchTerm}' - showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()}`;
+  } else {
+    const totalLabel = salesTotalRecords == null
+      ? `${_salesData.length.toLocaleString()} loaded`
+      : `${salesTotalRecords.toLocaleString()} records`;
+    pageInfo.textContent = filteredRows.length === _salesData.length
+      ? `Showing ${_salesData.length.toLocaleString()} of ${totalLabel}`
+      : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()} filtered results (${_salesData.length.toLocaleString()} loaded, ${totalLabel})`;
+  }
   document.getElementById('sales-pagination').innerHTML = totalPages <= 1 ? '' :
     `<button onclick="goToSalesPage(${salesPage - 1})" ${salesPage === 1 ? 'disabled' : ''}>Prev</button>` +
     `<span class="pagination-info">Page ${salesPage} / ${totalPages}</span>` +
@@ -631,27 +638,40 @@ function renderUnderReview() {
   const count   = allRows.length;
 
   const badge = document.getElementById('review-badge');
-  badge.textContent   = count;
-  badge.style.display = count > 0 ? '' : 'none';
+  const badgeCount = reviewSearchMode ? count : (reviewTotalRecords ?? count);
+  badge.textContent   = badgeCount.toLocaleString();
+  badge.style.display = badgeCount > 0 ? '' : 'none';
 
   const infoBar = document.getElementById('review-info-bar');
   if (count > 0) {
     const pendingRev = allRows.reduce((s, r) => s + (r.totalRevenue || 0), 0);
     infoBar.style.display = '';
-    infoBar.innerHTML = `<strong>⚠ ${count} item${count !== 1 ? 's' : ''} pending cost entry.</strong>
-      &nbsp;Total pending revenue: <strong>${formatPeso(pendingRev)}</strong>.
+    infoBar.innerHTML = reviewSearchMode
+      ? `<strong>Search results for '${esc(reviewSearchTerm)}'.</strong>
+      &nbsp;Showing ${count.toLocaleString()} result${count !== 1 ? 's' : ''}.
+      <button class="btn btn-outline-gray btn-xs" type="button" onclick="clearRecordSearch('review')">Clear search</button>`
+      : `<strong>⚠ ${(reviewTotalRecords ?? count).toLocaleString()} item${(reviewTotalRecords ?? count) !== 1 ? 's' : ''} pending cost entry.</strong>
+      &nbsp;Showing ${count.toLocaleString()} loaded. Loaded pending revenue: <strong>${formatPeso(pendingRev)}</strong>.
       Enter each item's Unit Cost and click <em>Add to Product Master</em> to move it to Sales Data.`;
   } else {
-    infoBar.style.display = 'none';
+    infoBar.style.display = reviewSearchMode ? '' : 'none';
+    if (reviewSearchMode) {
+      infoBar.innerHTML = `<strong>Search results for '${esc(reviewSearchTerm)}'.</strong>
+        &nbsp;No matching records found.
+        <button class="btn btn-outline-gray btn-xs" type="button" onclick="clearRecordSearch('review')">Clear search</button>`;
+    }
   }
 
   const tbody   = document.getElementById('review-tbody');
   const toolbar = document.getElementById('review-toolbar');
 
   if (!count) {
-    toolbar.style.display = 'none';
+    toolbar.style.display = reviewRecordsLoaded || reviewSearchMode ? '' : 'none';
+    if (reviewRecordsLoaded || reviewSearchMode) refreshReviewFilterUI();
     const emptyMessage = !reviewRecordsLoaded
       ? 'Open Under Review with a selected date range to load pending items.'
+      : reviewSearchMode
+      ? `No Under Review items match '${esc(reviewSearchTerm)}'.`
       : 'No items under review for the selected date range.';
     tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">
       <div class="empty-icon">✅</div>
@@ -671,9 +691,11 @@ function renderUnderReview() {
 
   toolbar.style.display = '';
   document.getElementById('review-page-info').textContent =
-    filtered.length < count
+    reviewSearchMode
+      ? `Search results for '${reviewSearchTerm}' - showing ${start + 1}–${end} of ${filtered.length.toLocaleString()}`
+      : filtered.length < count
       ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}. Showing ${start + 1}-${end}`
-      : `Showing ${start + 1}–${end} of ${reviewHasMoreRecords ? `${count}+ loaded` : count}`;
+      : `Showing ${count.toLocaleString()} of ${(reviewTotalRecords ?? count).toLocaleString()} records`;
   refreshReviewFilterUI();
 
   const pgEl = document.getElementById('review-pagination');

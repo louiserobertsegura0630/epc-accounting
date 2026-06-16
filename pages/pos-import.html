@@ -99,7 +99,9 @@
       <div id="panel-sales">
         <div class="table-toolbar">
           <span class="table-toolbar-title">Sales Data</span>
-          <input type="text" class="search-input" id="search-pos" placeholder="Search product, category…">
+          <input type="text" class="search-input" id="search-pos" placeholder="Search item code or product…">
+          <button class="btn btn-outline-gray btn-sm" id="btn-search-sales" type="button">Search</button>
+          <button class="btn btn-outline-gray btn-sm" id="btn-clear-sales-search" type="button" style="display:none">Clear search</button>
           <select class="form-select" id="filter-month" style="width:auto">
             <option value="">All Months</option>
           </select>
@@ -172,6 +174,8 @@
         <div class="review-info-bar" id="review-info-bar" style="display:none"></div>
         <div class="table-toolbar" id="review-toolbar" style="display:none">
           <input type="text" class="search-input" id="review-search" placeholder="Search item code or name…" style="width:220px">
+          <button class="btn btn-outline-gray btn-sm" id="btn-search-review" type="button">Search</button>
+          <button class="btn btn-outline-gray btn-sm" id="btn-clear-review-search" type="button" style="display:none">Clear search</button>
           <button class="btn btn-outline-gray btn-sm" id="btn-clear-review-filters" type="button">Clear Filters</button>
           <span id="review-active-filter-count" class="sales-active-filter-count"></span>
           <div style="margin-left:auto;display:flex;align-items:center;gap:10px">

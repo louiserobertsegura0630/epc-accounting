@@ -572,13 +572,27 @@ function setRecordsLoading(isLoading) {
 
 function updateRecordsQueryControls() {
   const loadMore = document.getElementById('btn-load-more-records');
-  const hasMore = activeTab === 'sales' ? salesHasMoreRecords : reviewHasMoreRecords;
-  const loaded = activeTab === 'sales' ? salesRecordsLoaded : reviewRecordsLoaded;
+  const isSales = activeTab === 'sales';
+  const hasMore = isSales ? salesHasMoreRecords : reviewHasMoreRecords;
+  const loaded = isSales ? salesRecordsLoaded : reviewRecordsLoaded;
+  const searchMode = isSales ? salesSearchMode : reviewSearchMode;
+  const loadedCount = isSales ? salesBrowseData.length : reviewBrowseData.length;
+  const total = isSales ? salesTotalRecords : reviewTotalRecords;
   loadMore.style.display = loaded && hasMore ? '' : 'none';
-  document.getElementById('records-query-status').textContent =
-    loaded
-      ? `${activeTab === 'sales' ? _salesData.length : _reviewData.length}${hasMore ? '+' : ''} ${activeTab === 'sales' ? 'sales' : 'under-review'} records loaded`
-      : '';
+  loadMore.disabled = searchMode || !hasMore;
+  if (searchMode) {
+    document.getElementById('records-query-status').textContent =
+      `Search results for '${isSales ? salesSearchTerm : reviewSearchTerm}'`;
+  } else if (loaded) {
+    document.getElementById('records-query-status').textContent =
+      total == null
+        ? `${loadedCount.toLocaleString()} ${isSales ? 'sales' : 'under-review'} records loaded`
+        : `Showing ${loadedCount.toLocaleString()} of ${total.toLocaleString()} ${isSales ? 'sales' : 'under-review'} records`;
+  } else {
+    document.getElementById('records-query-status').textContent = '';
+  }
+  document.getElementById('btn-clear-sales-search').style.display = salesSearchMode ? '' : 'none';
+  document.getElementById('btn-clear-review-search').style.display = reviewSearchMode ? '' : 'none';
 }
 
 async function loadSelectedRecords(append = false) {
@@ -592,11 +606,19 @@ async function loadSelectedRecords(append = false) {
       salesLastDocSnapshot = null;
       salesHasMoreRecords = false;
       salesRecordsLoaded = false;
+      salesTotalRecords = null;
+      salesBrowseData = [];
+      salesSearchMode = false;
+      salesSearchTerm = '';
       _salesData = [];
       selectedSalesIds.clear();
       reviewLastDocSnapshot = null;
       reviewHasMoreRecords = false;
       reviewRecordsLoaded = false;
+      reviewTotalRecords = null;
+      reviewBrowseData = [];
+      reviewSearchMode = false;
+      reviewSearchTerm = '';
       _reviewData = [];
       selectedReviewIds.clear();
     }
@@ -604,12 +626,20 @@ async function loadSelectedRecords(append = false) {
       salesLastDocSnapshot = null;
       salesHasMoreRecords = false;
       salesRecordsLoaded = false;
+      salesTotalRecords = null;
+      salesBrowseData = [];
+      salesSearchMode = false;
+      salesSearchTerm = '';
       _salesData = [];
       selectedSalesIds.clear();
     } else {
       reviewLastDocSnapshot = null;
       reviewHasMoreRecords = false;
       reviewRecordsLoaded = false;
+      reviewTotalRecords = null;
+      reviewBrowseData = [];
+      reviewSearchMode = false;
+      reviewSearchTerm = '';
       _reviewData = [];
       selectedReviewIds.clear();
     }
@@ -637,8 +667,70 @@ async function loadSelectedRecords(append = false) {
   }
 }
 
+async function runRecordSearch() {
+  const isSales = activeTab === 'sales';
+  const input = document.getElementById(isSales ? 'search-pos' : 'review-search');
+  const term = input.value.trim();
+  if (!term) {
+    alert('Enter an item code or product name to search.');
+    return;
+  }
+  setRecordsLoading(true);
+  try {
+    if (isSales) {
+      _salesData = await searchSalesData(term);
+      salesPage = 1;
+      selectedSalesIds.clear();
+    } else {
+      _reviewData = await searchUnderReview(term);
+      reviewPage = 1;
+      selectedReviewIds.clear();
+    }
+  } catch (err) {
+    console.error('[Sales Records] Search failed:', err);
+    if (typeof showDatabaseConnectionBanner === 'function') showDatabaseConnectionBanner();
+    showImportMessage('error', 'Search failed. Please check your connection and try again.');
+  } finally {
+    setRecordsLoading(false);
+    renderAll();
+    updateRecordsQueryControls();
+  }
+}
+
+function clearRecordSearch(tab = activeTab) {
+  if (tab === 'sales') {
+    salesSearchMode = false;
+    salesSearchTerm = '';
+    document.getElementById('search-pos').value = '';
+    salesFilters.query = '';
+    _salesData = salesBrowseData;
+    salesHasMoreRecords = salesTotalRecords == null
+      ? salesBrowseData.length >= SALES_QUERY_LIMIT
+      : salesBrowseData.length < salesTotalRecords;
+    salesPage = 1;
+    selectedSalesIds.clear();
+  } else {
+    reviewSearchMode = false;
+    reviewSearchTerm = '';
+    document.getElementById('review-search').value = '';
+    reviewFilters.query = '';
+    _reviewData = reviewBrowseData;
+    reviewHasMoreRecords = reviewTotalRecords == null
+      ? reviewBrowseData.length >= SALES_QUERY_LIMIT
+      : reviewBrowseData.length < reviewTotalRecords;
+    reviewPage = 1;
+    selectedReviewIds.clear();
+  }
+  renderAll();
+  updateRecordsQueryControls();
+}
+
 document.getElementById('btn-show-records').addEventListener('click', () => loadSelectedRecords(false));
 document.getElementById('btn-load-more-records').addEventListener('click', () => loadSelectedRecords(true));
+document.getElementById('btn-search-sales').addEventListener('click', runRecordSearch);
+document.getElementById('btn-search-review').addEventListener('click', runRecordSearch);
+document.getElementById('btn-clear-sales-search').addEventListener('click', () => clearRecordSearch('sales'));
+document.getElementById('btn-clear-review-search').addEventListener('click', () => clearRecordSearch('review'));
 document.getElementById('btn-export-sales-csv').addEventListener('click', exportSalesCSV);
 document.getElementById('btn-add-sales-entry').addEventListener('click', () => {
   if (!requireSalesEditAccess()) return;
@@ -653,9 +745,8 @@ document.getElementById('filter-month').addEventListener('change', () => {
   salesFilters.month = document.getElementById('filter-month').value;
   resetSalesPageAndRender();
 });
-document.getElementById('search-pos').addEventListener('input', function() {
-  salesFilters.query = this.value;
-  resetSalesPageAndRender();
+document.getElementById('search-pos').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') runRecordSearch();
 });
 document.getElementById('filter-sales-flag').addEventListener('change', function() {
   salesFilters.toolbarFlag = this.value;
@@ -710,9 +801,8 @@ document.querySelectorAll('input[name="cost-method"]').forEach(input => {
     recomputeAllSalesCOGS();
   });
 });
-document.getElementById('review-search').addEventListener('input', function() {
-  reviewFilters.query = this.value;
-  resetReviewPageAndRender();
+document.getElementById('review-search').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') runRecordSearch();
 });
 document.getElementById('btn-clear-review-filters').addEventListener('click', clearReviewFilters);
 document.getElementById('review-select-page').addEventListener('change', function() {
@@ -735,6 +825,11 @@ document.addEventListener('keydown', function(e) {
 // ─── Page initialisation — render empty until a bounded range is requested ───
 async function initPage() {
   const overlay = document.getElementById('page-loading');
+  const now = new Date();
+  const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+  document.getElementById('records-date-start').value = start;
+  document.getElementById('records-date-end').value = end;
   overlay.style.display = 'none';
   renderAll();
   updateRecordsQueryControls();
