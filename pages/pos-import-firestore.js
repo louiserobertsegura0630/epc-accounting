@@ -771,6 +771,54 @@ async function searchUnderReview(term) {
   reviewHasMoreRecords = false;
   return searchCollectionRecords('underReviewData', term);
 }
+// ─── Full-range CSV export (chunked, no DOM rendering) ────────────────────────
+const EXPORT_CHUNK_SIZE = 500;
+
+// Fetch every document in [start, end] from collectionName using Firestore
+// pagination. onProgress(totalFetched) is called after each page.
+// Returns a flat array of plain objects (no Firestore doc wrappers).
+async function fetchAllRecordsForExport(collectionName, start, end, onProgress) {
+  const rows = [];
+  let cursor = null;
+  while (true) {
+    let q = db.collection(collectionName)
+      .where('date', '>=', start)
+      .where('date', '<=', end)
+      .orderBy('date')
+      .limit(EXPORT_CHUNK_SIZE);
+    if (cursor) q = q.startAfter(cursor);
+    let snap;
+    try {
+      snap = await q.get();
+    } catch (err) {
+      const indexUrl = typeof firestoreIndexUrlFromError === 'function'
+        ? firestoreIndexUrlFromError(err) : null;
+      if (indexUrl) {
+        alert(`Firestore needs an index for this export. Open this link to create it:\n\n${indexUrl}`);
+      }
+      throw err;
+    }
+    snap.docs.forEach(doc => rows.push({ _id: doc.id, ...doc.data() }));
+    if (typeof onProgress === 'function') onProgress(rows.length);
+    if (snap.docs.length < EXPORT_CHUNK_SIZE) break;
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+  return rows;
+}
+
+async function exportSalesDataRange(start, end, onProgress) {
+  const rawRows = await fetchAllRecordsForExport('salesData', start, end, onProgress);
+  if (!rawRows.length) return null;
+  const itemCodes = [...new Set(rawRows.map(r => r.itemCode).filter(Boolean))];
+  const inventoryCostMap = await loadInventoryUnitCostMap(itemCodes);
+  return rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
+}
+
+async function exportUnderReviewRange(start, end, onProgress) {
+  const rows = await fetchAllRecordsForExport('underReviewData', start, end, onProgress);
+  return rows.length ? rows : null;
+}
+
 function saveSalesDataBatch(docs, onProgress) { return batchWriteToDB('salesData', docs, onProgress); }
 async function saveManualSalesEntry(doc) {
   if (!requireSalesEditAccess()) return null;

@@ -98,6 +98,7 @@
           <input type="number" class="form-input" id="records-load-limit" min="50" max="1000" step="50" value="200" aria-label="Rows per load" style="width:84px;padding:6px 8px">
           at a time
         </label>
+        <button class="btn btn-outline-gray btn-sm" id="btn-export-range-csv" type="button" title="Download all records in the selected date range as CSV">⬇ Export range (CSV)</button>
         <span id="records-query-status"></span>
       </div>
 
@@ -336,9 +337,9 @@
 
 <script src="../assets/app.js?v=20260616-count-load-size"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
-<script src="pos-import-firestore.js?v=20260616-configurable-load"></script>
+<script src="pos-import-firestore.js?v=20260616-range-export"></script>
 <script src="pos-import-parser.js?v=20260611-dsr-all-sheets-lineitems"></script>
 <script src="pos-import-render.js?v=20260616-configurable-load"></script>
-<script src="pos-import-ui.js?v=20260616-configurable-load"></script>
+<script src="pos-import-ui.js?v=20260616-range-export"></script>
 </body>
 </html>

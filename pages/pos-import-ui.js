@@ -417,6 +417,103 @@ async function confirmReviewDelete() {
   }
 }
 
+// ─── Full-range Export (chunked Firestore → CSV download) ────────────────────
+// Column definitions for each tab. Each entry: { header, value(row) }
+const SALES_DATA_EXPORT_COLS = [
+  { header: 'Date',                   value: r => r.date ?? '' },
+  { header: 'Item Code',              value: r => r.itemCode ?? '' },
+  { header: 'Product Name',           value: r => r.productName ?? '' },
+  { header: 'Category',               value: r => r.category ?? '' },
+  { header: 'Selling Price',          value: r => r.sellingPrice ?? '' },
+  { header: 'Quantity',               value: r => r.unitsSold ?? '' },
+  { header: 'Discount',               value: r => r.discount ?? '' },
+  { header: 'SR/PWD Discount',        value: r => r.srpwdDiscount ?? '' },
+  { header: 'Total Revenue Received', value: r => r.totalRevenue ?? '' },
+  { header: 'Unit Cost',              value: r => r.unitCost ?? '' },
+  { header: 'Gross Profit',           value: r => r.grossProfit ?? '' },
+  { header: 'Margin %',               value: r => Number(r.margin || 0).toFixed(4) },
+  { header: 'Flag',                   value: r => salesFlagType(r) },
+];
+
+const UNDER_REVIEW_EXPORT_COLS = [
+  { header: 'Date',                   value: r => r.date ?? '' },
+  { header: 'Item Code',              value: r => r.itemCode ?? '' },
+  { header: 'Product Name',           value: r => r.productName ?? '' },
+  { header: 'Category',               value: r => r.category ?? '' },
+  { header: 'Selling Price',          value: r => r.sellingPrice ?? '' },
+  { header: 'Quantity',               value: r => r.unitsSold ?? '' },
+  { header: 'Discount',               value: r => r.discount ?? '' },
+  { header: 'SR/PWD Discount',        value: r => r.srpwdDiscount ?? '' },
+  { header: 'Total Revenue Received', value: r => r.totalRevenue ?? '' },
+];
+
+function rowsToCSV(cols, rows) {
+  const escape = v => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.map(c => escape(c.header)).join(',');
+  const body   = rows.map(r => cols.map(c => escape(c.value(r))).join(','));
+  return [header, ...body].join('\n');
+}
+
+function triggerCSVDownload(csv, filename) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportRangeCSV() {
+  const range = validateSelectedRecordRange();
+  if (!range) return;
+  const { start, end } = range;
+
+  const btn    = document.getElementById('btn-export-range-csv');
+  const status = document.getElementById('records-query-status');
+  const isSales = activeTab === 'sales';
+  const tabLabel = isSales ? 'sales-data' : 'under-review';
+  const cols     = isSales ? SALES_DATA_EXPORT_COLS : UNDER_REVIEW_EXPORT_COLS;
+
+  btn.disabled = true;
+  btn.textContent = 'Exporting…';
+
+  const origStatus = status.textContent;
+  status.textContent = 'Exporting… 0 records';
+
+  try {
+    const onProgress = count => {
+      btn.textContent   = `Exporting… ${count.toLocaleString()}`;
+      status.textContent = `Exporting… ${count.toLocaleString()} records`;
+    };
+
+    const rows = isSales
+      ? await exportSalesDataRange(start, end, onProgress)
+      : await exportUnderReviewRange(start, end, onProgress);
+
+    if (!rows || !rows.length) {
+      status.textContent = origStatus;
+      alert('No records found in the selected date range.');
+      return;
+    }
+
+    const csv      = rowsToCSV(cols, rows);
+    const filename = `${tabLabel}_${start}_to_${end}.csv`;
+    triggerCSVDownload(csv, filename);
+    status.textContent = `Exported ${rows.length.toLocaleString()} records`;
+  } catch (err) {
+    console.error('[Export] Range CSV export failed:', err);
+    status.textContent = origStatus;
+    alert(`Export failed: ${err.message}`);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '⬇ Export range (CSV)';
+  }
+}
+
 // ─── Manual Sales Entry / CSV Export ─────────────────────────────────────────
 function salesCSVValue(value) {
   const text = String(value ?? '');
@@ -736,6 +833,7 @@ function clearRecordSearch(tab = activeTab) {
 
 document.getElementById('btn-show-records').addEventListener('click', () => loadSelectedRecords(false));
 document.getElementById('btn-load-more-records').addEventListener('click', () => loadSelectedRecords(true));
+document.getElementById('btn-export-range-csv').addEventListener('click', exportRangeCSV);
 document.getElementById('records-load-limit').addEventListener('change', () => getRecordsLoadLimit());
 document.getElementById('records-load-limit').addEventListener('blur', () => getRecordsLoadLimit());
 document.getElementById('btn-search-sales').addEventListener('click', runRecordSearch);
