@@ -24,6 +24,14 @@ function processFile(file) {
   if (!requireSalesEditAccess()) return;
   const ext = file.name.split('.').pop().toLowerCase();
   if (!['csv','xls','xlsx'].includes(ext)) { alert('Please upload a CSV, XLS, or XLSX file.'); return; }
+  if (ext !== 'csv' && typeof XLSX === 'undefined') {
+    if (typeof showImportMessage === 'function') {
+      showImportMessage('error', 'Spreadsheet support failed to load. Please refresh the page and try again.');
+    } else {
+      alert('Spreadsheet support failed to load. Please refresh the page and try again.');
+    }
+    return;
+  }
   const reader = new FileReader();
   reader.onload = e => {
     if (ext === 'csv') parseCSV(e.target.result, file.name);
@@ -416,7 +424,14 @@ function parseDetailedSalesReport(rawRows, filename) {
 
 // ─── File parsers → processPOSFile ───────────────────────────────────────────
 function parseXLS(buffer, filename) {
-  if (typeof XLSX === 'undefined') { alert('SheetJS failed to load. Please refresh.'); return; }
+  if (typeof XLSX === 'undefined') {
+    if (typeof showImportMessage === 'function') {
+      showImportMessage('error', 'Spreadsheet support failed to load. Please refresh the page and try again.');
+    } else {
+      alert('Spreadsheet support failed to load. Please refresh the page and try again.');
+    }
+    return;
+  }
   try {
     const wb      = XLSX.read(buffer, { type: 'array' });
     const sheets  = wb.SheetNames.map(name => ({

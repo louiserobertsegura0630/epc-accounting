@@ -391,7 +391,7 @@
 
 <!-- Worker source — not executed by browser (type is non-JS) -->
 <script type="text/worker-template" id="mis-worker-src">
-importScripts('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+importScripts('../assets/vendor/xlsx.full.min.js');
 
 var MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
 
@@ -518,7 +518,7 @@ self.onmessage = function(e) {
 };
 </script>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="../assets/vendor/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
