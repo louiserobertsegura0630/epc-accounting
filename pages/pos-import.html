@@ -85,6 +85,16 @@
         </button>
       </div>
 
+      <div class="records-query-toolbar">
+        <span>Records date range</span>
+        <input type="date" class="form-input" id="records-date-start" aria-label="Start date">
+        <span class="range-sep">–</span>
+        <input type="date" class="form-input" id="records-date-end" aria-label="End date">
+        <button class="btn btn-primary btn-sm" id="btn-show-records" type="button">Show records</button>
+        <button class="btn btn-outline-gray btn-sm" id="btn-load-more-records" type="button" style="display:none">Load more</button>
+        <span id="records-query-status"></span>
+      </div>
+
       <!-- Sales Data Panel -->
       <div id="panel-sales">
         <div class="table-toolbar">

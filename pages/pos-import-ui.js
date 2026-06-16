@@ -193,6 +193,10 @@ function switchTab(tab) {
   document.getElementById('tab-review').classList.toggle('active', tab === 'review');
   document.getElementById('panel-sales').style.display  = tab === 'sales'  ? '' : 'none';
   document.getElementById('panel-review').style.display = tab === 'review' ? '' : 'none';
+  updateRecordsQueryControls();
+  if (tab === 'review' && salesRangeStart && salesRangeEnd && !reviewRecordsLoaded) {
+    loadSelectedRecords(false);
+  }
 }
 
 // ─── Under Review ─────────────────────────────────────────────────────────────
@@ -501,7 +505,7 @@ async function saveManualSalesEntryFromModal() {
     return;
   }
 
-  const inventoryCostMap = await loadInventoryUnitCostMap();
+  const inventoryCostMap = await loadInventoryUnitCostMap([itemCode]);
   const unitCost = inventoryUnitCostForCode(inventoryCostMap, itemCode) || productCostForMethod(manualSalesProduct);
   const totalRevenue = unitsSold * sellingPrice;
   const totalCost = unitsSold * unitCost;
@@ -544,6 +548,97 @@ async function saveManualSalesEntryFromModal() {
 }
 
 // ─── Event listeners ──────────────────────────────────────────────────────────
+function validateSelectedRecordRange() {
+  const start = document.getElementById('records-date-start').value;
+  const end = document.getElementById('records-date-end').value;
+  if (!start || !end) {
+    alert('Select a start and end date first.');
+    return null;
+  }
+  if (start > end) {
+    alert('Start date must be before or equal to end date.');
+    return null;
+  }
+  return { start, end };
+}
+
+function setRecordsLoading(isLoading) {
+  salesRecordsLoading = activeTab === 'sales' && isLoading;
+  reviewRecordsLoading = activeTab === 'review' && isLoading;
+  document.getElementById('btn-show-records').disabled = isLoading;
+  document.getElementById('btn-load-more-records').disabled = isLoading;
+  document.getElementById('records-query-status').textContent = isLoading ? 'Loading records...' : '';
+}
+
+function updateRecordsQueryControls() {
+  const loadMore = document.getElementById('btn-load-more-records');
+  const hasMore = activeTab === 'sales' ? salesHasMoreRecords : reviewHasMoreRecords;
+  const loaded = activeTab === 'sales' ? salesRecordsLoaded : reviewRecordsLoaded;
+  loadMore.style.display = loaded && hasMore ? '' : 'none';
+  document.getElementById('records-query-status').textContent =
+    loaded
+      ? `${activeTab === 'sales' ? _salesData.length : _reviewData.length}${hasMore ? '+' : ''} ${activeTab === 'sales' ? 'sales' : 'under-review'} records loaded`
+      : '';
+}
+
+async function loadSelectedRecords(append = false) {
+  const range = validateSelectedRecordRange();
+  if (!range) return;
+  if (!append || range.start !== salesRangeStart || range.end !== salesRangeEnd) {
+    const rangeChanged = range.start !== salesRangeStart || range.end !== salesRangeEnd;
+    salesRangeStart = range.start;
+    salesRangeEnd = range.end;
+    if (rangeChanged) {
+      salesLastDocSnapshot = null;
+      salesHasMoreRecords = false;
+      salesRecordsLoaded = false;
+      _salesData = [];
+      selectedSalesIds.clear();
+      reviewLastDocSnapshot = null;
+      reviewHasMoreRecords = false;
+      reviewRecordsLoaded = false;
+      _reviewData = [];
+      selectedReviewIds.clear();
+    }
+    if (activeTab === 'sales') {
+      salesLastDocSnapshot = null;
+      salesHasMoreRecords = false;
+      salesRecordsLoaded = false;
+      _salesData = [];
+      selectedSalesIds.clear();
+    } else {
+      reviewLastDocSnapshot = null;
+      reviewHasMoreRecords = false;
+      reviewRecordsLoaded = false;
+      _reviewData = [];
+      selectedReviewIds.clear();
+    }
+  }
+
+  setRecordsLoading(true);
+  try {
+    if (activeTab === 'sales') {
+      _salesData = await loadSalesData({ append });
+      salesPage = 1;
+      selectedSalesIds.clear();
+    } else {
+      _reviewData = await loadUnderReview({ append });
+      reviewPage = 1;
+      selectedReviewIds.clear();
+    }
+  } catch (err) {
+    console.error('[Sales Records] Range load failed:', err);
+    if (typeof showDatabaseConnectionBanner === 'function') showDatabaseConnectionBanner();
+    showImportMessage('error', "Can't reach the database. Records were not loaded.");
+  } finally {
+    setRecordsLoading(false);
+    renderAll();
+    updateRecordsQueryControls();
+  }
+}
+
+document.getElementById('btn-show-records').addEventListener('click', () => loadSelectedRecords(false));
+document.getElementById('btn-load-more-records').addEventListener('click', () => loadSelectedRecords(true));
 document.getElementById('btn-export-sales-csv').addEventListener('click', exportSalesCSV);
 document.getElementById('btn-add-sales-entry').addEventListener('click', () => {
   if (!requireSalesEditAccess()) return;
@@ -637,26 +732,12 @@ document.addEventListener('keydown', function(e) {
   if ((salesDeleteInProgress || reviewDeleteInProgress) && e.key === 'Escape') e.stopImmediatePropagation();
 }, true);
 
-// ─── Page initialisation — load from Firestore, then render ──────────────────
+// ─── Page initialisation — render empty until a bounded range is requested ───
 async function initPage() {
   const overlay = document.getElementById('page-loading');
-  overlay.style.display = 'flex';
-  try {
-    [_salesData, _reviewData] = await Promise.all([
-      loadSalesData(),
-      loadUnderReview(),
-    ]);
-  } catch (err) {
-    console.error('[POS Init] Firestore load error:', err);
-    showImportMessage('error',
-      'Could not load data. Please check your internet connection and try again.');
-  } finally {
-    overlay.style.display = 'none';
-  }
+  overlay.style.display = 'none';
   renderAll();
-  if (canEditSalesPage() && _salesData.some(row => row.costMethod !== costMethod)) {
-    await recomputeAllSalesCOGS();
-  }
+  updateRecordsQueryControls();
 }
 
 function handleSalesAuthReady() {

@@ -546,7 +546,7 @@ async function autoImportXLS(filename) {
   // 1. Fetch Product Master once, keyed by itemCode field value (not doc ID)
   const [pmSnap, inventoryCostMap] = await Promise.all([
     db.collection('productMaster').get(),
-    loadInventoryUnitCostMap(),
+    loadInventoryUnitCostMap(xlsData.map(row => row.itemCode)),
   ]);
   const productMap = {};
   pmSnap.forEach(doc => {

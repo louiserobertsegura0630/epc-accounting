@@ -24,6 +24,19 @@ let salesDeleteInProgress = false;
 let salesFilters;
 let activeTab = 'sales';
 let reviewPage = 1;
+const SALES_QUERY_LIMIT = 100;
+let salesRangeStart = '';
+let salesRangeEnd = '';
+let salesLastDocSnapshot = null;
+let salesHasMoreRecords = false;
+let salesRecordsLoaded = false;
+let salesRecordsLoading = false;
+let reviewLastDocSnapshot = null;
+let reviewHasMoreRecords = false;
+let reviewRecordsLoaded = false;
+let reviewRecordsLoading = false;
+let inventoryUnitCostCache = Object.create(null);
+let inventoryFullCostMapPromise = null;
 const REVIEW_FILTER_DEFAULTS = {
   query: '',
   sortKey: 'date',
@@ -184,24 +197,73 @@ function inventoryUnitCostForCode(costMap, itemCode) {
   return Number(costMap[rawCode] || costMap[rawCode.toUpperCase()] || 0) || 0;
 }
 
-async function loadInventoryUnitCostMap() {
-  const snap = await db.collection('inventoryData').get();
-  const latestByCode = {};
-  snap.forEach(doc => {
-    const row = doc.data();
+function mergeInventoryCostRows(rows, target = inventoryUnitCostCache) {
+  rows.forEach(row => {
     const code = String(row.itemCode || row.code || '').trim();
     const unitCost = Number(row.unitCost) || 0;
     if (!code || unitCost <= 0) return;
     if (String(row.type || 'Incoming').toLowerCase() === 'outgoing') return;
     const date = inventoryCostDate(row);
-    const saved = latestByCode[code] || latestByCode[code.toUpperCase()];
+    const saved = target[code] || target[code.toUpperCase()];
     if (!saved || date >= saved.date) {
       const entry = { unitCost, date };
-      latestByCode[code] = entry;
-      latestByCode[code.toUpperCase()] = entry;
+      target[code] = entry;
+      target[code.toUpperCase()] = entry;
     }
   });
-  return Object.fromEntries(Object.entries(latestByCode).map(([code, entry]) => [code, entry.unitCost]));
+  return Object.fromEntries(Object.entries(target).map(([code, entry]) => [code, entry.unitCost]));
+}
+
+function inventoryQueryCodes(itemCodes = []) {
+  const codes = new Set();
+  itemCodes.forEach(value => {
+    const code = String(value || '').trim();
+    if (!code) return;
+    codes.add(code);
+    codes.add(code.toUpperCase());
+  });
+  return [...codes];
+}
+
+async function loadInventoryUnitCostMap(itemCodes = []) {
+  const requestedCodes = inventoryQueryCodes(itemCodes);
+  if (requestedCodes.length) {
+    const missingCodes = requestedCodes.filter(code =>
+      inventoryUnitCostCache[code] === undefined && inventoryUnitCostCache[code.toUpperCase()] === undefined
+    );
+    for (let start = 0; start < missingCodes.length; start += 30) {
+      const chunk = missingCodes.slice(start, start + 30);
+      const snap = await db.collection('inventoryData').where('itemCode', 'in', chunk).get()
+        .then(result => {
+          if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('inventory cost read');
+          return result;
+        })
+        .catch(err => {
+          if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+          throw err;
+        });
+      mergeInventoryCostRows(snap.docs.map(doc => doc.data()));
+      chunk.forEach(code => {
+        if (inventoryUnitCostCache[code] === undefined) {
+          inventoryUnitCostCache[code] = { unitCost: 0, date: '' };
+        }
+      });
+    }
+    return Object.fromEntries(Object.entries(inventoryUnitCostCache).map(([code, entry]) => [code, entry.unitCost]));
+  }
+
+  if (inventoryFullCostMapPromise) return inventoryFullCostMapPromise;
+  inventoryFullCostMapPromise = db.collection('inventoryData').get()
+    .then(result => {
+      if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('inventory cost read');
+      return result;
+    })
+    .catch(err => {
+      if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+      throw err;
+    })
+    .then(snap => mergeInventoryCostRows(snap.docs.map(doc => doc.data())));
+  return inventoryFullCostMapPromise;
 }
 
 function salesGrossSrp(row) {
@@ -295,6 +357,10 @@ async function batchWriteToDB(collName, docs, onProgress) {
 async function recomputeAllSalesCOGS() {
   if (!requireSalesEditAccess()) return;
   if (cogsRecomputeInProgress) return;
+  if (!_salesData.length) {
+    alert('Load a date range first, then apply COGS changes to the loaded records.');
+    return;
+  }
   const statusEl = document.getElementById('import-status');
   const fillEl = document.getElementById('progress-fill');
   const labelEl = document.getElementById('import-status-label');
@@ -307,12 +373,11 @@ async function recomputeAllSalesCOGS() {
   setCostMethodInputsDisabled(true);
 
   try {
-    const [salesSnapshot, productMap, inventoryCostMap] = await Promise.all([
-      db.collection('salesData').get(),
+    const rows = _salesData.map(row => ({ ...row }));
+    const [productMap, inventoryCostMap] = await Promise.all([
       loadProductMasterMap(),
-      loadInventoryUnitCostMap(),
+      loadInventoryUnitCostMap(rows.map(row => row.itemCode)),
     ]);
-    const rows = salesSnapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
     const batchSize = 499;
     const totalBatches = Math.max(1, Math.ceil(rows.length / batchSize));
 
@@ -513,16 +578,57 @@ async function saveReviewRow(id) {
 
 
 // ─── Firestore collection API ────────────────────────────────────────────────
-async function loadSalesData() {
-  const [snap, inventoryCostMap] = await Promise.all([
-    db.collection('salesData').orderBy('date', 'desc').get(),
-    loadInventoryUnitCostMap(),
-  ]);
-  return snap.docs.map(doc => normalizeSalesFinancials({ _id: doc.id, ...doc.data() }, inventoryCostMap));
+function selectedRecordsRange() {
+  return { start: salesRangeStart, end: salesRangeEnd };
 }
-async function loadUnderReview() {
-  const snap = await db.collection('underReviewData').get();
-  return snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+
+function buildRangeQuery(collectionName, append, lastDocSnapshot) {
+  let query = db.collection(collectionName)
+    .where('date', '>=', salesRangeStart)
+    .where('date', '<=', salesRangeEnd)
+    .orderBy('date', 'desc')
+    .limit(SALES_QUERY_LIMIT);
+  if (append && lastDocSnapshot) query = query.startAfter(lastDocSnapshot);
+  return query;
+}
+
+async function loadSalesData({ append = false } = {}) {
+  if (!salesRangeStart || !salesRangeEnd) return [];
+  const query = buildRangeQuery('salesData', append, salesLastDocSnapshot);
+  const snap = await query.get()
+      .then(result => {
+        if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('sales read');
+        return result;
+      })
+      .catch(err => {
+        if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+        throw err;
+      });
+  salesLastDocSnapshot = snap.docs[snap.docs.length - 1] || salesLastDocSnapshot;
+  salesHasMoreRecords = snap.docs.length === SALES_QUERY_LIMIT;
+  salesRecordsLoaded = true;
+  const rawRows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+  const inventoryCostMap = await loadInventoryUnitCostMap(rawRows.map(row => row.itemCode));
+  const rows = rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
+  return append ? [..._salesData, ...rows] : rows;
+}
+
+async function loadUnderReview({ append = false } = {}) {
+  if (!salesRangeStart || !salesRangeEnd) return [];
+  const snap = await buildRangeQuery('underReviewData', append, reviewLastDocSnapshot).get()
+    .then(result => {
+      if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('under-review read');
+      return result;
+    })
+    .catch(err => {
+      if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+      throw err;
+    });
+  reviewLastDocSnapshot = snap.docs[snap.docs.length - 1] || reviewLastDocSnapshot;
+  reviewHasMoreRecords = snap.docs.length === SALES_QUERY_LIMIT;
+  reviewRecordsLoaded = true;
+  const rows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+  return append ? [..._reviewData, ...rows] : rows;
 }
 function saveSalesDataBatch(docs, onProgress) { return batchWriteToDB('salesData', docs, onProgress); }
 async function saveManualSalesEntry(doc) {

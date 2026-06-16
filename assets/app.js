@@ -58,6 +58,8 @@ const EPC_FIRESTORE_EMULATOR_HOST = 'localhost';
 const EPC_FIRESTORE_EMULATOR_PORT = 8080;
 let _firestoreEmulatorConnected = false;
 let _firestoreConnectionLogged = false;
+let _firestoreSettingsApplied = false;
+let _firestoreReadSuccessLogged = false;
 
 function isLocalhostRuntime() {
   if (typeof window === 'undefined') return false;
@@ -77,7 +79,6 @@ function connectFirestoreEmulatorIfLocal(db) {
       console.log('Firestore URL:', currentUrl);
       console.log('Firestore hostname:', currentHostname || '(empty)');
       console.log('Firestore emulator active:', false);
-      console.log("🌐 CONNECTED TO PRODUCTION FIRESTORE");
       _firestoreConnectionLogged = true;
     }
     return;
@@ -94,13 +95,58 @@ function connectFirestoreEmulatorIfLocal(db) {
   }
 }
 
+function configureFirestoreDB(db) {
+  if (!db) return null;
+  if (!_firestoreSettingsApplied && typeof db.settings === 'function') {
+    db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
+    _firestoreSettingsApplied = true;
+  }
+  connectFirestoreEmulatorIfLocal(db);
+  return db;
+}
+
+function logFirestoreReadSuccess(label = 'read') {
+  if (_firestoreReadSuccessLogged || isFirestoreEmulatorActive()) return;
+  console.log(`[Firestore] production ${label} succeeded`);
+  _firestoreReadSuccessLogged = true;
+}
+
+function logFirestoreReadFailure(err) {
+  console.error('[Firestore] reads failing — client offline / channel blocked', err);
+}
+
+function showDatabaseConnectionBanner(message) {
+  if (typeof document === 'undefined') return;
+  const text = message || "Can't reach the database — connection blocked. Try Chrome or disable tracking prevention for this site.";
+  const existing = document.getElementById('firestore-offline-banner');
+  if (existing) {
+    const label = existing.querySelector('[data-firestore-banner-message]');
+    if (label) label.textContent = text;
+    return;
+  }
+
+  const banner = document.createElement('div');
+  banner.id = 'firestore-offline-banner';
+  banner.className = 'alert alert-danger';
+  banner.style.cssText = 'display:flex;align-items:center;gap:12px;justify-content:space-between;margin:0 0 16px 0;flex-wrap:wrap';
+  banner.innerHTML = `
+    <span data-firestore-banner-message>${text}</span>
+    <button type="button" class="btn btn-outline-gray btn-sm" id="firestore-offline-retry">Retry</button>
+  `;
+  banner.querySelector('#firestore-offline-retry').addEventListener('click', () => location.reload());
+
+  const target = document.querySelector('.page-body') || document.querySelector('.main-content') || document.body;
+  if (target.firstChild) target.insertBefore(banner, target.firstChild);
+  else target.appendChild(banner);
+}
+
 // Initialize immediately so any page script can call firebase.auth() /
 // firebase.firestore() directly without going through the lazy helpers first.
 if (typeof firebase !== 'undefined' && !firebase.apps.length) {
   firebase.initializeApp(EPC_FIREBASE_CONFIG);
 }
 if (typeof firebase !== 'undefined' && typeof firebase.firestore === 'function') {
-  connectFirestoreEmulatorIfLocal(firebase.firestore());
+  configureFirestoreDB(firebase.firestore());
 }
 let _productMasterWriteQueue = Promise.resolve();
 
@@ -108,9 +154,7 @@ function getFirestoreDB() {
   if (typeof firebase === 'undefined') return null;
   if (!firebase.apps.length) firebase.initializeApp(EPC_FIREBASE_CONFIG);
   if (typeof firebase.firestore !== 'function') return null;
-  const db = firebase.firestore();
-  connectFirestoreEmulatorIfLocal(db);
-  return db;
+  return configureFirestoreDB(firebase.firestore());
 }
 
 function cacheProductMasterRows(rows) {
@@ -972,7 +1016,15 @@ function initSidebar(activeKey) {
       const db = getFirestoreDB();
       if (db) {
         logLocalUserRoleSeedInfo(firebaseUser);
-        const snap = await db.collection('users').doc(firebaseUser.uid).get();
+        const snap = await db.collection('users').doc(firebaseUser.uid).get()
+          .then(result => {
+            logFirestoreReadSuccess('user profile read');
+            return result;
+          })
+          .catch(err => {
+            logFirestoreReadFailure(err);
+            throw err;
+          });
         const data = snap.exists ? snap.data() : {};
         const normalizedRole = _normalizeRole(data.role);
         logLoadedUserRole(firebaseUser, snap, data, normalizedRole);
@@ -993,6 +1045,7 @@ function initSidebar(activeKey) {
       }
     } catch (err) {
       console.error('[Auth] Failed to load user profile from Firestore:', err);
+      showDatabaseConnectionBanner();
       _currentEPCUser = {
         uid:        firebaseUser.uid,
         username:   firebaseUser.email.replace(EPC_AUTH_DOMAIN, ''),

@@ -265,10 +265,15 @@ async function confirmPurchaseImport() {
 }
 
 // ─── Compute all fields ───────────────────────────────────────────────────────
-function calcFields() {
+function calcFields(options = {}) {
   const netAmount  = parsePeso(document.getElementById('f-total').value) || 0;
   const inputVAT   = parsePeso(document.getElementById('f-input-vat').value) || 0;
-  const grossAmount = netAmount + inputVAT;
+  const grossEl    = document.getElementById('f-gross-amount');
+  let grossAmount  = parsePeso(grossEl.value) || 0;
+  if (options.updateGross) {
+    grossAmount = netAmount + inputVAT;
+    grossEl.value = formatNum(grossAmount);
+  }
   const rate       = parseFloat(document.getElementById('f-ewt-rate').value) || 0;
   const ewt        = netAmount * rate / 100;
   const editId     = document.getElementById('edit-id').value;
@@ -282,7 +287,6 @@ function calcFields() {
 
   const netPayable = grossAmount - ewt - ded + additions;
 
-  document.getElementById('f-gross-amount').value  = formatNum(grossAmount);
   document.getElementById('f-ewt-amount').value    = formatNum(ewt);
   document.getElementById('f-total-add').value     = formatNum(additions);
   document.getElementById('f-total-ded').value     = formatNum(ded);
@@ -292,9 +296,10 @@ function calcFields() {
 document.getElementById('f-total').addEventListener('input', function() {
   const net = parsePeso(this.value) || 0;
   document.getElementById('f-input-vat').value = net ? formatNum(net * 0.12) : '';
-  calcFields();
+  calcFields({ updateGross: true });
 });
-document.getElementById('f-input-vat').addEventListener('input', calcFields);
+document.getElementById('f-input-vat').addEventListener('input', () => calcFields({ updateGross: true }));
+document.getElementById('f-gross-amount').addEventListener('input', calcFields);
 ['f-ewt-rate','f-bad-order','f-lacking','f-returns','f-other-ded'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('input', calcFields);
@@ -304,14 +309,14 @@ document.getElementById('f-input-vat').addEventListener('input', calcFields);
 function resetForm() {
   document.getElementById('edit-id').value = '';
   document.getElementById('modal-purchase-title').textContent = 'Add Purchase';
-  ['f-total','f-input-vat','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes'].forEach(id => {
+  ['f-total','f-input-vat','f-gross-amount','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('f-date').value = todayISO();
   document.getElementById('f-ewt-rate').value = '';
   document.getElementById('f-input-vat-creditable').value = 'yes';
   document.getElementById('additions-list').innerHTML = '';
-  calcFields();
+  calcFields({ updateGross: true });
   populateSupplierDropdown(document.getElementById('f-supplier'));
 }
 
@@ -691,7 +696,8 @@ async function savePurchase() {
 
   const inputVAT        = parsePeso(document.getElementById('f-input-vat').value);
   const inputVATCreditable = document.getElementById('f-input-vat-creditable').value !== 'no';
-  const grossAmount     = netAmount + inputVAT;
+  const grossAmountInput = document.getElementById('f-gross-amount').value.trim();
+  const grossAmount     = grossAmountInput ? parsePeso(grossAmountInput) : (netAmount + inputVAT);
   const ewtRate         = parseFloat(document.getElementById('f-ewt-rate').value) || 0;
   const ewtAmount       = netAmount * ewtRate / 100;
 
@@ -763,6 +769,7 @@ function editPurchase(id) {
   const net = p.netAmount ?? p.total ?? 0;
   document.getElementById('f-total').value       = formatNum(net);
   document.getElementById('f-input-vat').value   = p.inputVAT != null ? formatNum(p.inputVAT) : formatNum(net * 0.12);
+  document.getElementById('f-gross-amount').value = p.grossAmount != null ? formatNum(p.grossAmount) : formatNum(net + (p.inputVAT || 0));
   document.getElementById('f-input-vat-creditable').value = p.inputVATCreditable === false ? 'no' : 'yes';
   document.getElementById('f-ewt-rate').value    = p.ewtRate != null && p.ewtRate !== '' ? String(p.ewtRate) : '';
   document.getElementById('f-bad-order').value   = p.badOrder       ? formatNum(p.badOrder)       : '';

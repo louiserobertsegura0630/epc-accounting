@@ -29,7 +29,7 @@ function renderSummary(rows) {
     <div class="summary-card"><div class="kpi-label">Avg Margin %</div><div class="kpi-value">${avgMargin}%</div></div>
     ${pendingCard}`;
   document.getElementById('cost-method-summary').textContent =
-    `COGS computed using: ${costMethod === 'average' ? 'Average Price' : 'Latest Price'}`;
+    `COGS computed using: ${costMethod === 'average' ? 'Average Price' : 'Latest Price'}${salesRangeStart && salesRangeEnd ? ` for ${formatDate(salesRangeStart)}–${formatDate(salesRangeEnd)}` : ''}`;
 }
 
 function updateSummaryCards(rows) {
@@ -318,10 +318,11 @@ function renderSalesPagination(filteredRows) {
   if (salesPage > totalPages) salesPage = 1;
   const start = filteredRows.length ? (salesPage - 1) * SALES_PG + 1 : 0;
   const end = Math.min(salesPage * SALES_PG, filteredRows.length);
+  const loadedLabel = salesHasMoreRecords ? `${_salesData.length.toLocaleString()}+ loaded` : `${_salesData.length.toLocaleString()} loaded`;
   document.getElementById('sales-page-info').textContent =
     filteredRows.length === _salesData.length
-      ? `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${_salesData.length.toLocaleString()}`
-      : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()} filtered results (${_salesData.length.toLocaleString()} total)`;
+      ? `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${loadedLabel}`
+      : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()} filtered results (${loadedLabel})`;
   document.getElementById('sales-pagination').innerHTML = totalPages <= 1 ? '' :
     `<button onclick="goToSalesPage(${salesPage - 1})" ${salesPage === 1 ? 'disabled' : ''}>Prev</button>` +
     `<span class="pagination-info">Page ${salesPage} / ${totalPages}</span>` +
@@ -331,9 +332,11 @@ function renderSalesPagination(filteredRows) {
 function renderTable(rows) {
   const tbody = document.getElementById('pos-tbody');
   if (!rows.length) {
-    const message = _salesData.length
+    const message = !salesRecordsLoaded
+      ? 'Choose a date range, then click Show records.'
+      : _salesData.length
       ? 'No sales records match your active filters.'
-      : 'No sales data yet. Upload an XLS, XLSX, or CSV file above.';
+      : 'No sales records found for the selected date range.';
     tbody.innerHTML = `<tr><td colspan="14"><div class="empty-state"><div class="empty-icon">📊</div><p>${message}</p></div></td></tr>`;
     return;
   }
@@ -647,9 +650,12 @@ function renderUnderReview() {
 
   if (!count) {
     toolbar.style.display = 'none';
+    const emptyMessage = !reviewRecordsLoaded
+      ? 'Open Under Review with a selected date range to load pending items.'
+      : 'No items under review for the selected date range.';
     tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">
       <div class="empty-icon">✅</div>
-      <p>No items under review. All imported items have known costs.</p>
+      <p>${emptyMessage}</p>
     </div></td></tr>`;
     syncReviewSelectionUI([]);
     return;
@@ -667,7 +673,7 @@ function renderUnderReview() {
   document.getElementById('review-page-info').textContent =
     filtered.length < count
       ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}. Showing ${start + 1}-${end}`
-      : `Showing ${start + 1}–${end} of ${count}`;
+      : `Showing ${start + 1}–${end} of ${reviewHasMoreRecords ? `${count}+ loaded` : count}`;
   refreshReviewFilterUI();
 
   const pgEl = document.getElementById('review-pagination');
