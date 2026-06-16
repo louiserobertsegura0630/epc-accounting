@@ -24,7 +24,9 @@ let salesDeleteInProgress = false;
 let salesFilters;
 let activeTab = 'sales';
 let reviewPage = 1;
-const SALES_QUERY_LIMIT = 200;
+const RECORDS_LOAD_DEFAULT = 200;
+const RECORDS_LOAD_MIN = 50;
+const RECORDS_LOAD_MAX = 1000;
 const RECORD_SEARCH_LIMIT = 100;
 let salesRangeStart = '';
 let salesRangeEnd = '';
@@ -97,6 +99,15 @@ const selectedReviewIds = new Set();
 let pendingReviewDeleteIds = [];
 let reviewDeleteInProgress = false;
 let salesPageAuthReady = false;
+
+function getRecordsLoadLimit({ syncInput = true } = {}) {
+  const input = typeof document !== 'undefined' ? document.getElementById('records-load-limit') : null;
+  const raw = input ? Number(input.value) : RECORDS_LOAD_DEFAULT;
+  const parsed = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : RECORDS_LOAD_DEFAULT;
+  const clamped = Math.min(RECORDS_LOAD_MAX, Math.max(RECORDS_LOAD_MIN, parsed));
+  if (input && syncInput) input.value = String(clamped);
+  return clamped;
+}
 
 function salesNameLower(value) {
   return String(value || '').toLowerCase().trim();
@@ -600,11 +611,12 @@ function selectedRecordsRange() {
 }
 
 function buildRangeQuery(collectionName, append, lastDocSnapshot) {
+  const limit = getRecordsLoadLimit();
   let query = db.collection(collectionName)
     .where('date', '>=', salesRangeStart)
     .where('date', '<=', salesRangeEnd)
     .orderBy('date')
-    .limit(SALES_QUERY_LIMIT);
+    .limit(limit);
   if (append && lastDocSnapshot) query = query.startAfter(lastDocSnapshot);
   return query;
 }
@@ -703,7 +715,7 @@ async function loadSalesData({ append = false } = {}) {
   }
   salesLastDocSnapshot = snap.docs[snap.docs.length - 1] || salesLastDocSnapshot;
   salesHasMoreRecords = salesTotalRecords == null
-    ? snap.docs.length === SALES_QUERY_LIMIT
+    ? snap.docs.length === getRecordsLoadLimit({ syncInput: false })
     : (append ? salesBrowseData.length + snap.docs.length : snap.docs.length) < salesTotalRecords;
   salesRecordsLoaded = true;
   const rawRows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
@@ -734,7 +746,7 @@ async function loadUnderReview({ append = false } = {}) {
   }
   reviewLastDocSnapshot = snap.docs[snap.docs.length - 1] || reviewLastDocSnapshot;
   reviewHasMoreRecords = reviewTotalRecords == null
-    ? snap.docs.length === SALES_QUERY_LIMIT
+    ? snap.docs.length === getRecordsLoadLimit({ syncInput: false })
     : (append ? reviewBrowseData.length + snap.docs.length : snap.docs.length) < reviewTotalRecords;
   reviewRecordsLoaded = true;
   const rows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));

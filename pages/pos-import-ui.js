@@ -568,6 +568,7 @@ function setRecordsLoading(isLoading) {
   reviewRecordsLoading = activeTab === 'review' && isLoading;
   document.getElementById('btn-show-records').disabled = isLoading;
   document.getElementById('btn-load-more-records').disabled = isLoading;
+  document.getElementById('records-load-limit').disabled = isLoading;
   document.getElementById('records-query-status').textContent = isLoading ? 'Loading records...' : '';
 }
 
@@ -713,7 +714,7 @@ function clearRecordSearch(tab = activeTab) {
     salesFilters.query = '';
     _salesData = salesBrowseData;
     salesHasMoreRecords = salesTotalRecords == null
-      ? salesBrowseData.length >= SALES_QUERY_LIMIT
+      ? salesBrowseData.length >= getRecordsLoadLimit()
       : salesBrowseData.length < salesTotalRecords;
     salesPage = 1;
     selectedSalesIds.clear();
@@ -724,7 +725,7 @@ function clearRecordSearch(tab = activeTab) {
     reviewFilters.query = '';
     _reviewData = reviewBrowseData;
     reviewHasMoreRecords = reviewTotalRecords == null
-      ? reviewBrowseData.length >= SALES_QUERY_LIMIT
+      ? reviewBrowseData.length >= getRecordsLoadLimit()
       : reviewBrowseData.length < reviewTotalRecords;
     reviewPage = 1;
     selectedReviewIds.clear();
@@ -735,6 +736,8 @@ function clearRecordSearch(tab = activeTab) {
 
 document.getElementById('btn-show-records').addEventListener('click', () => loadSelectedRecords(false));
 document.getElementById('btn-load-more-records').addEventListener('click', () => loadSelectedRecords(true));
+document.getElementById('records-load-limit').addEventListener('change', () => getRecordsLoadLimit());
+document.getElementById('records-load-limit').addEventListener('blur', () => getRecordsLoadLimit());
 document.getElementById('btn-search-sales').addEventListener('click', runRecordSearch);
 document.getElementById('btn-search-review').addEventListener('click', runRecordSearch);
 document.getElementById('btn-clear-sales-search').addEventListener('click', () => clearRecordSearch('sales'));
