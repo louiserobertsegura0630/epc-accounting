@@ -166,15 +166,95 @@ function reportFirestoreAggregateError(err, label = 'aggregate query') {
   console.error(`[Firestore] ${label} failed:`, err);
 }
 
-async function firestoreCount(query, label = 'count') {
-  if (!query || typeof query.count !== 'function') {
-    const err = new Error('[Firestore] count() is not available on this query. Check the firebase-firestore-compat SDK version; use firebasejs 10.12.0 or newer.');
-    console.error(`[Firestore] ${label} real aggregate error:`, err);
-    return null;
+// Build a Firestore REST runAggregationQuery request from a compat query.
+// The compat query's ._delegate._query is a __PRIVATE_QueryImpl with:
+//   .path          — ResourcePath (segments array, .get(i) or ._segments)
+//   .filters       — array of FieldFilter with .field.canonicalString(), .op, .value
+//   .explicitOrderBy — array with .field.canonicalString(), .dir
+//   .collectionGroup — non-null for collectionGroup queries
+//
+// We serialize this to structuredQuery JSON that runAggregationQuery accepts.
+function _compatQueryToStructured(q) {
+  const inner = (q._delegate ?? q)._query;  // __PRIVATE_QueryImpl
+
+  // Collection path: inner.path is a ResourcePath; get its segments.
+  const segs = inner.path._segments ?? inner.path.segments ?? [];
+  // The parent is everything up to the last segment; collectionId is the last.
+  const colId = inner.collectionGroup ?? segs[segs.length - 1] ?? '';
+  // Parent resource name up to (but not including) the collection segment.
+  const parentSegs = inner.collectionGroup ? segs : segs.slice(0, -1);
+  // parentPath is the document path part after databases/(default)/documents
+  const parentPath = parentSegs.join('/');
+
+  const structured = {};
+  structured.from = [{ collectionId: colId, allDescendants: !!inner.collectionGroup }];
+
+  if (inner.filters && inner.filters.length) {
+    const filters = inner.filters.map(f => {
+      const field = f.field.canonicalString();
+      // Map SDK op enum strings to REST op strings
+      const opMap = { '<': 'LESS_THAN', '<=': 'LESS_THAN_OR_EQUAL', '>': 'GREATER_THAN',
+                      '>=': 'GREATER_THAN_OR_EQUAL', '==': 'EQUAL', '!=': 'NOT_EQUAL',
+                      'array-contains': 'ARRAY_CONTAINS', 'in': 'IN',
+                      'not-in': 'NOT_IN', 'array-contains-any': 'ARRAY_CONTAINS_ANY' };
+      const op = opMap[f.op] ?? f.op;
+      return { fieldFilter: { field: { fieldPath: field }, op, value: f.value } };
+    });
+    structured.where = filters.length === 1
+      ? filters[0]
+      : { compositeFilter: { op: 'AND', filters } };
   }
+
+  if (inner.explicitOrderBy && inner.explicitOrderBy.length) {
+    structured.orderBy = inner.explicitOrderBy.map(o => ({
+      field: { fieldPath: o.field.canonicalString() },
+      direction: o.dir === 'desc' ? 'DESCENDING' : 'ASCENDING'
+    }));
+  }
+
+  return { structured, parentPath };
+}
+
+async function _runAggregationRest(query, aggregations, label) {
+  const user = firebase.auth().currentUser;
+  const token = user ? (await user.getIdToken()) : null;
+  const projectId = EPC_FIREBASE_CONFIG.projectId;
+
+  const { structured, parentPath } = _compatQueryToStructured(query);
+  const parent = `projects/${projectId}/databases/(default)/documents` +
+                 (parentPath ? `/${parentPath}` : '');
+
+  const body = JSON.stringify({
+    structuredAggregationQuery: {
+      structuredQuery: structured,
+      aggregations
+    }
+  });
+
+  // Support emulator (also catch the case where the flag isn't set yet but we're on localhost)
+  const useEmulator = _firestoreEmulatorConnected || isLocalhostRuntime();
+  const baseUrl = useEmulator
+    ? `http://${EPC_FIRESTORE_EMULATOR_HOST}:${EPC_FIRESTORE_EMULATOR_PORT}/v1/${parent}:runAggregationQuery`
+    : `https://firestore.googleapis.com/v1/${parent}:runAggregationQuery`;
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  // Emulator also accepts x-goog-request-params for project but doesn't require auth
+  const res = await fetch(baseUrl, { method: 'POST', headers, body });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`[Firestore REST] ${label} HTTP ${res.status}: ${txt}`);
+  }
+  return await res.json();
+}
+
+async function firestoreCount(query, label = 'count') {
+  if (!query) return null;
   try {
-    const snap = await query.count().get();
-    return Number(snap.data().count || 0);
+    const rows = await _runAggregationRest(query, [{ alias: 'c', count: {} }], label);
+    const val = rows[0]?.result?.aggregateFields?.c?.integerValue
+             ?? rows[0]?.result?.aggregateFields?.c?.doubleValue;
+    return val != null ? Number(val) : null;
   } catch (err) {
     reportFirestoreAggregateError(err, label);
     return null;
@@ -182,15 +262,16 @@ async function firestoreCount(query, label = 'count') {
 }
 
 async function firestoreSum(query, field, label = 'sum') {
-  const aggregateField = typeof firebase !== 'undefined' ? firebase.firestore?.AggregateField : null;
-  if (!query || typeof query.aggregate !== 'function' || !aggregateField?.sum) {
-    const err = new Error('[Firestore] sum() is not available. Check the firebase-firestore-compat SDK version; use firebasejs 10.12.0 or newer.');
-    console.error(`[Firestore] ${label} real aggregate error:`, err);
-    return null;
-  }
+  if (!query) return null;
   try {
-    const snap = await query.aggregate({ value: aggregateField.sum(field) }).get();
-    return Number(snap.data().value || 0);
+    const rows = await _runAggregationRest(
+      query,
+      [{ alias: 's', sum: { field: { fieldPath: field } } }],
+      label
+    );
+    const val = rows[0]?.result?.aggregateFields?.s?.integerValue
+             ?? rows[0]?.result?.aggregateFields?.s?.doubleValue;
+    return val != null ? Number(val) : null;
   } catch (err) {
     reportFirestoreAggregateError(err, label);
     return null;
