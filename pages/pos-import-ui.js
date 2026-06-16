@@ -417,8 +417,10 @@ async function confirmReviewDelete() {
   }
 }
 
-// ─── Full-range Export (chunked Firestore → CSV download) ────────────────────
-// Column definitions for each tab. Each entry: { header, value(row) }
+// ─── CSV Export — column definitions ─────────────────────────────────────────
+// Each entry: { header: string, value: row => string }
+// Matches the on-screen table column order for each tab exactly.
+
 const SALES_DATA_EXPORT_COLS = [
   { header: 'Date',                   value: r => r.date ?? '' },
   { header: 'Item Code',              value: r => r.itemCode ?? '' },
@@ -447,13 +449,15 @@ const UNDER_REVIEW_EXPORT_COLS = [
   { header: 'Total Revenue Received', value: r => r.totalRevenue ?? '' },
 ];
 
+// ─── CSV helpers ──────────────────────────────────────────────────────────────
+function csvEscape(v) {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 function rowsToCSV(cols, rows) {
-  const escape = v => {
-    const s = String(v ?? '');
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const header = cols.map(c => escape(c.header)).join(',');
-  const body   = rows.map(r => cols.map(c => escape(c.value(r))).join(','));
+  const header = cols.map(c => csvEscape(c.header)).join(',');
+  const body   = rows.map(r => cols.map(c => csvEscape(c.value(r))).join(','));
   return [header, ...body].join('\n');
 }
 
@@ -461,94 +465,79 @@ function triggerCSVDownload(csv, filename) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
+  a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
 
-async function exportRangeCSV() {
+// ─── Export chooser modal ─────────────────────────────────────────────────────
+function openExportChooser() {
+  const range = validateSelectedRecordRange();
+  if (!range) return;
+  document.getElementById('export-chooser-progress').textContent = '';
+  document.getElementById('btn-export-chooser-go').disabled = false;
+  document.getElementById('btn-export-chooser-go').textContent = 'Export';
+  openModal('modal-export-chooser');
+}
+
+async function runExportFromChooser() {
   const range = validateSelectedRecordRange();
   if (!range) return;
   const { start, end } = range;
 
-  const btn    = document.getElementById('btn-export-range-csv');
-  const status = document.getElementById('records-query-status');
-  const isSales = activeTab === 'sales';
-  const tabLabel = isSales ? 'sales-data' : 'under-review';
-  const cols     = isSales ? SALES_DATA_EXPORT_COLS : UNDER_REVIEW_EXPORT_COLS;
+  const choice = document.querySelector('input[name="export-dataset"]:checked')?.value ?? 'sales';
+  const goBtn  = document.getElementById('btn-export-chooser-go');
+  const prog   = document.getElementById('export-chooser-progress');
+  const exportBtn = document.getElementById('btn-export-sales-csv');
 
-  btn.disabled = true;
-  btn.textContent = 'Exporting…';
+  goBtn.disabled = true;
+  exportBtn.disabled = true;
 
-  const origStatus = status.textContent;
-  status.textContent = 'Exporting… 0 records';
+  const doExport = async (label, colDef, fetchFn, fileSlug) => {
+    const total = label === 'Sales Data' ? salesTotalRecords : reviewTotalRecords;
+    const totalStr = total != null ? ` / ${total.toLocaleString()}` : '';
+    prog.textContent = `Exporting ${label}… 0${totalStr}`;
+    goBtn.textContent = `Exporting…`;
 
-  try {
-    const onProgress = count => {
-      btn.textContent   = `Exporting… ${count.toLocaleString()}`;
-      status.textContent = `Exporting… ${count.toLocaleString()} records`;
+    const onProgress = n => {
+      prog.textContent = `Exporting ${label}… ${n.toLocaleString()}${totalStr}`;
     };
 
-    const rows = isSales
-      ? await exportSalesDataRange(start, end, onProgress)
-      : await exportUnderReviewRange(start, end, onProgress);
-
+    const rows = await fetchFn(start, end, onProgress);
     if (!rows || !rows.length) {
-      status.textContent = origStatus;
-      alert('No records found in the selected date range.');
-      return;
+      prog.textContent = `No records found for ${label} in this date range.`;
+      return false;
     }
+    triggerCSVDownload(rowsToCSV(colDef, rows), `${fileSlug}_${start}_to_${end}.csv`);
+    return rows.length;
+  };
 
-    const csv      = rowsToCSV(cols, rows);
-    const filename = `${tabLabel}_${start}_to_${end}.csv`;
-    triggerCSVDownload(csv, filename);
-    status.textContent = `Exported ${rows.length.toLocaleString()} records`;
+  try {
+    if (choice === 'sales' || choice === 'both') {
+      const n = await doExport('Sales Data', SALES_DATA_EXPORT_COLS, exportSalesDataRange, 'sales-data');
+      if (choice === 'sales' && n === false) return; // empty — keep modal open
+    }
+    if (choice === 'review' || choice === 'both') {
+      const n = await doExport('Under Review', UNDER_REVIEW_EXPORT_COLS, exportUnderReviewRange, 'under-review');
+      if (choice === 'review' && n === false) return;
+    }
+    const totalExported = choice === 'both' ? 'both files' : 'done';
+    prog.textContent = `✅ Export complete (${totalExported})`;
+    goBtn.textContent = 'Done';
+    setTimeout(() => closeModal('modal-export-chooser'), 1200);
   } catch (err) {
-    console.error('[Export] Range CSV export failed:', err);
-    status.textContent = origStatus;
-    alert(`Export failed: ${err.message}`);
+    console.error('[Export] CSV export failed:', err);
+    prog.textContent = `Export failed: ${err.message}`;
+    goBtn.disabled = false;
+    goBtn.textContent = 'Retry';
   } finally {
-    btn.disabled    = false;
-    btn.textContent = '⬇ Export range (CSV)';
+    exportBtn.disabled = false;
   }
 }
 
-// ─── Manual Sales Entry / CSV Export ─────────────────────────────────────────
+// ─── Manual Sales Entry ───────────────────────────────────────────────────────
 function salesCSVValue(value) {
   const text = String(value ?? '');
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function exportSalesCSV() {
-  const rows = getFilteredSalesRows();
-  const headers = [
-    'Date', 'Item Code', 'Product Name', 'Category', 'Selling Price', 'Quantity',
-    'Discount', 'SR/PWD Discount', 'Total Revenue Received', 'Unit Cost', 'Gross Profit', 'Margin %', 'Flag'
-  ];
-  const body = rows.map(row => [
-    row.date,
-    row.itemCode,
-    row.productName,
-    row.category,
-    row.sellingPrice,
-    row.unitsSold,
-    row.discount,
-    row.srpwdDiscount,
-    row.totalRevenue,
-    row.unitCost,
-    row.grossProfit,
-    Number(row.margin || 0).toFixed(4),
-    salesFlagType(row)
-  ].map(salesCSVValue).join(','));
-  const csv = [headers.join(','), ...body].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `sales-export-${todayISO()}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 let manualSalesProduct = null;
@@ -833,14 +822,14 @@ function clearRecordSearch(tab = activeTab) {
 
 document.getElementById('btn-show-records').addEventListener('click', () => loadSelectedRecords(false));
 document.getElementById('btn-load-more-records').addEventListener('click', () => loadSelectedRecords(true));
-document.getElementById('btn-export-range-csv').addEventListener('click', exportRangeCSV);
+document.getElementById('btn-export-sales-csv').addEventListener('click', openExportChooser);
+document.getElementById('btn-export-chooser-go').addEventListener('click', runExportFromChooser);
 document.getElementById('records-load-limit').addEventListener('change', () => getRecordsLoadLimit());
 document.getElementById('records-load-limit').addEventListener('blur', () => getRecordsLoadLimit());
 document.getElementById('btn-search-sales').addEventListener('click', runRecordSearch);
 document.getElementById('btn-search-review').addEventListener('click', runRecordSearch);
 document.getElementById('btn-clear-sales-search').addEventListener('click', () => clearRecordSearch('sales'));
 document.getElementById('btn-clear-review-search').addEventListener('click', () => clearRecordSearch('review'));
-document.getElementById('btn-export-sales-csv').addEventListener('click', exportSalesCSV);
 document.getElementById('btn-add-sales-entry').addEventListener('click', () => {
   if (!requireSalesEditAccess()) return;
   resetManualSalesEntryModal();

@@ -32,7 +32,6 @@
         <span class="section-subtitle">Import and manage daily sales records</span>
       </div>
       <div class="page-title-actions">
-        <button class="btn btn-outline" id="btn-export-sales-csv" type="button">Export as CSV</button>
         <button class="btn btn-primary" id="btn-add-sales-entry" type="button">Add Entry</button>
       </div>
     </div>
@@ -98,7 +97,7 @@
           <input type="number" class="form-input" id="records-load-limit" min="50" max="1000" step="50" value="200" aria-label="Rows per load" style="width:84px;padding:6px 8px">
           at a time
         </label>
-        <button class="btn btn-outline-gray btn-sm" id="btn-export-range-csv" type="button" title="Download all records in the selected date range as CSV">⬇ Export range (CSV)</button>
+        <button class="btn btn-outline-gray btn-sm" id="btn-export-sales-csv" type="button" title="Export all records in the selected date range to CSV">⬇ Export as CSV</button>
         <span id="records-query-status"></span>
       </div>
 
@@ -335,11 +334,43 @@
   </div>
 </div>
 
+<!-- Export dataset chooser -->
+<div class="modal-overlay" id="modal-export-chooser">
+  <div class="modal-card" style="max-width:400px">
+    <div class="modal-header">
+      <span class="modal-title">Export as CSV</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 14px;font-size:13.5px;color:var(--text-secondary)">
+        Choose which dataset to export for the selected date range.<br>
+        All matching records will be downloaded — not just the rows currently loaded on screen.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="radio" name="export-dataset" value="sales" checked> Sales Data
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="radio" name="export-dataset" value="review"> Under Review
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="radio" name="export-dataset" value="both"> Both (two separate files)
+        </label>
+      </div>
+      <div id="export-chooser-progress" style="margin-top:14px;font-size:13px;color:var(--text-secondary);min-height:20px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-export-chooser-go" type="button">Export</button>
+    </div>
+  </div>
+</div>
+
 <script src="../assets/app.js?v=20260616-count-load-size"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
 <script src="pos-import-firestore.js?v=20260616-range-export"></script>
 <script src="pos-import-parser.js?v=20260611-dsr-all-sheets-lineitems"></script>
 <script src="pos-import-render.js?v=20260616-configurable-load"></script>
-<script src="pos-import-ui.js?v=20260616-range-export"></script>
+<script src="pos-import-ui.js?v=20260616-export-chooser"></script>
 </body>
 </html>
