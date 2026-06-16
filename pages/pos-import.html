@@ -11,7 +11,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-  <link rel="stylesheet" href="pos-import.css?v=20260609-discounts">
+  <link rel="stylesheet" href="pos-import.css?v=20260616-vs">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -92,9 +92,9 @@
         <input type="date" class="form-input" id="records-date-end" aria-label="End date">
         <button class="btn btn-primary btn-sm" id="btn-show-records" type="button">Show records</button>
         <button class="btn btn-outline-gray btn-sm" id="btn-load-more-records" type="button" style="display:none">Load more</button>
-        <label for="records-load-limit" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary)">
+        <label for="records-load-limit" style="display:none">
           Load
-          <input type="number" class="form-input" id="records-load-limit" min="50" max="1000" step="50" value="200" aria-label="Rows per load" style="width:84px;padding:6px 8px">
+          <input type="number" class="form-input" id="records-load-limit" min="50" max="1000" step="50" value="1000" aria-label="Rows per load" style="width:84px;padding:6px 8px">
           at a time
         </label>
         <button class="btn btn-outline-gray btn-sm" id="btn-export-sales-csv" type="button" title="Export all records in the selected date range to CSV">⬇ Export as CSV</button>
@@ -368,9 +368,9 @@
 
 <script src="../assets/app.js?v=20260616-count-load-size"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
-<script src="pos-import-firestore.js?v=20260616-range-export"></script>
+<script src="pos-import-firestore.js?v=20260616-vs"></script>
 <script src="pos-import-parser.js?v=20260611-dsr-all-sheets-lineitems"></script>
-<script src="pos-import-render.js?v=20260616-configurable-load"></script>
-<script src="pos-import-ui.js?v=20260616-export-chooser"></script>
+<script src="pos-import-render.js?v=20260616-vs"></script>
+<script src="pos-import-ui.js?v=20260616-vs"></script>
 </body>
 </html>

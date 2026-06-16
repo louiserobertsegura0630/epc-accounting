@@ -16,6 +16,14 @@ let potentialFilters = {};
 let inventoryAggregateTotals = null;
 let inventoryLastDocSnapshot = null;
 let inventoryHasMoreRecords = false;
+
+// ─── Virtual Scroll State ─────────────────────────────────────────────────────
+const INV_VS_ROW_H    = 38;
+const INV_VS_WINDOW   = 80;
+const INV_VS_OVERSCAN = 10;
+let _invVsScrollTop   = 0;
+let _invVsSentinelObs = null;
+let _invVsRAF         = 0;
 const POTENTIAL_PAGE_SIZE = 50;
 const POTENTIAL_MARKUP_KEY = 'inventoryPotentialMarkupSettings';
 const POTENTIAL_COLUMNS = [
@@ -589,7 +597,12 @@ function updateInventoryLoadMoreControl() {
 async function loadInventoryBatch({ append = false } = {}) {
   const db = getFirestoreDB();
   if (!db) return DB.get('inventory_movements');
-  if (!append) inventoryLastDocSnapshot = null;
+  if (!append) {
+    inventoryLastDocSnapshot = null;
+    _invVsScrollTop = 0;
+    const scroll = document.getElementById('inv-tbody')?.closest('.table-scroll');
+    if (scroll) scroll.scrollTop = 0;
+  }
   let query = db.collection('inventoryData')
     .orderBy(firebase.firestore.FieldPath.documentId())
     .limit(inventoryLoadLimit());
@@ -1577,11 +1590,9 @@ document.getElementById('potential-category-select').addEventListener('change', 
     settings.categoryMarkup?.[document.getElementById('potential-category-select').value] || '';
 });
 renderSummary();
-document.getElementById('btn-load-more-inv')?.addEventListener('click', async () => {
-  await loadInventoryBatch({ append: true });
-  invTable.render();
-  renderSummary();
-});
+// Load more hidden — VS sentinel handles incremental fetch
+const _invLoadMoreBtn = document.getElementById('btn-load-more-inv');
+if (_invLoadMoreBtn) { _invLoadMoreBtn.style.display = 'none'; _invLoadMoreBtn.disabled = true; }
 document.getElementById('inv-load-limit')?.addEventListener('change', () => clampRecordsLoadLimit('inv-load-limit'));
 document.getElementById('inv-load-limit')?.addEventListener('blur', () => clampRecordsLoadLimit('inv-load-limit'));
 
@@ -1642,6 +1653,19 @@ const invTable = new TrackingTable({
     ? '<tr><td colspan="13"><div class="empty-state"><p>No incoming inventory items with potential revenue found.</p></div></td></tr>'
     : '<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">📦</div><p>No inventory movements yet.</p></div></td></tr>',
 });
+function _attachInvSentinel() {
+  if (_invVsSentinelObs) _invVsSentinelObs.disconnect();
+  const el = document.getElementById('inv-fetch-sentinel');
+  if (!el) return;
+  const root = el.closest('.table-scroll');
+  _invVsSentinelObs = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting && inventoryHasMoreRecords) {
+      loadInventoryBatch({ append: true }).then(() => invTable.render());
+    }
+  }, { root, threshold: 0 });
+  _invVsSentinelObs.observe(el);
+}
+
 const baseInvRender = invTable.render.bind(invTable);
 invTable.render = function() {
   if (this.activeTab === 'potential') {
@@ -1650,10 +1674,66 @@ invTable.render = function() {
     return;
   }
   this._buildHeaders();
-  baseInvRender();
+  this._refreshDynamicDropdowns();
+
+  const allRows  = this._getProcessed();
+  const tbody    = document.getElementById(this.cfg.tbodyId);
+  const scroll   = tbody?.closest('.table-scroll');
+  const COLS     = 13;
+
+  if (!allRows.length) {
+    if (scroll) scroll.classList.remove('vs-active');
+    tbody.innerHTML = typeof this.cfg.emptyHtml === 'function'
+      ? this.cfg.emptyHtml(this.activeTab)
+      : this.cfg.emptyHtml;
+    document.getElementById(this.cfg.paginationId).innerHTML = '';
+    this._refreshClearBtn();
+    syncBulkSelectionUI();
+    return;
+  }
+
+  if (scroll) scroll.classList.add('vs-active');
+
+  const totalRows    = allRows.length;
+  const firstVisible = Math.max(0, Math.floor(_invVsScrollTop / INV_VS_ROW_H) - INV_VS_OVERSCAN);
+  const lastVisible  = Math.min(totalRows - 1, firstVisible + INV_VS_WINDOW - 1);
+  const windowRows   = allRows.slice(firstVisible, lastVisible + 1);
+  const paddingTop    = firstVisible * INV_VS_ROW_H;
+  const paddingBottom = Math.max(0, totalRows - lastVisible - 1) * INV_VS_ROW_H;
+  const topSpacer    = paddingTop    ? `<tr style="height:${paddingTop}px"><td colspan="${COLS}"></td></tr>` : '';
+  const bottomSpacer = paddingBottom ? `<tr style="height:${paddingBottom}px"><td colspan="${COLS}"></td></tr>` : '';
+  const fetchSentinel = inventoryHasMoreRecords
+    ? `<tr class="vs-fetch-sentinel"><td colspan="${COLS}"><div id="inv-fetch-sentinel"></div></td></tr>` : '';
+
+  tbody.innerHTML = topSpacer + windowRows.map(r => this.cfg.renderRow(r)).join('') + bottomSpacer + fetchSentinel;
+
+  const displayTotal = this.remoteTotal != null && this.activeTab === 'all' && !this.hasActive()
+    ? this.remoteTotal
+    : totalRows;
+  const loadedLabel = displayTotal !== totalRows
+    ? `${totalRows.toLocaleString()} loaded | ${displayTotal.toLocaleString()} total`
+    : `${totalRows.toLocaleString()} entries`;
+  document.getElementById(this.cfg.paginationId).innerHTML =
+    `<div class="pagination-info">${loadedLabel}</div>`;
+
+  this._refreshClearBtn();
+  if (inventoryHasMoreRecords) _attachInvSentinel();
   syncBulkSelectionUI();
 };
 invTable.render();
+
+// ─── VS scroll listener ───────────────────────────────────────────────────────
+(function wireInventoryVSScroll() {
+  const scroll = document.getElementById('inv-tbody')?.closest('.table-scroll');
+  if (!scroll) return;
+  scroll.addEventListener('scroll', () => {
+    _invVsScrollTop = scroll.scrollTop;
+    cancelAnimationFrame(_invVsRAF);
+    _invVsRAF = requestAnimationFrame(() => {
+      if (scroll.classList.contains('vs-active')) invTable.render();
+    });
+  }, { passive: true });
+})();
 
 // ─── MIS Import — Web Worker + Virtual Scroll + Batched Import ───────────────
 let MIS_ROWS = [];   // [{ row, checked, inPM }]

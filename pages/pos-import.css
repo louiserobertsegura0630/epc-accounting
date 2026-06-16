@@ -309,3 +309,33 @@
       vertical-align:middle; margin-right:6px;
     }
     @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ── Virtual Scroll ─────────────────────────────────────────────────────── */
+    .table-scroll.vs-active {
+      /* Fixed viewport height; horizontal scroll still works */
+      height: 600px;
+      overflow-y: auto;
+      overflow-x: auto;
+    }
+    /* Sticky header inside a scrolling .table-scroll */
+    .table-scroll.vs-active table {
+      /* border-collapse:collapse breaks sticky in some browsers */
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+    .table-scroll.vs-active thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #fff;
+      /* Re-add border that border-collapse:separate removes */
+      border-bottom: 1px solid var(--border);
+    }
+    .vs-fetch-sentinel {
+      height: 1px;
+      pointer-events: none;
+    }
+    .vs-loading-row td {
+      text-align: center; padding: 12px;
+      color: var(--text-secondary); font-size: 13px;
+    }

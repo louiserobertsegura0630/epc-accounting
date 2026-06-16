@@ -326,43 +326,33 @@ function goToSalesPage(page) {
 }
 
 function renderSalesPagination(filteredRows) {
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / SALES_PG));
-  if (salesPage > totalPages) salesPage = 1;
-  const start = filteredRows.length ? (salesPage - 1) * SALES_PG + 1 : 0;
-  const end = Math.min(salesPage * SALES_PG, filteredRows.length);
   const pageInfo = document.getElementById('sales-page-info');
   if (salesSearchMode) {
     pageInfo.textContent =
-      `Search results for '${salesSearchTerm}' - showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()}`;
+      `Search results for '${salesSearchTerm}' — ${filteredRows.length.toLocaleString()} result${filteredRows.length !== 1 ? 's' : ''}`;
   } else {
     const loadedLabel = loadedTotalLabel(_salesData.length, salesTotalRecords);
-    const showingLabel = loadedOfTotalLabel(_salesData.length, salesTotalRecords);
     pageInfo.textContent = filteredRows.length === _salesData.length
-      ? showingLabel
-      : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${filteredRows.length.toLocaleString()} filtered results (${loadedLabel})`;
+      ? loadedLabel
+      : `${filteredRows.length.toLocaleString()} filtered (${loadedLabel})`;
   }
-  document.getElementById('sales-pagination').innerHTML = totalPages <= 1 ? '' :
-    `<button onclick="goToSalesPage(${salesPage - 1})" ${salesPage === 1 ? 'disabled' : ''}>Prev</button>` +
-    `<span class="pagination-info">Page ${salesPage} / ${totalPages}</span>` +
-    `<button onclick="goToSalesPage(${salesPage + 1})" ${salesPage === totalPages ? 'disabled' : ''}>Next</button>`;
+  // Pagination nav replaced by virtual scroll — suppress buttons
+  document.getElementById('sales-pagination').innerHTML = '';
 }
+// TODO: server-side sort and filter across the full range (requires composite Firestore indexes)
 
-function renderTable(rows) {
-  const tbody = document.getElementById('pos-tbody');
-  if (!rows.length) {
-    const message = salesSearchMode
-      ? `No sales items starting with '${esc(salesSearchTerm)}'.`
-      : !salesRecordsLoaded
-      ? 'Choose a date range, then click Show records.'
-      : _salesData.length
-      ? 'No sales records match your active filters.'
-      : 'No sales records found for the selected date range.';
-    tbody.innerHTML = `<tr><td colspan="14"><div class="empty-state"><div class="empty-icon">📊</div><p>${message}</p></div></td></tr>`;
-    return;
-  }
-  tbody.innerHTML = rows.map(r => {
-    const flag = getSalesMarginFlag(r);
-    return `<tr data-sales-id="${r._id}" class="${flag?.rowClass || ''}">
+// ─── Virtual Scroll — Sales ───────────────────────────────────────────────────
+const VS_ROW_H   = 38;  // estimated px per row
+const VS_WINDOW  = 80;  // max DOM rows
+const VS_OVERSCAN = 10; // extra rows above/below visible area
+
+// Scroll position state per tab
+let _vsScrollTopSales  = 0;
+let _vsScrollTopReview = 0;
+
+function _salesRowHTML(r) {
+  const flag = getSalesMarginFlag(r);
+  return `<tr data-sales-id="${r._id}" class="${flag?.rowClass || ''}">
     <td class="sales-select-col"><input type="checkbox" class="sales-row-select" value="${r._id}" aria-label="Select ${esc(r.productName) || esc(r.itemCode)}" onchange="toggleSalesSelection('${r._id}', this.checked)"></td>
     <td>${formatDate(r.date)}</td>
     <td class="mono">${esc(r.itemCode)}</td>
@@ -378,14 +368,64 @@ function renderTable(rows) {
     <td class="mono">${Number(r.margin || 0).toFixed(4)}%</td>
     <td>${flag ? `<span class="badge ${flag.badgeClass} sales-flag-badge">${flag.label}</span>` : ''}</td>
   </tr>`;
-  }).join('');
+}
+
+function renderTable(allFilteredRows) {
+  const tbody = document.getElementById('pos-tbody');
+  const scroll = tbody.closest('.table-scroll');
+
+  if (!allFilteredRows.length) {
+    scroll.classList.remove('vs-active');
+    const message = salesSearchMode
+      ? `No sales items starting with '${esc(salesSearchTerm)}'.`
+      : !salesRecordsLoaded
+      ? 'Choose a date range, then click Show records.'
+      : _salesData.length
+      ? 'No sales records match your active filters.'
+      : 'No sales records found for the selected date range.';
+    tbody.innerHTML = `<tr><td colspan="14"><div class="empty-state"><div class="empty-icon">📊</div><p>${message}</p></div></td></tr>`;
+    tbody.style.paddingTop = '';
+    return;
+  }
+
+  scroll.classList.add('vs-active');
+
+  const totalRows = allFilteredRows.length;
+  const scrollTop = _vsScrollTopSales;
+  const firstVisible = Math.max(0, Math.floor(scrollTop / VS_ROW_H) - VS_OVERSCAN);
+  const lastVisible  = Math.min(totalRows - 1, firstVisible + VS_WINDOW - 1);
+  const windowRows   = allFilteredRows.slice(firstVisible, lastVisible + 1);
+
+  const paddingTop    = firstVisible * VS_ROW_H;
+  const paddingBottom = Math.max(0, totalRows - lastVisible - 1) * VS_ROW_H;
+
+  tbody.style.paddingTop = '';
+
+  const topSpacer    = paddingTop    ? `<tr style="height:${paddingTop}px"><td colspan="14"></td></tr>` : '';
+  const bottomSpacer = paddingBottom ? `<tr style="height:${paddingBottom}px"><td colspan="14"></td></tr>` : '';
+
+  const fetchSentinel = salesHasMoreRecords
+    ? `<tr class="vs-fetch-sentinel"><td colspan="14"><div id="sales-fetch-sentinel"></div></td></tr>`
+    : '';
+  const loadingRow = salesRecordsLoading
+    ? `<tr class="vs-loading-row"><td colspan="14"><span class="spinner"></span> Loading more records…</td></tr>`
+    : '';
+
+  tbody.innerHTML =
+    topSpacer +
+    windowRows.map(_salesRowHTML).join('') +
+    bottomSpacer +
+    fetchSentinel +
+    loadingRow;
+
+  syncSalesSelectionUI(windowRows);
+  if (salesHasMoreRecords) _attachSalesSentinel();
 }
 
 function renderSalesData(rows) {
   renderSalesPagination(rows);
-  const pageRows = getVisibleSalesRows(rows);
-  renderTable(pageRows);
-  syncSalesSelectionUI(pageRows);
+  // Pass all filtered rows — renderTable handles windowing
+  renderTable(rows);
 }
 
 function renderAll() {
@@ -646,6 +686,96 @@ function refreshReviewFilterUI() {
   renderReviewFilterRow();
 }
 
+// ─── Virtual Scroll — Review ──────────────────────────────────────────────────
+function _reviewRowHTML(r) {
+  return `<tr>
+    <td class="review-select-col"><input type="checkbox" class="review-row-select" value="${r._id}" aria-label="Select ${esc(r.productName) || esc(r.itemCode)}" onchange="toggleReviewSelection('${r._id}', this.checked)"></td>
+    <td>${formatDate(r.date)}</td>
+    <td class="mono">${esc(r.itemCode)}</td>
+    <td>${esc(r.productName) || '—'}</td>
+    <td>${esc(r.category) || '—'}</td>
+    <td class="mono">${formatPeso(r.sellingPrice)}</td>
+    <td class="mono">${(r.unitsSold || 0).toLocaleString()}</td>
+    <td class="mono">${formatPeso(r.discount)}</td>
+    <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
+    <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
+    <td class="review-action-col">
+      <div class="review-actions">
+        <input type="text" class="review-cost-input" id="rc-${r._id}" placeholder="Unit cost" autocomplete="off">
+        <button class="btn btn-primary btn-xs" onclick="saveReviewRow('${r._id}')">
+          Add to Product Master
+        </button>
+        <button class="btn btn-danger btn-xs review-delete-icon" type="button" title="Delete item" aria-label="Delete ${esc(r.productName) || esc(r.itemCode)}" onclick="openReviewDeleteModal(['${r._id}'])">🗑️</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function _renderReviewVS(allFilteredRows, tbody, scroll) {
+  scroll.classList.add('vs-active');
+
+  const totalRows = allFilteredRows.length;
+  const scrollTop = _vsScrollTopReview;
+  const firstVisible = Math.max(0, Math.floor(scrollTop / VS_ROW_H) - VS_OVERSCAN);
+  const lastVisible  = Math.min(totalRows - 1, firstVisible + VS_WINDOW - 1);
+  const windowRows   = allFilteredRows.slice(firstVisible, lastVisible + 1);
+
+  const paddingTop    = firstVisible * VS_ROW_H;
+  const paddingBottom = Math.max(0, totalRows - lastVisible - 1) * VS_ROW_H;
+
+  tbody.style.paddingTop = '';
+
+  const topSpacer    = paddingTop    ? `<tr style="height:${paddingTop}px"><td colspan="11"></td></tr>` : '';
+  const bottomSpacer = paddingBottom ? `<tr style="height:${paddingBottom}px"><td colspan="11"></td></tr>` : '';
+
+  const fetchSentinel = reviewHasMoreRecords
+    ? `<tr class="vs-fetch-sentinel"><td colspan="11"><div id="review-fetch-sentinel"></div></td></tr>`
+    : '';
+  const loadingRow = reviewRecordsLoading
+    ? `<tr class="vs-loading-row"><td colspan="11"><span class="spinner"></span> Loading more records…</td></tr>`
+    : '';
+
+  tbody.innerHTML =
+    topSpacer +
+    windowRows.map(_reviewRowHTML).join('') +
+    bottomSpacer +
+    fetchSentinel +
+    loadingRow;
+
+  syncReviewSelectionUI(windowRows);
+  if (reviewHasMoreRecords) _attachReviewSentinel();
+}
+
+// ─── IntersectionObserver sentinels ──────────────────────────────────────────
+let _salesSentinelObs  = null;
+let _reviewSentinelObs = null;
+
+function _attachSalesSentinel() {
+  if (_salesSentinelObs) _salesSentinelObs.disconnect();
+  const el = document.getElementById('sales-fetch-sentinel');
+  if (!el) return;
+  const root = el.closest('.table-scroll');
+  _salesSentinelObs = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting && salesHasMoreRecords && !salesRecordsLoading) {
+      loadNextSalesPage();
+    }
+  }, { root, threshold: 0 });
+  _salesSentinelObs.observe(el);
+}
+
+function _attachReviewSentinel() {
+  if (_reviewSentinelObs) _reviewSentinelObs.disconnect();
+  const el = document.getElementById('review-fetch-sentinel');
+  if (!el) return;
+  const root = el.closest('.table-scroll');
+  _reviewSentinelObs = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting && reviewHasMoreRecords && !reviewRecordsLoading) {
+      loadNextReviewPage();
+    }
+  }, { root, threshold: 0 });
+  _reviewSentinelObs.observe(el);
+}
+
 function renderUnderReview() {
   const allRows = [..._reviewData].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const count   = allRows.length;
@@ -680,9 +810,11 @@ function renderUnderReview() {
   }
 
   const tbody   = document.getElementById('review-tbody');
+  const scroll  = tbody.closest('.table-scroll');
   const toolbar = document.getElementById('review-toolbar');
 
   if (!count) {
+    scroll.classList.remove('vs-active');
     toolbar.style.display = reviewRecordsLoaded || reviewSearchMode ? '' : 'none';
     if (reviewRecordsLoaded || reviewSearchMode) refreshReviewFilterUI();
     const emptyMessage = !reviewRecordsLoaded
@@ -700,28 +832,20 @@ function renderUnderReview() {
 
   const filtered = getFilteredReviewRows();
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / REVIEW_PG));
-  if (reviewPage > totalPages) reviewPage = 1;
-  const start    = (reviewPage - 1) * REVIEW_PG;
-  const pageRows = filtered.slice(start, start + REVIEW_PG);
-  const end      = Math.min(start + REVIEW_PG, filtered.length);
-
   toolbar.style.display = '';
   document.getElementById('review-page-info').textContent =
     reviewSearchMode
-      ? `Search results for '${reviewSearchTerm}' - showing ${start + 1}–${end} of ${filtered.length.toLocaleString()}`
+      ? `Search results for '${reviewSearchTerm}' - ${filtered.length.toLocaleString()} result${filtered.length !== 1 ? 's' : ''}`
       : filtered.length < count
-      ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}. Showing ${start + 1}-${end}`
+      ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''} (scroll to browse)`
       : loadedOfTotalLabel(count, reviewTotalRecords);
   refreshReviewFilterUI();
+  // Pagination replaced by virtual scroll — clear any old buttons
+  document.getElementById('review-pagination').innerHTML = '';
 
-  const pgEl = document.getElementById('review-pagination');
-  pgEl.innerHTML = totalPages <= 1 ? '' :
-    `<button onclick="goToReviewPage(${reviewPage - 1})" ${reviewPage === 1 ? 'disabled' : ''}>Prev</button>` +
-    `<span class="pagination-info">Page ${reviewPage} / ${totalPages}</span>` +
-    `<button onclick="goToReviewPage(${reviewPage + 1})" ${reviewPage === totalPages ? 'disabled' : ''}>Next</button>`;
-
-  if (!pageRows.length) {
+  if (!filtered.length) {
+    scroll.classList.remove('vs-active');
+    tbody.style.paddingTop = '';
     tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">
       <p>No Under Review items match your search.</p>
     </div></td></tr>`;
@@ -729,28 +853,7 @@ function renderUnderReview() {
     return;
   }
 
-  tbody.innerHTML = pageRows.map(r => `<tr>
-    <td class="review-select-col"><input type="checkbox" class="review-row-select" value="${r._id}" aria-label="Select ${esc(r.productName) || esc(r.itemCode)}" onchange="toggleReviewSelection('${r._id}', this.checked)"></td>
-    <td>${formatDate(r.date)}</td>
-    <td class="mono">${esc(r.itemCode)}</td>
-    <td>${esc(r.productName) || '—'}</td>
-    <td>${esc(r.category) || '—'}</td>
-    <td class="mono">${formatPeso(r.sellingPrice)}</td>
-    <td class="mono">${(r.unitsSold || 0).toLocaleString()}</td>
-    <td class="mono">${formatPeso(r.discount)}</td>
-    <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
-    <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
-    <td class="review-action-col">
-      <div class="review-actions">
-        <input type="text" class="review-cost-input" id="rc-${r._id}" placeholder="Unit cost" autocomplete="off">
-        <button class="btn btn-primary btn-xs" onclick="saveReviewRow('${r._id}')">
-          Add to Product Master
-        </button>
-        <button class="btn btn-danger btn-xs review-delete-icon" type="button" title="Delete item" aria-label="Delete ${esc(r.productName) || esc(r.itemCode)}" onclick="openReviewDeleteModal(['${r._id}'])">🗑️</button>
-      </div>
-    </td>
-  </tr>`).join('');
-  syncReviewSelectionUI(pageRows);
+  _renderReviewVS(filtered, tbody, scroll);
 }
 
 // ─── Import Message ───────────────────────────────────────────────────────────

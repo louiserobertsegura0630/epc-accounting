@@ -666,8 +666,9 @@ function updateRecordsQueryControls() {
   const searchMode = isSales ? salesSearchMode : reviewSearchMode;
   const loadedCount = isSales ? salesBrowseData.length : reviewBrowseData.length;
   const total = isSales ? salesTotalRecords : reviewTotalRecords;
-  loadMore.style.display = loaded && hasMore ? '' : 'none';
-  loadMore.disabled = searchMode || !hasMore;
+  // Virtual scroll auto-fetches; hide manual Load more button
+  loadMore.style.display = 'none';
+  loadMore.disabled = true;
   if (searchMode) {
     document.getElementById('records-query-status').textContent =
       `Search results for '${isSales ? salesSearchTerm : reviewSearchTerm}'`;
@@ -738,6 +739,15 @@ async function loadSelectedRecords(append = false) {
   }
 
   setRecordsLoading(true);
+  // Reset VS scroll position on fresh load so window starts at top
+  if (!append) {
+    _vsScrollTopSales  = 0;
+    _vsScrollTopReview = 0;
+    const salesScroll  = document.getElementById('pos-tbody')?.closest('.table-scroll');
+    const reviewScroll = document.getElementById('review-tbody')?.closest('.table-scroll');
+    if (salesScroll)  salesScroll.scrollTop  = 0;
+    if (reviewScroll) reviewScroll.scrollTop = 0;
+  }
   try {
     if (activeTab === 'sales') {
       _salesData = await loadSalesData({ append });
@@ -800,7 +810,7 @@ function clearRecordSearch(tab = activeTab) {
     salesFilters.query = '';
     _salesData = salesBrowseData;
     salesHasMoreRecords = salesTotalRecords == null
-      ? salesBrowseData.length >= getRecordsLoadLimit()
+      ? salesBrowseData.length >= VS_PAGE_SIZE
       : salesBrowseData.length < salesTotalRecords;
     salesPage = 1;
     selectedSalesIds.clear();
@@ -811,7 +821,7 @@ function clearRecordSearch(tab = activeTab) {
     reviewFilters.query = '';
     _reviewData = reviewBrowseData;
     reviewHasMoreRecords = reviewTotalRecords == null
-      ? reviewBrowseData.length >= getRecordsLoadLimit()
+      ? reviewBrowseData.length >= VS_PAGE_SIZE
       : reviewBrowseData.length < reviewTotalRecords;
     reviewPage = 1;
     selectedReviewIds.clear();
@@ -919,6 +929,41 @@ document.getElementById('modal-delete-review').addEventListener('click', functio
 document.addEventListener('keydown', function(e) {
   if ((salesDeleteInProgress || reviewDeleteInProgress) && e.key === 'Escape') e.stopImmediatePropagation();
 }, true);
+
+// ─── Virtual scroll: wire up scroll events ────────────────────────────────────
+(function wireVSScrollListeners() {
+  // Use rAF throttle so scroll handler doesn't fire faster than paint
+  let _salesRAF = 0;
+  let _reviewRAF = 0;
+
+  const salesScroll = document.getElementById('pos-tbody')?.closest('.table-scroll');
+  const reviewScroll = document.getElementById('review-tbody')?.closest('.table-scroll');
+
+  if (salesScroll) {
+    salesScroll.addEventListener('scroll', () => {
+      _vsScrollTopSales = salesScroll.scrollTop;
+      cancelAnimationFrame(_salesRAF);
+      _salesRAF = requestAnimationFrame(() => {
+        if (salesScroll.classList.contains('vs-active')) {
+          const rows = applyFiltersAndSort();
+          renderTable(rows);
+        }
+      });
+    }, { passive: true });
+  }
+
+  if (reviewScroll) {
+    reviewScroll.addEventListener('scroll', () => {
+      _vsScrollTopReview = reviewScroll.scrollTop;
+      cancelAnimationFrame(_reviewRAF);
+      _reviewRAF = requestAnimationFrame(() => {
+        if (reviewScroll.classList.contains('vs-active')) {
+          renderUnderReview();
+        }
+      });
+    }, { passive: true });
+  }
+})();
 
 // ─── Page initialisation — render empty until a bounded range is requested ───
 async function initPage() {

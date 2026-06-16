@@ -1,3 +1,23 @@
+/* ─── Virtual Scroll ──────────────────────────────────────────────────────── */
+.table-scroll.vs-active {
+  height: 600px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.table-scroll.vs-active table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.table-scroll.vs-active thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+}
+.vs-fetch-sentinel { height: 1px; pointer-events: none; }
+.vs-loading-row td { text-align: center; padding: 12px; color: var(--text-secondary); font-size: 13px; }
+
     .spinner {
       display: inline-block;
       width: 14px; height: 14px;

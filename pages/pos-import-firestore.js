@@ -610,13 +610,15 @@ function selectedRecordsRange() {
   return { start: salesRangeStart, end: salesRangeEnd };
 }
 
+const VS_PAGE_SIZE = 1000;
+
 function buildRangeQuery(collectionName, append, lastDocSnapshot) {
-  const limit = getRecordsLoadLimit();
+  // Initial load always fetches VS_PAGE_SIZE docs; incremental fetch via loadNextSalesPage/loadNextReviewPage
   let query = db.collection(collectionName)
     .where('date', '>=', salesRangeStart)
     .where('date', '<=', salesRangeEnd)
     .orderBy('date')
-    .limit(limit);
+    .limit(VS_PAGE_SIZE);
   if (append && lastDocSnapshot) query = query.startAfter(lastDocSnapshot);
   return query;
 }
@@ -715,7 +717,7 @@ async function loadSalesData({ append = false } = {}) {
   }
   salesLastDocSnapshot = snap.docs[snap.docs.length - 1] || salesLastDocSnapshot;
   salesHasMoreRecords = salesTotalRecords == null
-    ? snap.docs.length === getRecordsLoadLimit({ syncInput: false })
+    ? snap.docs.length === VS_PAGE_SIZE
     : (append ? salesBrowseData.length + snap.docs.length : snap.docs.length) < salesTotalRecords;
   salesRecordsLoaded = true;
   const rawRows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
@@ -746,7 +748,7 @@ async function loadUnderReview({ append = false } = {}) {
   }
   reviewLastDocSnapshot = snap.docs[snap.docs.length - 1] || reviewLastDocSnapshot;
   reviewHasMoreRecords = reviewTotalRecords == null
-    ? snap.docs.length === getRecordsLoadLimit({ syncInput: false })
+    ? snap.docs.length === VS_PAGE_SIZE
     : (append ? reviewBrowseData.length + snap.docs.length : snap.docs.length) < reviewTotalRecords;
   reviewRecordsLoaded = true;
   const rows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
@@ -817,6 +819,73 @@ async function exportSalesDataRange(start, end, onProgress) {
 async function exportUnderReviewRange(start, end, onProgress) {
   const rows = await fetchAllRecordsForExport('underReviewData', start, end, onProgress);
   return rows.length ? rows : null;
+}
+
+// ─── Virtual scroll: incremental page fetch ───────────────────────────────────
+async function loadNextSalesPage() {
+  if (!salesHasMoreRecords || salesRecordsLoading || !salesRangeStart || !salesRangeEnd) return;
+  salesRecordsLoading = true;
+  updateRecordsQueryControls();
+  try {
+    let q = db.collection('salesData')
+      .where('date', '>=', salesRangeStart)
+      .where('date', '<=', salesRangeEnd)
+      .orderBy('date')
+      .limit(VS_PAGE_SIZE);
+    if (salesLastDocSnapshot) q = q.startAfter(salesLastDocSnapshot);
+    const snap = await q.get();
+    if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('sales vs-page');
+    if (snap.docs.length) {
+      salesLastDocSnapshot = snap.docs[snap.docs.length - 1];
+      const rawRows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+      const inventoryCostMap = await loadInventoryUnitCostMap(rawRows.map(r => r.itemCode));
+      const newRows = rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
+      salesBrowseData = [...salesBrowseData, ...newRows];
+      _salesData = salesBrowseData;
+    }
+    salesHasMoreRecords = salesTotalRecords == null
+      ? snap.docs.length === VS_PAGE_SIZE
+      : salesBrowseData.length < salesTotalRecords;
+  } catch (err) {
+    if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+    console.error('[VS] loadNextSalesPage failed:', err);
+  } finally {
+    salesRecordsLoading = false;
+    renderAll();
+    updateRecordsQueryControls();
+  }
+}
+
+async function loadNextReviewPage() {
+  if (!reviewHasMoreRecords || reviewRecordsLoading || !salesRangeStart || !salesRangeEnd) return;
+  reviewRecordsLoading = true;
+  updateRecordsQueryControls();
+  try {
+    let q = db.collection('underReviewData')
+      .where('date', '>=', salesRangeStart)
+      .where('date', '<=', salesRangeEnd)
+      .orderBy('date')
+      .limit(VS_PAGE_SIZE);
+    if (reviewLastDocSnapshot) q = q.startAfter(reviewLastDocSnapshot);
+    const snap = await q.get();
+    if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('review vs-page');
+    if (snap.docs.length) {
+      reviewLastDocSnapshot = snap.docs[snap.docs.length - 1];
+      const newRows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+      reviewBrowseData = [...reviewBrowseData, ...newRows];
+      _reviewData = reviewBrowseData;
+    }
+    reviewHasMoreRecords = reviewTotalRecords == null
+      ? snap.docs.length === VS_PAGE_SIZE
+      : reviewBrowseData.length < reviewTotalRecords;
+  } catch (err) {
+    if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+    console.error('[VS] loadNextReviewPage failed:', err);
+  } finally {
+    reviewRecordsLoading = false;
+    renderAll();
+    updateRecordsQueryControls();
+  }
 }
 
 function saveSalesDataBatch(docs, onProgress) { return batchWriteToDB('salesData', docs, onProgress); }

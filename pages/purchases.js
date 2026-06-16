@@ -383,7 +383,8 @@ async function loadPurchasesBatch({ append = false } = {}) {
   let query = db.collection('purchases');
   if (from) query = query.where('date', '>=', from);
   if (to) query = query.where('date', '<=', to);
-  query = query.orderBy('date', 'desc').limit(purchaseLoadLimit());
+  const limit = purchaseLoadLimit();
+  query = query.orderBy('date', 'desc').limit(limit);
   if (append && purchaseLastDocSnapshot) query = query.startAfter(purchaseLastDocSnapshot);
   const snap = await query.get();
   purchaseLastDocSnapshot = snap.docs[snap.docs.length - 1] || purchaseLastDocSnapshot;
@@ -391,17 +392,13 @@ async function loadPurchasesBatch({ append = false } = {}) {
   DB.set('purchases', append ? [...DB.get('purchases'), ...rows] : rows);
   const total = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals?.count : null;
   purchaseHasMoreRecords = total == null
-    ? snap.docs.length === clampRecordsLoadLimit('purchases-load-limit', { syncInput: false })
+    ? snap.docs.length === limit
     : DB.get('purchases').length < total;
-  updatePurchaseLoadMoreControl();
   return DB.get('purchases');
 }
 
 function updatePurchaseLoadMoreControl() {
-  const button = document.getElementById('btn-load-more-purchases');
-  if (!button) return;
-  button.style.display = purchaseHasMoreRecords ? '' : 'none';
-  button.disabled = !purchaseHasMoreRecords;
+  // VS sentinel handles incremental fetch — button hidden
 }
 
 function hasPurchaseNonDateFilters() {
@@ -436,12 +433,23 @@ async function refreshPurchaseAggregates() {
 async function reloadPurchasesForDateRange() {
   purchaseCurrentPage = 1;
   selectedPurchaseIds.clear();
+  _purVsScrollTop = 0;
+  const scroll = document.getElementById('purchases-tbody')?.closest('.table-scroll');
+  if (scroll) scroll.scrollTop = 0;
   await refreshPurchaseAggregates();
   await loadPurchasesBatch({ append: false });
   populatePurchasesFilterSuppliers();
   renderTable();
   renderSummary();
 }
+
+// ─── Virtual Scroll State ─────────────────────────────────────────────────────
+const PUR_VS_ROW_H    = 38;
+const PUR_VS_WINDOW   = 80;
+const PUR_VS_OVERSCAN = 10;
+let _purVsScrollTop   = 0;
+let _purVsSentinelObs = null;
+let _purVsRAF         = 0;
 
 // ─── Sort & Filter State ──────────────────────────────────────────────────────
 let pSortCol = 'date', pSortDir = 'desc';
@@ -734,42 +742,8 @@ function renderPurchasePagination(filteredCount, displayCount = filteredCount) {
 }
 
 // ─── Table ────────────────────────────────────────────────────────────────────
-function renderTable() {
-  const allRows = DB.get('purchases');
-  const rows    = getPurchaseRows();
-  const existingIds = new Set(allRows.map(row => row.id));
-  selectedPurchaseIds.forEach(id => {
-    if (!existingIds.has(id)) selectedPurchaseIds.delete(id);
-  });
-  const aggregate = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals : null;
-  const displayCount = !hasPurchaseNonDateFilters()
-    ? (aggregate?.count ?? rows.length)
-    : rows.length;
-  const totalPages = purchaseTotalPages(rows.length);
-  if (purchaseCurrentPage > totalPages) purchaseCurrentPage = totalPages;
-  const pageRows = purchasePageRows(rows);
-  const start = rows.length ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
-  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, rows.length);
-
-  document.getElementById('purchases-count').textContent =
-    !hasPurchaseNonDateFilters()
-      ? `${rows.length.toLocaleString()} shown | ${displayCount.toLocaleString()} total`
-      : `Showing ${start}-${end} of ${rows.length} filtered records`;
-
-  renderPurchaseHeader(pageRows);
-  updatePurchaseBulkToolbar(rows, pageRows);
-  renderPurchasePagination(rows.length, displayCount);
-
-  const tbody = document.getElementById('purchases-tbody');
-  if (!pageRows.length) {
-    const msg = allRows.length
-      ? 'No purchases match the current filters.'
-      : 'No purchases yet. Click "Add Purchase" to get started.';
-    tbody.innerHTML = `<tr><td colspan="${PURCHASE_LEDGER_COLUMNS.length + 2}"><div class="empty-state"><div class="empty-icon">🧾</div><p>${msg}</p></div></td></tr>`;
-    return;
-  }
-  tbody.innerHTML = pageRows.map(p => `
-    <tr>
+function _purchaseRowHTML(p) {
+  return `<tr>
       <td class="purchase-select-col">
         <input type="checkbox" class="purchase-row-select" aria-label="Select purchase"
           ${selectedPurchaseIds.has(p.id) ? 'checked' : ''}
@@ -782,7 +756,79 @@ function renderTable() {
           <button class="btn btn-danger btn-xs" onclick="deletePurchase('${p.id}')">Delete</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>`;
+}
+
+function _attachPurchaseSentinel() {
+  if (_purVsSentinelObs) _purVsSentinelObs.disconnect();
+  const el = document.getElementById('purchase-fetch-sentinel');
+  if (!el) return;
+  const root = el.closest('.table-scroll');
+  _purVsSentinelObs = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting && purchaseHasMoreRecords) {
+      loadPurchasesBatch({ append: true }).then(() => renderTable());
+    }
+  }, { root, threshold: 0 });
+  _purVsSentinelObs.observe(el);
+}
+
+function renderTable() {
+  const allRows = DB.get('purchases');
+  const rows    = getPurchaseRows();
+  const existingIds = new Set(allRows.map(row => row.id));
+  selectedPurchaseIds.forEach(id => {
+    if (!existingIds.has(id)) selectedPurchaseIds.delete(id);
+  });
+  const aggregate = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals : null;
+  const displayCount = !hasPurchaseNonDateFilters()
+    ? (aggregate?.count ?? rows.length)
+    : rows.length;
+  const COLS = PURCHASE_LEDGER_COLUMNS.length + 2;
+
+  const tbody = document.getElementById('purchases-tbody');
+  const scroll = tbody?.closest('.table-scroll');
+
+  if (!rows.length) {
+    if (scroll) scroll.classList.remove('vs-active');
+    const msg = allRows.length
+      ? 'No purchases match the current filters.'
+      : 'No purchases yet. Click "Add Purchase" to get started.';
+    tbody.innerHTML = `<tr><td colspan="${COLS}"><div class="empty-state"><div class="empty-icon">🧾</div><p>${msg}</p></div></td></tr>`;
+    document.getElementById('purchase-pagination').innerHTML = '';
+    document.getElementById('purchases-count').textContent = '';
+    renderPurchaseHeader([]);
+    updatePurchaseBulkToolbar(rows, []);
+    return;
+  }
+
+  if (scroll) scroll.classList.add('vs-active');
+
+  const totalRows    = rows.length;
+  const firstVisible = Math.max(0, Math.floor(_purVsScrollTop / PUR_VS_ROW_H) - PUR_VS_OVERSCAN);
+  const lastVisible  = Math.min(totalRows - 1, firstVisible + PUR_VS_WINDOW - 1);
+  const windowRows   = rows.slice(firstVisible, lastVisible + 1);
+  const paddingTop    = firstVisible * PUR_VS_ROW_H;
+  const paddingBottom = Math.max(0, totalRows - lastVisible - 1) * PUR_VS_ROW_H;
+  const topSpacer    = paddingTop    ? `<tr style="height:${paddingTop}px"><td colspan="${COLS}"></td></tr>` : '';
+  const bottomSpacer = paddingBottom ? `<tr style="height:${paddingBottom}px"><td colspan="${COLS}"></td></tr>` : '';
+  const fetchSentinel = purchaseHasMoreRecords
+    ? `<tr class="vs-fetch-sentinel"><td colspan="${COLS}"><div id="purchase-fetch-sentinel"></div></td></tr>` : '';
+  const loadingRow = '';
+
+  tbody.innerHTML = topSpacer + windowRows.map(_purchaseRowHTML).join('') + bottomSpacer + fetchSentinel + loadingRow;
+
+  const loadedLabel = displayCount !== rows.length
+    ? `${rows.length.toLocaleString()} filtered (${rows.length.toLocaleString()} loaded | ${displayCount.toLocaleString()} total)`
+    : `${rows.length.toLocaleString()} shown | ${displayCount.toLocaleString()} total`;
+  document.getElementById('purchases-count').textContent = loadedLabel;
+
+  document.getElementById('purchase-pagination').innerHTML = '';
+  // TODO: server-side sort and filter across full range (requires composite Firestore indexes)
+
+  renderPurchaseHeader(windowRows);
+  updatePurchaseBulkToolbar(rows, windowRows);
+
+  if (purchaseHasMoreRecords) _attachPurchaseSentinel();
 }
 
 function exportPurchasesCSV() {
@@ -960,13 +1006,22 @@ populatePurchasesFilterSuppliers();
     else renderTable();
   });
 });
-document.getElementById('btn-load-more-purchases')?.addEventListener('click', async () => {
-  await loadPurchasesBatch({ append: true });
-  renderTable();
-  renderSummary();
-});
-document.getElementById('purchases-load-limit')?.addEventListener('change', () => clampRecordsLoadLimit('purchases-load-limit'));
-document.getElementById('purchases-load-limit')?.addEventListener('blur', () => clampRecordsLoadLimit('purchases-load-limit'));
+// Load more / load limit hidden — VS sentinel handles incremental fetch
+const _purLoadMoreBtn = document.getElementById('btn-load-more-purchases');
+if (_purLoadMoreBtn) { _purLoadMoreBtn.style.display = 'none'; _purLoadMoreBtn.disabled = true; }
+
+// ─── VS scroll listener ───────────────────────────────────────────────────────
+(function wirePurchaseVSScroll() {
+  const scroll = document.getElementById('purchases-tbody')?.closest('.table-scroll');
+  if (!scroll) return;
+  scroll.addEventListener('scroll', () => {
+    _purVsScrollTop = scroll.scrollTop;
+    cancelAnimationFrame(_purVsRAF);
+    _purVsRAF = requestAnimationFrame(() => {
+      if (scroll.classList.contains('vs-active')) renderTable();
+    });
+  }, { passive: true });
+})();
 document.getElementById('filter-supplier-purchases').addEventListener('change', () => {
   purchaseCurrentPage = 1;
   renderTable();
