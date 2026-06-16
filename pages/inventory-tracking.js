@@ -13,6 +13,7 @@ const selectedPotentialCodes = new Set();
 let potentialSortKey = 'potentialRevenue';
 let potentialSortDir = 'desc';
 let potentialFilters = {};
+let inventoryAggregateTotals = null;
 const POTENTIAL_PAGE_SIZE = 50;
 const POTENTIAL_MARKUP_KEY = 'inventoryPotentialMarkupSettings';
 const POTENTIAL_COLUMNS = [
@@ -533,8 +534,8 @@ function resetForm() {
 
 function renderSummary() {
   const movs = DB.get('inventory_movements');
-  const inVal  = movs.filter(m=>m.type==='Incoming').reduce((s,m)=>s+(m.totalCost||0),0);
-  const outVal = movs.filter(m=>m.type==='Outgoing').reduce((s,m)=>s+(m.totalCost||0),0);
+  const inVal = inventoryAggregateTotals?.inVal ?? movs.filter(m=>m.type==='Incoming').reduce((s,m)=>s+(m.totalCost||0),0);
+  const outVal = inventoryAggregateTotals?.outVal ?? movs.filter(m=>m.type==='Outgoing').reduce((s,m)=>s+(m.totalCost||0),0);
   document.getElementById('inv-summary').innerHTML = `
     <div class="summary-card">
       <div class="kpi-label">Total Incoming Value</div>
@@ -548,6 +549,23 @@ function renderSummary() {
       <div class="kpi-label">Net Movement</div>
       <div class="kpi-value ${(inVal-outVal)>=0?'blue':''}">${formatPeso(inVal-outVal)}</div>
     </div>`;
+}
+
+async function refreshInventoryAggregates() {
+  const db = getFirestoreDB();
+  if (!db) return;
+  const collection = db.collection('inventoryData');
+  const [count, inVal, outVal] = await Promise.all([
+    firestoreCount(collection, 'inventory count'),
+    firestoreSum(collection.where('type', '==', 'Incoming'), 'totalCost', 'inventory incoming value sum'),
+    firestoreSum(collection.where('type', '==', 'Outgoing'), 'totalCost', 'inventory outgoing value sum')
+  ]);
+  if (count != null) invTable.setRemoteTotal(count);
+  inventoryAggregateTotals = {
+    inVal: inVal ?? inventoryAggregateTotals?.inVal,
+    outVal: outVal ?? inventoryAggregateTotals?.outVal
+  };
+  renderSummary();
 }
 
 async function saveInv() {
@@ -608,6 +626,7 @@ async function saveInv() {
   closeModal('modal-inv');
   invTable.render();
   renderSummary();
+  refreshInventoryAggregates();
   logAudit(editId ? 'Edit' : 'Create', 'Inventory',
     `${editId ? 'Edited' : 'Added'} ${type.toLowerCase()} - ${qty} units of ${code} on ${formatDate(date)}`);
 }
@@ -646,6 +665,7 @@ function deleteInv(id) {
       DB.remove('inventory_movements', id);
       selectedInvIds.delete(id);
       invTable.render(); renderSummary();
+      refreshInventoryAggregates();
       logAudit('Delete', 'Inventory', `Deleted ${m?.type?.toLowerCase() || 'inventory'} entry for ${m?.itemCode || id}`);
     } catch (err) {
       console.error('[Inventory] Delete failed:', err);
@@ -839,6 +859,7 @@ async function saveBulkOutgoing() {
     closeModal('modal-make-outgoing');
     invTable.render();
     renderSummary();
+    refreshInventoryAggregates();
     showToast(`${rows.length} outgoing record${rows.length === 1 ? '' : 's'} created.`, 'success');
   } catch (err) {
     console.error('[Inventory] Bulk outgoing save failed:', err);
@@ -2425,6 +2446,7 @@ Promise.all([
   .then(() => {
     invTable.render();
     renderSummary();
+    refreshInventoryAggregates();
     watchInventoryProductMaster();
     watchSalesOutgoing();
   })

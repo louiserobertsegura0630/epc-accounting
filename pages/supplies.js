@@ -2,6 +2,7 @@
 initSidebar('supplies');
 
 const expandedSupplyRows = new Set();
+let suppliesAggregateTotals = null;
 
 function supplyUsageHistory(row) {
   if (Array.isArray(row.usageHistory)) return row.usageHistory;
@@ -143,14 +144,16 @@ function resetForm() {
 
 function renderSummary() {
   const movs = DB.get('supplies_movements');
-  const inVal = movs.filter(m => m.type === 'Incoming').reduce((sum, row) => {
+  const localInVal = movs.filter(m => m.type === 'Incoming').reduce((sum, row) => {
     return sum + supplyGrossAmount(row);
   }, 0);
-  const outVal = movs.reduce((sum, row) => {
+  const localOutVal = movs.reduce((sum, row) => {
     const used = supplyUsedTotal(row);
     if (used > 0) return sum + used * (Number(row.unitCost) || 0);
     return sum + (row.type === 'Outgoing' ? (Number(row.totalCost) || 0) : 0);
   }, 0);
+  const inVal = suppliesAggregateTotals?.inVal ?? localInVal;
+  const outVal = suppliesAggregateTotals?.outVal ?? localOutVal;
   document.getElementById('sup-summary').innerHTML = `
     <div class="summary-card">
       <div class="kpi-label">Total Incoming Value</div>
@@ -164,6 +167,26 @@ function renderSummary() {
       <div class="kpi-label">Net on Hand</div>
       <div class="kpi-value">${formatPeso(inVal - outVal)}</div>
     </div>`;
+}
+
+async function refreshSuppliesAggregates() {
+  const db = getFirestoreDB();
+  if (!db) return;
+  const collection = db.collection('suppliesData');
+  const [count, incomingGross, incomingPurchaseCost, outgoingTotalCost] = await Promise.all([
+    firestoreCount(collection, 'supplies count'),
+    firestoreSum(collection.where('type', '==', 'Incoming'), 'grossAmount', 'supplies incoming gross sum'),
+    firestoreSum(collection.where('type', '==', 'Incoming'), 'purchaseTotalCost', 'supplies incoming purchase value sum'),
+    firestoreSum(collection.where('type', '==', 'Outgoing'), 'totalCost', 'supplies outgoing value sum')
+  ]);
+  if (count != null) supTable.setRemoteTotal(count);
+  const inVal = incomingGross || incomingPurchaseCost;
+  const hasUsageHistory = DB.get('supplies_movements').some(row => supplyUsedTotal(row) > 0);
+  suppliesAggregateTotals = {
+    inVal: inVal || suppliesAggregateTotals?.inVal,
+    outVal: hasUsageHistory ? null : (outgoingTotalCost || suppliesAggregateTotals?.outVal)
+  };
+  renderSummary();
 }
 
 async function saveSupply() {
@@ -220,6 +243,7 @@ async function saveSupply() {
   renderSummary();
   try {
     await upsertSupplyInFirestore(record);
+    refreshSuppliesAggregates();
     logAudit(editId ? 'Edit' : 'Create', 'Supplies',
       `${editId ? 'Edited' : 'Added'} ${type.toLowerCase()} supply - ${qty} units of ${name} on ${formatDate(date)}`);
   } catch (err) {
@@ -255,6 +279,7 @@ function deleteSup(id) {
     try {
       await deleteSupplyFromFirestore(m);
       DB.remove('supplies_movements', id); supTable.render(); renderSummary();
+      refreshSuppliesAggregates();
       logAudit('Delete', 'Supplies', `Deleted supply entry ${m?.name || id}`);
     } catch (err) {
       console.error('[Supplies] Firestore delete failed:', err);
@@ -319,6 +344,7 @@ async function saveSupplyUsage() {
     closeModal('modal-supply-usage');
     supTable.render();
     renderSummary();
+    refreshSuppliesAggregates();
     if (typeof logAudit === 'function') {
       logAudit('Edit', 'Supplies',
         `Used ${used.toLocaleString()} of '${row.name}' [${row.itemCode || 'no code'}] on ${formatDate(date)}${who ? ` - issued to ${who}` : ''}`);
@@ -446,5 +472,5 @@ const supTable = new TrackingTable({
 });
 supTable.render();
 loadSuppliesFromFirestore()
-  .then(() => { supTable.render(); renderSummary(); })
+  .then(() => { supTable.render(); renderSummary(); refreshSuppliesAggregates(); })
   .catch(err => console.error('[Supplies] Firestore load failed:', err));

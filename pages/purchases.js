@@ -322,11 +322,13 @@ function resetForm() {
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
 function renderSummary() {
-  const purch      = DB.get('purchases');
-  const totalNet   = purch.reduce((s,p) => s+(p.netAmount??p.total??0), 0);
-  const totalVAT   = purch.reduce((s,p) => s+(p.inputVAT||0), 0);
-  const totalGross = purch.reduce((s,p) => s+(p.grossAmount??((p.netAmount??p.total??0)+(p.inputVAT||0))), 0);
-  const totalEwt   = purch.reduce((s,p) => s+(p.ewtAmount||0), 0);
+  const purch = DB.get('purchases');
+  const activeScope = purchaseDateScopeKey();
+  const aggregate = purchaseAggregateScope === activeScope ? purchaseAggregateTotals : null;
+  const totalNet = aggregate?.totalNet ?? purch.reduce((s,p) => s+(p.netAmount??p.total??0), 0);
+  const totalVAT = aggregate?.totalVAT ?? purch.reduce((s,p) => s+(p.inputVAT||0), 0);
+  const totalGross = aggregate?.totalGross ?? purch.reduce((s,p) => s+(p.grossAmount??((p.netAmount??p.total??0)+(p.inputVAT||0))), 0);
+  const totalEwt = aggregate?.totalEwt ?? purch.reduce((s,p) => s+(p.ewtAmount||0), 0);
 
   document.getElementById('summary-row').innerHTML = `
     <div class="summary-card">
@@ -347,9 +349,59 @@ function renderSummary() {
     </div>`;
 }
 
+function purchaseDateRange() {
+  return {
+    from: document.getElementById('filter-date-from')?.value || '',
+    to: document.getElementById('filter-date-to')?.value || ''
+  };
+}
+
+function purchaseDateScopeKey() {
+  const { from, to } = purchaseDateRange();
+  return `${from}|${to}`;
+}
+
+function purchaseDateRangeQuery() {
+  const db = getFirestoreDB();
+  if (!db) return null;
+  const { from, to } = purchaseDateRange();
+  let query = db.collection('purchases');
+  if (from) query = query.where('date', '>=', from);
+  if (to) query = query.where('date', '<=', to);
+  return query;
+}
+
+function hasPurchaseNonDateFilters() {
+  const search = document.getElementById('search-purchases')?.value.trim();
+  const supplier = document.getElementById('filter-supplier-purchases')?.value;
+  return !!search || !!supplier || Object.keys(purchaseColumnFilters).length > 0;
+}
+
+async function refreshPurchaseAggregates() {
+  const query = purchaseDateRangeQuery();
+  if (!query) return;
+  const scope = purchaseDateScopeKey();
+  const requestId = ++purchaseAggregateRequestId;
+  const [count, totalNet, totalVAT, totalGross, totalEwt] = await Promise.all([
+    firestoreCount(query, 'purchases count'),
+    firestoreSum(query, 'netAmount', 'purchases net amount sum'),
+    firestoreSum(query, 'inputVAT', 'purchases input VAT sum'),
+    firestoreSum(query, 'grossAmount', 'purchases gross amount sum'),
+    firestoreSum(query, 'ewtAmount', 'purchases EWT sum')
+  ]);
+  if (requestId !== purchaseAggregateRequestId || scope !== purchaseDateScopeKey()) return;
+  purchaseAggregateScope = scope;
+  purchaseAggregateTotals = { count, totalNet, totalVAT, totalGross, totalEwt };
+  renderSummary();
+  renderTable();
+}
+
 // ─── Sort & Filter State ──────────────────────────────────────────────────────
 let pSortCol = 'date', pSortDir = 'desc';
 let purchaseCurrentPage = 1;
+let purchaseAggregateScope = '';
+let purchaseAggregateTotals = null;
+let purchaseAggregateRequestId = 0;
 const selectedPurchaseIds = new Set();
 const purchaseColumnFilters = {};
 const PURCHASE_ROWS_PER_PAGE = 100;
@@ -582,6 +634,7 @@ function deleteSelectedPurchases() {
     populatePurchasesFilterSuppliers();
     renderTable();
     renderSummary();
+    refreshPurchaseAggregates();
     logAudit('Delete', 'Purchases', `Deleted ${ids.length} selected purchase records`);
   });
 }
@@ -596,7 +649,12 @@ function purchasePageRows(rows) {
 }
 
 function setPurchasePage(page) {
-  const totalPages = purchaseTotalPages(getPurchaseRows().length);
+  const rows = getPurchaseRows();
+  const aggregate = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals : null;
+  const displayCount = !hasPurchaseNonDateFilters()
+    ? (aggregate?.count ?? rows.length)
+    : rows.length;
+  const totalPages = purchaseTotalPages(displayCount);
   purchaseCurrentPage = Math.min(Math.max(1, page), totalPages);
   renderTable();
 }
@@ -609,10 +667,10 @@ function purchasePageNumbers(totalPages) {
   return [...pages].sort((a, b) => a - b);
 }
 
-function renderPurchasePagination(filteredCount) {
-  const totalPages = purchaseTotalPages(filteredCount);
-  const start = filteredCount ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
-  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, filteredCount);
+function renderPurchasePagination(filteredCount, displayCount = filteredCount) {
+  const totalPages = purchaseTotalPages(displayCount);
+  const start = displayCount ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
+  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, displayCount);
   const pageNumbers = purchasePageNumbers(totalPages);
   const buttons = [];
   let last = 0;
@@ -622,7 +680,7 @@ function renderPurchasePagination(filteredCount) {
     last = page;
   });
   document.getElementById('purchase-pagination').innerHTML = `
-    <span class="purchase-page-info">Showing ${start.toLocaleString()}-${end.toLocaleString()} of ${filteredCount.toLocaleString()} purchases</span>
+    <span class="purchase-page-info">Showing ${start.toLocaleString()}-${end.toLocaleString()} of ${displayCount.toLocaleString()} purchases</span>
     <div class="purchase-page-controls">
       <button class="purchase-page-btn" type="button" ${purchaseCurrentPage === 1 ? 'disabled' : ''} onclick="setPurchasePage(${purchaseCurrentPage - 1})">Prev</button>
       ${buttons.join('')}
@@ -638,20 +696,24 @@ function renderTable() {
   selectedPurchaseIds.forEach(id => {
     if (!existingIds.has(id)) selectedPurchaseIds.delete(id);
   });
-  const totalPages = purchaseTotalPages(rows.length);
+  const aggregate = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals : null;
+  const displayCount = !hasPurchaseNonDateFilters()
+    ? (aggregate?.count ?? rows.length)
+    : rows.length;
+  const totalPages = purchaseTotalPages(displayCount);
   if (purchaseCurrentPage > totalPages) purchaseCurrentPage = totalPages;
   const pageRows = purchasePageRows(rows);
-  const start = rows.length ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
-  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, rows.length);
+  const start = displayCount ? (purchaseCurrentPage - 1) * PURCHASE_ROWS_PER_PAGE + 1 : 0;
+  const end = Math.min(purchaseCurrentPage * PURCHASE_ROWS_PER_PAGE, displayCount);
 
   document.getElementById('purchases-count').textContent =
-    rows.length === allRows.length
-      ? `Showing ${start}-${end} of ${allRows.length} records`
+    !hasPurchaseNonDateFilters()
+      ? `Showing ${start.toLocaleString()}-${end.toLocaleString()} of ${displayCount.toLocaleString()} records`
       : `Showing ${start}-${end} of ${rows.length} filtered records`;
 
   renderPurchaseHeader(pageRows);
   updatePurchaseBulkToolbar(rows, pageRows);
-  renderPurchasePagination(rows.length);
+  renderPurchasePagination(rows.length, displayCount);
 
   const tbody = document.getElementById('purchases-tbody');
   if (!pageRows.length) {
@@ -751,6 +813,7 @@ async function savePurchase() {
   populatePurchasesFilterSuppliers();
   renderTable();
   renderSummary();
+  refreshPurchaseAggregates();
   logAudit(editId ? 'Edit' : 'Create', 'Purchase',
     `${editId ? 'Edited' : 'Added'} purchase from ${supplier} - ${formatPeso(netAmount)} on ${formatDate(date)}`);
 }
@@ -800,6 +863,7 @@ function deletePurchase(id) {
     selectedPurchaseIds.delete(id);
     renderTable();
     renderSummary();
+    refreshPurchaseAggregates();
     logAudit('Delete', 'Purchase', `Deleted purchase from ${p?.supplier || id}`);
   });
 }
@@ -848,6 +912,7 @@ populatePurchasesFilterSuppliers();
   document.getElementById(id).addEventListener('input', () => {
     purchaseCurrentPage = 1;
     renderTable();
+    if (id === 'filter-date-from' || id === 'filter-date-to') refreshPurchaseAggregates();
   });
 });
 document.getElementById('filter-supplier-purchases').addEventListener('change', () => {
@@ -862,6 +927,7 @@ document.getElementById('btn-clear-filters-purchases').addEventListener('click',
   Object.keys(purchaseColumnFilters).forEach(key => delete purchaseColumnFilters[key]);
   purchaseCurrentPage = 1;
   renderTable();
+  refreshPurchaseAggregates();
 });
 
 renderTable();
@@ -874,5 +940,6 @@ Promise.all([
     populatePurchasesFilterSuppliers();
     renderTable();
     renderSummary();
+    refreshPurchaseAggregates();
   })
   .catch(err => console.error('[Purchases] Firestore load failed:', err));

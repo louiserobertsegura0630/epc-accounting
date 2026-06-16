@@ -140,6 +140,45 @@ function showDatabaseConnectionBanner(message) {
   else target.appendChild(banner);
 }
 
+function firestoreIndexUrlFromError(err) {
+  const msg = String(err?.message || err || '');
+  const match = msg.match(/https:\/\/console\.firebase\.google\.com[^\s)]+/);
+  return match ? match[0] : '';
+}
+
+function reportFirestoreAggregateError(err, label = 'aggregate query') {
+  const indexUrl = firestoreIndexUrlFromError(err);
+  if (indexUrl) {
+    console.error(`[Firestore] ${label} needs an index: ${indexUrl}`, err);
+    alert(`Firestore needs an index for this ${label}. Open this link to create it:\n\n${indexUrl}`);
+    return;
+  }
+  console.error(`[Firestore] ${label} failed:`, err);
+}
+
+async function firestoreCount(query, label = 'count') {
+  if (!query || typeof query.count !== 'function') return null;
+  try {
+    const snap = await query.count().get();
+    return Number(snap.data().count || 0);
+  } catch (err) {
+    reportFirestoreAggregateError(err, label);
+    return null;
+  }
+}
+
+async function firestoreSum(query, field, label = 'sum') {
+  const aggregateField = typeof firebase !== 'undefined' ? firebase.firestore?.AggregateField : null;
+  if (!query || typeof query.aggregate !== 'function' || !aggregateField?.sum) return null;
+  try {
+    const snap = await query.aggregate({ value: aggregateField.sum(field) }).get();
+    return Number(snap.data().value || 0);
+  } catch (err) {
+    reportFirestoreAggregateError(err, label);
+    return null;
+  }
+}
+
 // Initialize immediately so any page script can call firebase.auth() /
 // firebase.firestore() directly without going through the lazy helpers first.
 if (typeof firebase !== 'undefined' && !firebase.apps.length) {
@@ -1200,6 +1239,7 @@ class TrackingTable {
     this.quickSearch = '';
     this.page        = 1;
     this.pageSize    = 100;
+    this.remoteTotal = null;
     TrackingTable._reg[cfg.id] = this;
     this._buildHeaders();
     this._bindQuickSearch();
@@ -1207,6 +1247,12 @@ class TrackingTable {
 
   // ─── Public API ─────────────────────────────────────────────────────────────
   setTab(tab) { this.activeTab = tab; this.page = 1; this.render(); }
+
+  setRemoteTotal(total) {
+    const parsed = Number(total);
+    this.remoteTotal = Number.isFinite(parsed) ? parsed : null;
+    this.render();
+  }
 
   setSort(colKey) {
     if (this.sortCol === colKey) {
@@ -1293,11 +1339,14 @@ class TrackingTable {
   _renderPagination(total) {
     const el = document.getElementById(this.cfg.paginationId);
     if (!el) return;
+    const displayTotal = this.remoteTotal != null && this.activeTab === 'all' && !this.hasActive()
+      ? this.remoteTotal
+      : total;
     const { page, pageSize } = this;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    if (total === 0) { el.innerHTML = ''; return; }
+    const totalPages = Math.max(1, Math.ceil(displayTotal / pageSize));
+    if (displayTotal === 0) { el.innerHTML = ''; return; }
     const from = (page - 1) * pageSize + 1;
-    const to   = Math.min(page * pageSize, total);
+    const to   = Math.min(page * pageSize, displayTotal);
     const id   = this.cfg.id;
     const btns = this._pageWindow(page, totalPages).map(n =>
       n === '…'
@@ -1305,7 +1354,7 @@ class TrackingTable {
         : `<button class="page-btn${n === page ? ' active' : ''}" onclick="TrackingTable.get('${id}').setPage(${n})">${n}</button>`
     ).join('');
     el.innerHTML = `
-      <div class="pagination-info">Showing ${from}–${to} of ${total} entries</div>
+      <div class="pagination-info">Showing ${from}–${to} of ${displayTotal.toLocaleString()} entries</div>
       <div class="pagination-controls">
         <button class="page-btn" ${page <= 1 ? 'disabled' : ''} onclick="TrackingTable.get('${id}').setPage(${page - 1})">‹ Prev</button>
         ${btns}
