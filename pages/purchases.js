@@ -308,7 +308,7 @@ function resetForm() {
     document.getElementById(id).value = '';
   });
   document.getElementById('f-date').value = todayISO();
-  document.getElementById('f-ewt-rate').value = '2';
+  document.getElementById('f-ewt-rate').value = '';
   document.getElementById('f-input-vat-creditable').value = 'yes';
   document.getElementById('additions-list').innerHTML = '';
   calcFields();
@@ -764,7 +764,7 @@ function editPurchase(id) {
   document.getElementById('f-total').value       = formatNum(net);
   document.getElementById('f-input-vat').value   = p.inputVAT != null ? formatNum(p.inputVAT) : formatNum(net * 0.12);
   document.getElementById('f-input-vat-creditable').value = p.inputVATCreditable === false ? 'no' : 'yes';
-  document.getElementById('f-ewt-rate').value    = String(p.ewtRate);
+  document.getElementById('f-ewt-rate').value    = p.ewtRate != null && p.ewtRate !== '' ? String(p.ewtRate) : '';
   document.getElementById('f-bad-order').value   = p.badOrder       ? formatNum(p.badOrder)       : '';
   document.getElementById('f-lacking').value     = p.lacking        ? formatNum(p.lacking)        : '';
   document.getElementById('f-returns').value     = p.returns        ? formatNum(p.returns)        : '';
