@@ -96,6 +96,10 @@ let pendingReviewDeleteIds = [];
 let reviewDeleteInProgress = false;
 let salesPageAuthReady = false;
 
+function salesNameLower(value) {
+  return String(value || '').toLowerCase().trim();
+}
+
 function canEditSalesPage() {
   return salesPageAuthReady && typeof canCurrentUserEdit === 'function' && canCurrentUserEdit('pos-import');
 }
@@ -453,6 +457,7 @@ async function saveSalesDetailChanges() {
   button.disabled = true;
   button.textContent = 'Saving...';
   try {
+    values.nameLower = salesNameLower(values.productName);
     await db.collection('salesData').doc(row._id).update(values);
     Object.assign(row, values);
     logAudit('Edit', 'Sales Record',
@@ -553,6 +558,7 @@ async function saveReviewRow(id) {
       date:         row.date,
       itemCode:     row.itemCode,
       productName:  row.productName,
+      nameLower:    salesNameLower(row.productName),
       category:     row.category || 'Uncategorized',
       unitsSold, unitCost: cost, totalCost,
       sellingPrice: row.sellingPrice,
@@ -633,13 +639,28 @@ function mergeRecordResults(snapshots) {
 }
 
 async function searchCollectionRecords(collectionName, term) {
-  const value = String(term || '').trim();
+  const rawValue = String(term || '').trim();
+  const value = rawValue.toLowerCase();
   if (!value) return [];
   const upperBound = value + '\uf8ff';
+  const codeUpperBound = rawValue + '\uf8ff';
   const queries = [
-    db.collection(collectionName).where('itemCode', '==', value).limit(RECORD_SEARCH_LIMIT),
-    db.collection(collectionName).orderBy('productName').startAt(value).endAt(upperBound).limit(RECORD_SEARCH_LIMIT),
+    db.collection(collectionName)
+      .where('nameLower', '>=', value)
+      .where('nameLower', '<=', upperBound)
+      .limit(RECORD_SEARCH_LIMIT),
+    db.collection(collectionName)
+      .where('itemCode', '>=', rawValue)
+      .where('itemCode', '<=', codeUpperBound)
+      .limit(RECORD_SEARCH_LIMIT),
   ];
+  if (rawValue.toUpperCase() !== rawValue) {
+    const upperCode = rawValue.toUpperCase();
+    queries.push(db.collection(collectionName)
+      .where('itemCode', '>=', upperCode)
+      .where('itemCode', '<=', upperCode + '\uf8ff')
+      .limit(RECORD_SEARCH_LIMIT));
+  }
   const snapshots = await Promise.all(queries.map(query => query.get()
     .then(result => {
       if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess(`${collectionName} search`);

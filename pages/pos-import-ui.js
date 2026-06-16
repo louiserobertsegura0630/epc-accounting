@@ -527,6 +527,7 @@ async function saveManualSalesEntryFromModal() {
     filename: 'Manual Entry',
     costMethod
   };
+  doc.nameLower = salesNameLower(doc.productName);
 
   const button = document.getElementById('btn-save-sales-entry');
   button.disabled = true;
@@ -689,7 +690,10 @@ async function runRecordSearch() {
   } catch (err) {
     console.error('[Sales Records] Search failed:', err);
     if (typeof showDatabaseConnectionBanner === 'function') showDatabaseConnectionBanner();
-    showImportMessage('error', 'Search failed. Please check your connection and try again.');
+    const indexUrl = String(err?.message || '').match(/https:\/\/console\.firebase\.google\.com[^\s)]+/)?.[0];
+    showImportMessage('error', indexUrl
+      ? `Search needs a Firestore index. Click the index link in the browser console or open this link: <a href="${indexUrl}" target="_blank" rel="noopener">Create index</a>.`
+      : 'Search failed. Please check your connection and try again.');
   } finally {
     setRecordsLoading(false);
     renderAll();

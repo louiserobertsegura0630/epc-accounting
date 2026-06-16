@@ -339,7 +339,9 @@ function renderSalesPagination(filteredRows) {
 function renderTable(rows) {
   const tbody = document.getElementById('pos-tbody');
   if (!rows.length) {
-    const message = !salesRecordsLoaded
+    const message = salesSearchMode
+      ? `No sales items starting with '${esc(salesSearchTerm)}'.`
+      : !salesRecordsLoaded
       ? 'Choose a date range, then click Show records.'
       : _salesData.length
       ? 'No sales records match your active filters.'
@@ -657,7 +659,7 @@ function renderUnderReview() {
     infoBar.style.display = reviewSearchMode ? '' : 'none';
     if (reviewSearchMode) {
       infoBar.innerHTML = `<strong>Search results for '${esc(reviewSearchTerm)}'.</strong>
-        &nbsp;No matching records found.
+        &nbsp;No items starting with '${esc(reviewSearchTerm)}'.
         <button class="btn btn-outline-gray btn-xs" type="button" onclick="clearRecordSearch('review')">Clear search</button>`;
     }
   }
@@ -671,7 +673,7 @@ function renderUnderReview() {
     const emptyMessage = !reviewRecordsLoaded
       ? 'Open Under Review with a selected date range to load pending items.'
       : reviewSearchMode
-      ? `No Under Review items match '${esc(reviewSearchTerm)}'.`
+      ? `No items starting with '${esc(reviewSearchTerm)}'.`
       : 'No items under review for the selected date range.';
     tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">
       <div class="empty-icon">✅</div>

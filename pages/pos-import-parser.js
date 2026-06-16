@@ -566,6 +566,7 @@ async function autoImportXLS(filename) {
     const prod    = productMap[codeKey];
 
     if (prod) {
+      const productName = prod.productName || r.productName;
       const unitCost     = inventoryUnitCostForCode(inventoryCostMap, codeKey) || productCostForMethod(prod);
       const unitsSold    = r.unitsSold    || 0;
       const totalCost    = unitCost * unitsSold;
@@ -576,7 +577,8 @@ async function autoImportXLS(filename) {
       imported.push({
         date:         r.dateSold,
         itemCode:     r.itemCode,
-        productName:  prod.productName || r.productName,
+        productName,
+        nameLower:    salesNameLower(productName),
         category:     prod.category   || 'Uncategorized',
         unitsSold, unitCost, totalCost, sellingPrice, totalRevenue, grossProfit, margin,
         ...(r.documentNo !== undefined && { documentNo: r.documentNo }),
@@ -591,13 +593,15 @@ async function autoImportXLS(filename) {
         dateRangeEnd:   detectedRangeEnd
       });
     } else {
+      const productName = r.productName;
       const unitsSold    = r.unitsSold    || 0;
       const totalRevenue = r.totalRevenue || 0;
       const sellingPrice = Number(r.sellingPrice ?? r.srpUnit) || (unitsSold > 0 ? totalRevenue / unitsSold : 0);
       toReview.push({
         date:        r.dateSold,
         itemCode:    r.itemCode,
-        productName: r.productName,
+        productName,
+        nameLower:   salesNameLower(productName),
         category:    'Uncategorized',
         unitsSold, sellingPrice, totalRevenue,
         ...(r.documentNo !== undefined && { documentNo: r.documentNo }),
