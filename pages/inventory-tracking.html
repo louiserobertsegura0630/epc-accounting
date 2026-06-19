@@ -27,6 +27,9 @@
         <span class="section-subtitle">Track incoming and outgoing inventory movements.</span>
       </div>
       <div class="page-title-actions">
+        <button class="btn btn-outline-gray" id="btn-rematch-sales-inv" type="button">
+          Re-match Sales
+        </button>
         <button class="btn btn-outline" id="btn-import-mis">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
           Import from MIS
@@ -37,6 +40,12 @@
           Add Entry
         </button>
       </div>
+    </div>
+    <div class="inventory-rematch-progress" id="inventory-sales-rematch-progress" style="display:none">
+      <div class="inventory-rematch-progress-track">
+        <div class="inventory-rematch-progress-fill" id="inventory-sales-rematch-fill"></div>
+      </div>
+      <div class="inventory-rematch-progress-text" id="inventory-sales-rematch-text"></div>
     </div>
 
     <!-- Summary -->

@@ -16,6 +16,8 @@ let potentialFilters = {};
 let inventoryAggregateTotals = null;
 let inventoryLastDocSnapshot = null;
 let inventoryHasMoreRecords = false;
+let inventorySalesRematchRunning = false;
+const INVENTORY_SALES_REMATCH_PAGE_SIZE = 500;
 
 // ─── Virtual Scroll State ─────────────────────────────────────────────────────
 const INV_VS_ROW_H    = 38;
@@ -304,31 +306,110 @@ function applySalesOutgoing(sales) {
   renderSummary();
 }
 
+function setInventorySalesRematchProgress(processed = 0, total = 0, label = 'Re-matching Sales...') {
+  const wrap = document.getElementById('inventory-sales-rematch-progress');
+  const fill = document.getElementById('inventory-sales-rematch-fill');
+  const text = document.getElementById('inventory-sales-rematch-text');
+  if (!wrap || !fill || !text) return;
+  const done = Math.max(0, Number(processed) || 0);
+  const all = Math.max(0, Number(total) || 0);
+  const pct = all > 0 ? Math.min(100, Math.floor(done / all * 100)) : 0;
+  wrap.style.display = '';
+  fill.style.width = `${pct}%`;
+  text.textContent = all > 0
+    ? `${label} ${pct}% (${done.toLocaleString()} / ${all.toLocaleString()})`
+    : `${label} ${done.toLocaleString()} processed`;
+}
+
+function hideInventorySalesRematchProgress() {
+  const wrap = document.getElementById('inventory-sales-rematch-progress');
+  const fill = document.getElementById('inventory-sales-rematch-fill');
+  const text = document.getElementById('inventory-sales-rematch-text');
+  if (fill) fill.style.width = '0%';
+  if (text) text.textContent = '';
+  if (wrap) wrap.style.display = 'none';
+}
+
+async function countInventorySalesRows(db) {
+  const query = db.collection('salesData');
+  if (typeof firestoreCount === 'function') return firestoreCount(query, 'salesData inventory re-match count');
+  if (typeof query.count !== 'function') return null;
+  const snap = await query.count().get();
+  return Number(snap.data().count) || 0;
+}
+
+async function fetchSalesRowsForInventoryRematch(db, total) {
+  const sales = [];
+  let cursor = null;
+  let processed = 0;
+  while (true) {
+    let query = db.collection('salesData')
+      .orderBy(firebase.firestore.FieldPath.documentId())
+      .limit(INVENTORY_SALES_REMATCH_PAGE_SIZE);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    snap.docs.forEach(doc => sales.push({ _firestoreId: doc.id, ...doc.data() }));
+    processed += snap.docs.length;
+    setInventorySalesRematchProgress(processed, total, 'Re-matching Sales...');
+    if (snap.docs.length < INVENTORY_SALES_REMATCH_PAGE_SIZE) break;
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+  return sales;
+}
+
+async function rematchInventoryAgainstSales({ silent = false } = {}) {
+  const db = getFirestoreDB();
+  const btn = document.getElementById('btn-rematch-sales-inv');
+  if (inventorySalesRematchRunning) return;
+  inventorySalesRematchRunning = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Re-matching...';
+  }
+
+  try {
+    if (!db) {
+      const localSales = DB.get('pos_sales');
+      setInventorySalesRematchProgress(localSales.length, localSales.length, 'Re-matching Sales...');
+      applySalesOutgoing(localSales);
+      if (!silent) showToast(`Re-matched ${localSales.length.toLocaleString()} sales rows against inventory item codes.`, 'success');
+      return;
+    }
+
+    const total = await countInventorySalesRows(db);
+    setInventorySalesRematchProgress(0, total, 'Re-matching Sales...');
+    const sales = await fetchSalesRowsForInventoryRematch(db, total);
+    const derived = sales.map(saleToOutgoingRow).filter(Boolean);
+    console.info(`[Inventory] salesData re-match: ${sales.length} sales docs -> ${derived.length} outgoing rows.`);
+    applySalesOutgoing(sales);
+    if (!silent) {
+      showToast(
+        `Re-matched ${sales.length.toLocaleString()} sales row${sales.length === 1 ? '' : 's'} against inventory item codes.`,
+        'success'
+      );
+    }
+  } catch (err) {
+    console.error('[Inventory] salesData re-match failed:', err);
+    const indexUrl = typeof firestoreIndexUrlFromError === 'function' ? firestoreIndexUrlFromError(err) : '';
+    if (indexUrl) {
+      alert(`Firestore needs an index for this inventory/sales re-match. Open this link to create it:\n\n${indexUrl}`);
+    } else if (!silent) {
+      alert(`Could not re-match inventory against Sales: ${err.message || err}`);
+    }
+  } finally {
+    inventorySalesRematchRunning = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Re-match Sales';
+    }
+    setTimeout(hideInventorySalesRematchProgress, 900);
+  }
+}
+
 // Live source of truth: the Sales page writes to the 'salesData' collection.
 // Each POS sale becomes a read-only Outgoing movement here.
 function watchSalesOutgoing() {
-  const db = getFirestoreDB();
-  if (!db) {
-    applySalesOutgoing(DB.get('pos_sales'));
-    return;
-  }
-  const handle = (snap, source) => {
-    const sales = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
-    const derived = sales.map(saleToOutgoingRow).filter(Boolean);
-    console.info(`[Inventory] salesData (${source}): ${sales.length} sales docs → ${derived.length} outgoing rows.`,
-      sales.length && !derived.length ? sales[0] : '');
-    applySalesOutgoing(sales);
-  };
-  // Immediate one-time fetch — populates Outgoing right away even if the
-  // realtime listener is delayed or the tab was opened before the import.
-  db.collection('salesData').get()
-    .then(snap => handle(snap, 'get'))
-    .catch(err => console.error('[Inventory] salesData get() failed:', err));
-  // Live updates for every subsequent sale recorded on the Sales page.
-  db.collection('salesData').onSnapshot(
-    snap => handle(snap, 'live'),
-    err => console.error('[Inventory] salesData listener failed:', err)
-  );
+  rematchInventoryAgainstSales({ silent: true });
 }
 
 function outgoingProductCost(product) {
@@ -1572,6 +1653,7 @@ document.getElementById('inv-product-search-results').addEventListener('click', 
   const result = event.target.closest('[data-item-code]');
   if (result) selectOutgoingProduct(result.dataset.itemCode);
 });
+document.getElementById('btn-rematch-sales-inv').addEventListener('click', () => rematchInventoryAgainstSales({ silent: false }));
 document.getElementById('btn-export-inv').addEventListener('click', exportInventoryCSV);
 document.getElementById('btn-save-inv').addEventListener('click', saveInv);
 document.getElementById('btn-make-outgoing').addEventListener('click', openMakeOutgoingModal);
