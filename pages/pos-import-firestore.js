@@ -629,9 +629,23 @@ function buildRangeCountQuery(collectionName) {
     .where('date', '<=', salesRangeEnd);
 }
 
+function buildDateRangeCountQuery(collectionName, start, end) {
+  return db.collection(collectionName)
+    .where('date', '>=', start)
+    .where('date', '<=', end);
+}
+
 async function countRangeRecords(collectionName) {
   const query = buildRangeCountQuery(collectionName);
   if (typeof firestoreCount === 'function') return firestoreCount(query, `${collectionName} count`);
+  if (typeof query.count !== 'function') return null;
+  const snap = await query.count().get();
+  return Number(snap.data().count) || 0;
+}
+
+async function countRecordsForDateRange(collectionName, start, end) {
+  const query = buildDateRangeCountQuery(collectionName, start, end);
+  if (typeof firestoreCount === 'function') return firestoreCount(query, `${collectionName} export count`);
   if (typeof query.count !== 'function') return null;
   const snap = await query.count().get();
   return Number(snap.data().count) || 0;

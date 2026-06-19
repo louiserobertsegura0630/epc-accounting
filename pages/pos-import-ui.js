@@ -1,26 +1,95 @@
+// ─── Shared long-operation progress ───────────────────────────────────────────
+const salesLongProgress = (() => {
+  const el = document.getElementById('sales-long-progress');
+  const fill = el?.querySelector('[data-progress-fill]');
+  const text = el?.querySelector('[data-progress-text]');
+  const defaultHost = document.getElementById('sales-long-progress-home');
+
+  function mount(host) {
+    if (!el) return;
+    (host || defaultHost || el.parentElement)?.appendChild(el);
+  }
+
+  function show(label, processed = 0, total = 0, host = null) {
+    mount(host);
+    update(label, processed, total);
+    if (el) el.style.display = '';
+  }
+
+  function update(label, processed = 0, total = 0) {
+    if (!el || !fill || !text) return;
+    const safeProcessed = Math.max(0, Number(processed) || 0);
+    const safeTotal = Math.max(0, Number(total) || 0);
+    const percent = safeTotal > 0 ? Math.min(100, Math.floor((safeProcessed / safeTotal) * 100)) : 0;
+    fill.style.width = `${percent}%`;
+    text.textContent = safeTotal > 0
+      ? `${label} ${percent}% (${safeProcessed.toLocaleString()} / ${safeTotal.toLocaleString()})`
+      : `${label} ${safeProcessed.toLocaleString()} processed`;
+  }
+
+  function hide() {
+    if (!el || !fill || !text) return;
+    fill.style.width = '0%';
+    text.textContent = '';
+    el.style.display = 'none';
+    mount(defaultHost);
+  }
+
+  return { show, update, hide };
+})();
+
+async function trueRangeCount(collectionName, start, end, fallback = null) {
+  const cached = Number(fallback);
+  const cachedMatchesSelectedRange = start === salesRangeStart && end === salesRangeEnd;
+  if (cachedMatchesSelectedRange && Number.isFinite(cached) && cached >= 0) return cached;
+  if (typeof countRecordsForDateRange === 'function') {
+    return countRecordsForDateRange(collectionName, start, end);
+  }
+  return fallback;
+}
+
 // ─── Re-match Under Review ────────────────────────────────────────────────────
 document.getElementById('btn-rematch-now').addEventListener('click', async function () {
   if (!requireSalesEditAccess()) return;
+  const range = validateSelectedRecordRange();
+  if (!range) return;
   const btn    = this;
   const result = document.getElementById('rematch-result');
+  const progressHost = document.getElementById('rematch-progress-host');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Matching…';
   result.textContent = '';
   result.className   = '';
   try {
-    const { moved } = await rematchUnderReview();
+    const total = await trueRangeCount('underReviewData', range.start, range.end, reviewTotalRecords);
+    salesRangeStart = range.start;
+    salesRangeEnd = range.end;
+    salesLongProgress.show('Re-matching...', 0, total, progressHost);
+    const { processed, moved } = await rematchUnderReview({
+      start: range.start,
+      end: range.end,
+      total,
+      onProgress: ({ processed: done, total: denominator }) => {
+        salesLongProgress.update('Re-matching...', done, denominator);
+      }
+    });
     if (moved > 0) {
-      result.textContent = `✅ ${moved} item${moved > 1 ? 's' : ''} moved to Sales Data`;
+      result.textContent = `Done. Re-matched ${processed.toLocaleString()} item${processed !== 1 ? 's' : ''}, ${moved.toLocaleString()} moved to Sales Data.`;
       result.className   = 'ok';
     } else {
-      result.textContent = 'No new matches found';
+      result.textContent = `Done. Re-matched ${processed.toLocaleString()} item${processed !== 1 ? 's' : ''}; no new matches found.`;
       result.className   = '';
     }
   } catch (err) {
     console.error('[Rematch] Error:', err);
-    result.textContent = 'Rematching failed. Please review the console for details.';
+    const progressText = document.querySelector('#sales-long-progress [data-progress-text]')?.textContent || '0%';
+    const indexUrl = typeof firestoreIndexUrlFromError === 'function' ? firestoreIndexUrlFromError(err) : '';
+    result.innerHTML = indexUrl
+      ? `Re-matching failed after ${progressText}. <a href="${indexUrl}" target="_blank" rel="noopener">Create the required Firestore index</a>. Already committed batches were kept.`
+      : `Re-matching failed after ${progressText}: ${err.message || err}. Already committed batches were kept.`;
     result.className   = 'err';
   } finally {
+    salesLongProgress.hide();
     btn.disabled = false;
     btn.textContent = '🔄 Re-match with Product Master';
   }
@@ -473,6 +542,7 @@ function triggerCSVDownload(csv, filename) {
 function openExportChooser() {
   const range = validateSelectedRecordRange();
   if (!range) return;
+  salesLongProgress.hide();
   document.getElementById('export-chooser-progress').textContent = '';
   document.getElementById('btn-export-chooser-go').disabled = false;
   document.getElementById('btn-export-chooser-go').textContent = 'Export';
@@ -493,17 +563,18 @@ async function runExportFromChooser() {
   exportBtn.disabled = true;
 
   const doExport = async (label, colDef, fetchFn, fileSlug) => {
-    const total = label === 'Sales Data' ? salesTotalRecords : reviewTotalRecords;
-    const totalStr = total != null ? ` / ${total.toLocaleString()}` : '';
-    prog.textContent = `Exporting ${label}… 0${totalStr}`;
+    const isSales = label === 'Sales Data';
+    const total = await trueRangeCount(isSales ? 'salesData' : 'underReviewData', start, end, isSales ? salesTotalRecords : reviewTotalRecords);
+    salesLongProgress.show(`Exporting ${label}...`, 0, total, prog);
     goBtn.textContent = `Exporting…`;
 
     const onProgress = n => {
-      prog.textContent = `Exporting ${label}… ${n.toLocaleString()}${totalStr}`;
+      salesLongProgress.update(`Exporting ${label}...`, n, total);
     };
 
     const rows = await fetchFn(start, end, onProgress);
     if (!rows || !rows.length) {
+      salesLongProgress.hide();
       prog.textContent = `No records found for ${label} in this date range.`;
       return false;
     }
@@ -521,12 +592,17 @@ async function runExportFromChooser() {
       if (choice === 'review' && n === false) return;
     }
     const totalExported = choice === 'both' ? 'both files' : 'done';
-    prog.textContent = `✅ Export complete (${totalExported})`;
+    salesLongProgress.hide();
+    prog.textContent = `Export complete (${totalExported})`;
     goBtn.textContent = 'Done';
     setTimeout(() => closeModal('modal-export-chooser'), 1200);
   } catch (err) {
     console.error('[Export] CSV export failed:', err);
-    prog.textContent = `Export failed: ${err.message}`;
+    salesLongProgress.hide();
+    const indexUrl = typeof firestoreIndexUrlFromError === 'function' ? firestoreIndexUrlFromError(err) : '';
+    prog.innerHTML = indexUrl
+      ? `Export failed. <a href="${indexUrl}" target="_blank" rel="noopener">Create the required Firestore index</a>.`
+      : `Export failed: ${err.message}`;
     goBtn.disabled = false;
     goBtn.textContent = 'Retry';
   } finally {
