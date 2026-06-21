@@ -37,7 +37,8 @@ let salesRecordsLoaded = false;
 let salesRecordsLoading = false;
 let salesTotalRecords = null;
 let salesTotalRevenue = null;
-let salesAggregateTotals = null;
+let salesSummaryTotals = null;
+let salesSummaryRunId = 0;
 let salesSearchMode = false;
 let salesSearchTerm = '';
 let reviewBrowseData = [];
@@ -47,7 +48,6 @@ let reviewRecordsLoaded = false;
 let reviewRecordsLoading = false;
 let reviewTotalRecords = null;
 let reviewTotalRevenue = null;
-let reviewAggregateTotals = null;
 let reviewSearchMode = false;
 let reviewSearchTerm = '';
 let inventoryUnitCostCache = Object.create(null);
@@ -357,6 +357,181 @@ async function loadProductMasterMap() {
     map[rawCode.toUpperCase()]   = entry; // uppercase key
   });
   return map;
+}
+
+function cloneSalesFilterState(filterState = salesFilters) {
+  return JSON.parse(JSON.stringify(filterState || {}));
+}
+
+function monthDateBounds(month) {
+  if (!/^\d{4}-\d{2}$/.test(String(month || ''))) return null;
+  const [year, monthNum] = month.split('-').map(Number);
+  const lastDay = new Date(year, monthNum, 0).getDate();
+  return {
+    start: `${year}-${String(monthNum).padStart(2, '0')}-01`,
+    end: `${year}-${String(monthNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+  };
+}
+
+function salesSummaryDateRange(filterState = salesFilters) {
+  if (!salesRangeStart || !salesRangeEnd) return null;
+  const columns = filterState?.columns || {};
+  let start = salesRangeStart;
+  let end = salesRangeEnd;
+  const monthBounds = monthDateBounds(filterState?.month);
+  if (monthBounds) {
+    start = start > monthBounds.start ? start : monthBounds.start;
+    end = end < monthBounds.end ? end : monthBounds.end;
+  }
+  if (columns.date?.from) start = start > columns.date.from ? start : columns.date.from;
+  if (columns.date?.to) end = end < columns.date.to ? end : columns.date.to;
+  return start <= end ? { start, end } : null;
+}
+
+function salesSummaryBaseQuery(collectionName, range) {
+  return db.collection(collectionName)
+    .where('date', '>=', range.start)
+    .where('date', '<=', range.end)
+    .orderBy('date');
+}
+
+async function countSummaryQuery(collectionName, range) {
+  const query = db.collection(collectionName)
+    .where('date', '>=', range.start)
+    .where('date', '<=', range.end);
+  if (typeof query.count === 'function') {
+    const snap = await query.count().get();
+    return Number(snap.data().count) || 0;
+  }
+  if (typeof firestoreCount === 'function') return firestoreCount(query, `${collectionName} summary count`);
+  return null;
+}
+
+function costedSalesSummaryRow(row, productMap, inventoryCostMap) {
+  const codeKey = String(row.itemCode || '').trim();
+  const product = productMap[codeKey] || productMap[codeKey.toUpperCase()];
+  const unitsSold = Number(row.unitsSold) || 0;
+  const totalRevenue = Number(row.totalRevenue) || 0;
+  const sellingPrice = Number(row.sellingPrice ?? row.srpUnit ?? row.srp) ||
+    (unitsSold > 0 ? totalRevenue / unitsSold : 0);
+  const unitCost = inventoryUnitCostForCode(inventoryCostMap, codeKey) ||
+    (product ? productCostForMethod(product) : (Number(row.unitCost) || 0));
+  const totalCost = unitCost * unitsSold;
+  const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });
+  return {
+    ...row,
+    unitsSold,
+    totalRevenue,
+    sellingPrice,
+    unitCost,
+    totalCost,
+    grossProfit,
+    margin: salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost, totalCost, sellingPrice, totalRevenue })
+  };
+}
+
+function applySalesSummaryTotals(totals) {
+  salesSummaryTotals = totals || (typeof emptySalesSummaryTotals === 'function'
+    ? emptySalesSummaryTotals()
+    : {
+      grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0,
+      totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0
+    });
+  if (typeof updateSummaryCards === 'function') updateSummaryCards();
+}
+
+async function computeSummaryTotals(filterState = salesFilters, options = {}) {
+  const runId = ++salesSummaryRunId;
+  const filters = cloneSalesFilterState(filterState);
+  const range = salesSummaryDateRange(filters);
+  const progress = typeof salesLongProgress !== 'undefined' ? salesLongProgress : null;
+  const label = options.label || 'Computing Sales summary...';
+  if (!range) {
+    applySalesSummaryTotals(null);
+    return salesSummaryTotals;
+  }
+
+  applySalesSummaryTotals(null);
+
+  let salesCount = null;
+  let reviewCount = null;
+  try {
+    [salesCount, reviewCount] = await Promise.all([
+      countSummaryQuery('salesData', range),
+      countSummaryQuery('underReviewData', range)
+    ]);
+  } catch (err) {
+    console.warn('[Sales Summary] Count failed; continuing without denominator:', err);
+  }
+
+  const totalForProgress = (Number(salesCount) || 0) + (Number(reviewCount) || 0);
+  if (progress) progress.show(label, 0, totalForProgress);
+
+  const [productMap, inventoryCostMap] = await Promise.all([
+    loadProductMasterMap(),
+    loadInventoryUnitCostMap()
+  ]);
+
+  const totals = typeof emptySalesSummaryTotals === 'function'
+    ? emptySalesSummaryTotals()
+    : { grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0, totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0 };
+  let processed = 0;
+  let cursor = null;
+
+  while (true) {
+    let query = salesSummaryBaseQuery('salesData', range).limit(VS_PAGE_SIZE);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (!snap.docs.length) break;
+    snap.docs.forEach(doc => {
+      const row = costedSalesSummaryRow({ _id: doc.id, ...doc.data() }, productMap, inventoryCostMap);
+      if (!rowMatchesFilters(row, filters)) return;
+      const grossRevenue = posGrossRevenue(row);
+      const netRevenue = posNetRevenue(row);
+      totals.grossRevenue += grossRevenue;
+      totals.netRevenue += netRevenue;
+      totals.revenue += netRevenue;
+      totals.srpwdDiscounts += posSrpwdDiscount(row);
+      totals.cogs += Number(row.totalCost) || 0;
+      totals.profit += grossRevenue - (Number(row.totalCost) || 0);
+      totals.unitsSold += Number(row.unitsSold) || 0;
+      totals.count += 1;
+    });
+    processed += snap.docs.length;
+    if (progress) progress.update(label, processed, totalForProgress);
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.docs.length < VS_PAGE_SIZE) break;
+    if (runId !== salesSummaryRunId) return null;
+  }
+
+  cursor = null;
+  while (true) {
+    let query = salesSummaryBaseQuery('underReviewData', range).limit(VS_PAGE_SIZE);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (!snap.docs.length) break;
+    snap.docs.forEach(doc => {
+      totals.pendingRevenue += Number(doc.data().totalRevenue) || 0;
+    });
+    processed += snap.docs.length;
+    if (progress) progress.update(label, processed, totalForProgress);
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.docs.length < VS_PAGE_SIZE) break;
+    if (runId !== salesSummaryRunId) return null;
+  }
+
+  totals.totalDiscounts = Math.max(0, totals.grossRevenue - totals.netRevenue);
+  totals.discounts = Math.max(0, totals.totalDiscounts - totals.srpwdDiscounts);
+  if (runId === salesSummaryRunId) {
+    applySalesSummaryTotals(totals);
+    if (progress) {
+      progress.update(label, totalForProgress || processed, totalForProgress || processed);
+      setTimeout(() => {
+        if (runId === salesSummaryRunId) progress.hide();
+      }, 500);
+    }
+  }
+  return totals;
 }
 
 // Write an array of plain-object docs to a Firestore collection in batches of 499.
@@ -735,8 +910,6 @@ async function loadSalesData({ append = false } = {}) {
   const [aggregates, snap] = await Promise.all([aggregatePromise, snapPromise]);
   if (aggregates) {
     const [salesAggregate, reviewAggregate] = aggregates;
-    salesAggregateTotals = salesAggregate;
-    reviewAggregateTotals = reviewAggregate;
     salesTotalRecords = salesAggregate.count;
     salesTotalRevenue = salesAggregate.totalRevenue;
     reviewTotalRecords = reviewAggregate.count;
@@ -770,7 +943,6 @@ async function loadUnderReview({ append = false } = {}) {
     });
   const [aggregate, snap] = await Promise.all([aggregatePromise, snapPromise]);
   if (aggregate) {
-    reviewAggregateTotals = aggregate;
     reviewTotalRecords = aggregate.count;
     reviewTotalRevenue = aggregate.totalRevenue;
   }

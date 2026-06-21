@@ -48,6 +48,21 @@ async function trueRangeCount(collectionName, start, end, fallback = null) {
   return fallback;
 }
 
+function triggerSalesSummaryRecompute(label = 'Computing Sales summary...') {
+  if (!salesRangeStart || !salesRangeEnd || typeof computeSummaryTotals !== 'function') {
+    salesSummaryTotals = null;
+    updateSummaryCards();
+    return Promise.resolve(null);
+  }
+  return computeSummaryTotals(salesFilters, { label })
+    .catch(err => {
+      console.error('[Sales Summary] Full-range recompute failed:', err);
+      salesLongProgress.hide();
+      showImportMessage('error', `Could not compute the full Sales summary: ${err.message || err}`);
+      return null;
+    });
+}
+
 // ─── Re-match Under Review ────────────────────────────────────────────────────
 document.getElementById('btn-rematch-now').addEventListener('click', async function () {
   if (!requireSalesEditAccess()) return;
@@ -778,7 +793,7 @@ async function loadSelectedRecords(append = false) {
       salesRecordsLoaded = false;
       salesTotalRecords = null;
       salesTotalRevenue = null;
-      salesAggregateTotals = null;
+      salesSummaryTotals = null;
       salesBrowseData = [];
       salesSearchMode = false;
       salesSearchTerm = '';
@@ -789,7 +804,6 @@ async function loadSelectedRecords(append = false) {
       reviewRecordsLoaded = false;
       reviewTotalRecords = null;
       reviewTotalRevenue = null;
-      reviewAggregateTotals = null;
       reviewBrowseData = [];
       reviewSearchMode = false;
       reviewSearchTerm = '';
@@ -802,7 +816,7 @@ async function loadSelectedRecords(append = false) {
       salesRecordsLoaded = false;
       salesTotalRecords = null;
       salesTotalRevenue = null;
-      salesAggregateTotals = null;
+      salesSummaryTotals = null;
       salesBrowseData = [];
       salesSearchMode = false;
       salesSearchTerm = '';
@@ -814,7 +828,6 @@ async function loadSelectedRecords(append = false) {
       reviewRecordsLoaded = false;
       reviewTotalRecords = null;
       reviewTotalRevenue = null;
-      reviewAggregateTotals = null;
       reviewBrowseData = [];
       reviewSearchMode = false;
       reviewSearchTerm = '';
@@ -851,6 +864,7 @@ async function loadSelectedRecords(append = false) {
     setRecordsLoading(false);
     renderAll();
     updateRecordsQueryControls();
+    if (!append) triggerSalesSummaryRecompute();
   }
 }
 
@@ -884,6 +898,7 @@ async function runRecordSearch() {
     setRecordsLoading(false);
     renderAll();
     updateRecordsQueryControls();
+    if (isSales) triggerSalesSummaryRecompute('Computing Sales summary...');
   }
 }
 
@@ -962,6 +977,7 @@ document.getElementById('btn-apply-margin-thresholds').addEventListener('click',
   localStorage.setItem('marginLowThreshold', String(low));
   logAudit('Settings', 'Sales Margin Thresholds', `Updated margin thresholds - high ${high}%, low ${low}%`);
   renderAll();
+  triggerSalesSummaryRecompute();
 });
 document.getElementById('pos-tbody').addEventListener('click', event => {
   if (event.target.closest('input, button, a, select')) return;
@@ -991,7 +1007,7 @@ document.querySelectorAll('input[name="cost-method"]').forEach(input => {
     costMethod = this.value;
     localStorage.setItem('costMethod', costMethod);
     logAudit('Settings', 'Sales COGS Method', `Changed COGS method to ${costMethod === 'average' ? 'Average Price' : 'Latest Price'}`);
-    recomputeAllSalesCOGS();
+    recomputeAllSalesCOGS().finally(() => triggerSalesSummaryRecompute('Computing Sales summary...'));
   });
 });
 document.getElementById('review-search').addEventListener('keydown', function(e) {

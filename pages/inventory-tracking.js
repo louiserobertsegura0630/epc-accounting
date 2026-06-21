@@ -1668,7 +1668,7 @@ document.getElementById('inv-product-search-results').addEventListener('click', 
   const result = event.target.closest('[data-item-code]');
   if (result) selectOutgoingProduct(result.dataset.itemCode);
 });
-document.getElementById('btn-rematch-sales-inv').addEventListener('click', () => rematchInventoryAgainstSales({ silent: false }));
+document.getElementById('btn-rematch-sales-inv')?.addEventListener('click', () => rematchInventoryAgainstSales({ silent: false }));
 document.getElementById('btn-export-inv').addEventListener('click', exportInventoryCSV);
 document.getElementById('btn-save-inv').addEventListener('click', saveInv);
 document.getElementById('btn-make-outgoing').addEventListener('click', openMakeOutgoingModal);
@@ -2692,7 +2692,6 @@ Promise.all([
     renderSummary();
     refreshInventoryAggregates();
     watchInventoryProductMaster();
-    watchSalesOutgoing();
   })
   .catch(err => console.error('[Inventory] Firestore load failed:', err));
 

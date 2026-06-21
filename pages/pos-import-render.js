@@ -24,54 +24,26 @@ function populateMonthFilter() {
 }
 
 // ─── Render: Summary Cards ────────────────────────────────────────────────────
-function salesSummaryHasClientFilters() {
-  if (salesSearchMode) return true;
-  if (!salesFilters) return false;
-  const columns = salesFilters.columns || {};
-  const hasColumnFilter = Object.values(columns).some(value => {
-    if (value == null) return false;
-    if (typeof value === 'object') {
-      return Object.values(value).some(part => String(part ?? '').trim() !== '');
-    }
-    return String(value).trim() !== '';
-  });
-  return !!(
-    String(salesFilters.query || '').trim() ||
-    salesFilters.month ||
-    salesFilters.toolbarFlag ||
-    hasColumnFilter
-  );
-}
-
-function salesTotalsFromAggregate(aggregate) {
-  if (!aggregate) return null;
-  const netRevenue = Number(aggregate.totalRevenue) || 0;
-  const srpwdDiscounts = Number(aggregate.srpwdDiscount) || 0;
-  const discounts = Number(aggregate.discount) || 0;
-  const grossRevenue = netRevenue + discounts;
-  const cogs = Number(aggregate.totalCost) || 0;
+function emptySalesSummaryTotals() {
   return {
-    grossRevenue,
-    netRevenue,
-    revenue: netRevenue,
-    discounts: Math.max(0, discounts - srpwdDiscounts),
-    srpwdDiscounts,
-    totalDiscounts: discounts,
-    cogs,
-    profit: grossRevenue - cogs,
-    unitsSold: Number(aggregate.unitsSold) || 0
+    grossRevenue: 0,
+    netRevenue: 0,
+    revenue: 0,
+    discounts: 0,
+    srpwdDiscounts: 0,
+    totalDiscounts: 0,
+    cogs: 0,
+    profit: 0,
+    unitsSold: 0,
+    count: 0,
+    pendingRevenue: 0
   };
 }
 
-function renderSummary(rows) {
-  const aggregateTotals = !salesSummaryHasClientFilters()
-    ? salesTotalsFromAggregate(salesAggregateTotals)
-    : null;
-  const tot            = aggregateTotals || getPOSTotals(rows);
+function renderSummary() {
+  const tot            = salesSummaryTotals || emptySalesSummaryTotals();
   const avgMargin      = tot.cogs > 0 ? ((tot.grossRevenue - tot.cogs) / tot.cogs * 100).toFixed(4) : '0.0000';
-  const pendingRevenue = !salesSummaryHasClientFilters() && reviewAggregateTotals
-    ? Number(reviewAggregateTotals.totalRevenue) || 0
-    : _reviewData.reduce((s, r) => s + (r.totalRevenue || 0), 0);
+  const pendingRevenue = Number(tot.pendingRevenue) || 0;
   const pendingCard    = `<div class="summary-card" style="border-color:#f59e0b">
         <div class="kpi-label" style="color:#d97706">Pending Revenue</div>
         <div class="kpi-value pending-revenue-value" style="color:#d97706">${formatPeso(pendingRevenue)}</div>
@@ -88,8 +60,8 @@ function renderSummary(rows) {
     `COGS computed using: ${costMethod === 'average' ? 'Average Price' : 'Latest Price'}${salesRangeStart && salesRangeEnd ? ` for ${formatDate(salesRangeStart)}–${formatDate(salesRangeEnd)}` : ''}`;
 }
 
-function updateSummaryCards(rows) {
-  renderSummary(rows);
+function updateSummaryCards() {
+  renderSummary();
 }
 
 // ─── Render: Sales Data Table ─────────────────────────────────────────────────
@@ -169,6 +141,30 @@ function matchesSalesRange(value, range) {
   return true;
 }
 
+function rowMatchesFilters(row, filterState = salesFilters) {
+  const filters = filterState || freshSalesFilterDefaults();
+  const columns = filters.columns || {};
+  const query = String(filters.query || '').toLowerCase().trim();
+  return (!filters.month || row.date?.startsWith(filters.month)) &&
+    (!query || [row.itemCode, row.productName, row.category]
+      .some(value => String(value || '').toLowerCase().includes(query))) &&
+    (!columns.date?.from || String(row.date || '') >= columns.date.from) &&
+    (!columns.date?.to || String(row.date || '') <= columns.date.to) &&
+    (!columns.itemCode || String(row.itemCode || '').toLowerCase().includes(String(columns.itemCode).toLowerCase())) &&
+    (!columns.productName || String(row.productName || '').toLowerCase().includes(String(columns.productName).toLowerCase())) &&
+    (!columns.category || String(row.category || '') === columns.category) &&
+    matchesSalesRange(row.unitsSold, columns.unitsSold) &&
+    matchesSalesRange(row.discount, columns.discount) &&
+    matchesSalesRange(row.srpwdDiscount, columns.srpwdDiscount) &&
+    matchesSalesRange(row.sellingPrice, columns.sellingPrice) &&
+    matchesSalesRange(row.totalRevenue, columns.totalRevenue) &&
+    matchesSalesRange(row.unitCost, columns.unitCost) &&
+    matchesSalesRange(row.grossProfit, columns.grossProfit) &&
+    matchesSalesRange(row.margin, columns.margin) &&
+    matchesSalesFlagFilter(row, columns.flag) &&
+    matchesSalesFlagFilter(row, filters.toolbarFlag);
+}
+
 function salesSortValue(row, key) {
   if (key === 'flag') return salesFlagType(row);
   if (['unitsSold','discount','srpwdDiscount','sellingPrice','totalRevenue','unitCost','grossProfit','margin'].includes(key)) {
@@ -178,27 +174,8 @@ function salesSortValue(row, key) {
 }
 
 function getFilteredSalesRows() {
-  const { columns } = salesFilters;
-  const query = salesFilters.query.toLowerCase().trim();
   return [..._salesData]
-    .filter(row => !salesFilters.month || row.date?.startsWith(salesFilters.month))
-    .filter(row => !query || [row.itemCode, row.productName, row.category]
-      .some(value => String(value || '').toLowerCase().includes(query)))
-    .filter(row => !columns.date.from || String(row.date || '') >= columns.date.from)
-    .filter(row => !columns.date.to || String(row.date || '') <= columns.date.to)
-    .filter(row => !columns.itemCode || String(row.itemCode || '').toLowerCase().includes(columns.itemCode.toLowerCase()))
-    .filter(row => !columns.productName || String(row.productName || '').toLowerCase().includes(columns.productName.toLowerCase()))
-    .filter(row => !columns.category || String(row.category || '') === columns.category)
-    .filter(row => matchesSalesRange(row.unitsSold, columns.unitsSold))
-    .filter(row => matchesSalesRange(row.discount, columns.discount))
-    .filter(row => matchesSalesRange(row.srpwdDiscount, columns.srpwdDiscount))
-    .filter(row => matchesSalesRange(row.sellingPrice, columns.sellingPrice))
-    .filter(row => matchesSalesRange(row.totalRevenue, columns.totalRevenue))
-    .filter(row => matchesSalesRange(row.unitCost, columns.unitCost))
-    .filter(row => matchesSalesRange(row.grossProfit, columns.grossProfit))
-    .filter(row => matchesSalesRange(row.margin, columns.margin))
-    .filter(row => matchesSalesFlagFilter(row, columns.flag))
-    .filter(row => matchesSalesFlagFilter(row, salesFilters.toolbarFlag))
+    .filter(row => rowMatchesFilters(row, salesFilters))
     .sort((a, b) => {
       const aValue = salesSortValue(a, salesFilters.sortKey);
       const bValue = salesSortValue(b, salesFilters.sortKey);
@@ -259,10 +236,11 @@ function renderSalesFilterRow() {
     </select></th>`;
 }
 
-function resetSalesPageAndRender() {
+function resetSalesPageAndRender({ recomputeSummary = true } = {}) {
   salesPage = 1;
   saveSalesDataFilters();
   renderAll();
+  if (recomputeSummary && typeof triggerSalesSummaryRecompute === 'function') triggerSalesSummaryRecompute();
 }
 
 function setSalesColumnFilter(key, value) {
@@ -287,7 +265,7 @@ function setSalesSort(key) {
     salesFilters.sortKey = key;
     salesFilters.sortDir = key === 'date' ? 'desc' : 'asc';
   }
-  resetSalesPageAndRender();
+  resetSalesPageAndRender({ recomputeSummary: false });
 }
 
 function activeSalesFilterCount() {
@@ -476,7 +454,7 @@ function renderAll() {
   populateMonthFilter();
   refreshSalesFilterUI();
   const rows = applyFiltersAndSort();
-  updateSummaryCards(rows);
+  updateSummaryCards();
   renderFlagBanner();
   renderSalesData(rows);
   renderUnderReview();
