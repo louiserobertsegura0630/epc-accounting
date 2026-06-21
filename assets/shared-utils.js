@@ -145,6 +145,7 @@ async function rematchUnderReview(options = {}) {
   let cursor = null;
   let processed = 0;
   let moved = 0;
+  let matched = 0;
 
   while (true) {
     const snap = await withPageRetry('page read', async () => {
@@ -208,27 +209,16 @@ async function rematchUnderReview(options = {}) {
 
         if (opsInBatch > 0) await batch.commit();
       });
+      matched += toMove.length;
       moved += toMove.length;
     }
 
     processed += pageDocs.length;
-    if (onProgress) onProgress({ processed, total, moved });
+    if (onProgress) onProgress({ processed, total, matched, moved });
     cursor = pageDocs[pageDocs.length - 1];
     if (pageDocs.length < pageSize) break;
     await _sleep(150);
   }
 
-  // 4. If we're on the Sales page, reload caches and re-render.
-  if (typeof loadSalesData === 'function' && typeof _salesData !== 'undefined') {
-    try {
-      _salesData  = await loadSalesData({ append: false });
-      _reviewData = await loadUnderReview({ append: false });
-      if (typeof renderAll === 'function') renderAll();
-      if (typeof updateRecordsQueryControls === 'function') updateRecordsQueryControls();
-    } catch (err) {
-      console.error('[rematchUnderReview] POS UI refresh failed:', err);
-    }
-  }
-
-  return { processed, moved, total };
+  return { processed, matched, moved, total };
 }

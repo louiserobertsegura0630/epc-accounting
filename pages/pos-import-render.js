@@ -24,10 +24,54 @@ function populateMonthFilter() {
 }
 
 // ─── Render: Summary Cards ────────────────────────────────────────────────────
+function salesSummaryHasClientFilters() {
+  if (salesSearchMode) return true;
+  if (!salesFilters) return false;
+  const columns = salesFilters.columns || {};
+  const hasColumnFilter = Object.values(columns).some(value => {
+    if (value == null) return false;
+    if (typeof value === 'object') {
+      return Object.values(value).some(part => String(part ?? '').trim() !== '');
+    }
+    return String(value).trim() !== '';
+  });
+  return !!(
+    String(salesFilters.query || '').trim() ||
+    salesFilters.month ||
+    salesFilters.toolbarFlag ||
+    hasColumnFilter
+  );
+}
+
+function salesTotalsFromAggregate(aggregate) {
+  if (!aggregate) return null;
+  const netRevenue = Number(aggregate.totalRevenue) || 0;
+  const srpwdDiscounts = Number(aggregate.srpwdDiscount) || 0;
+  const discounts = Number(aggregate.discount) || 0;
+  const grossRevenue = netRevenue + discounts;
+  const cogs = Number(aggregate.totalCost) || 0;
+  return {
+    grossRevenue,
+    netRevenue,
+    revenue: netRevenue,
+    discounts: Math.max(0, discounts - srpwdDiscounts),
+    srpwdDiscounts,
+    totalDiscounts: discounts,
+    cogs,
+    profit: grossRevenue - cogs,
+    unitsSold: Number(aggregate.unitsSold) || 0
+  };
+}
+
 function renderSummary(rows) {
-  const tot            = getPOSTotals(rows);
+  const aggregateTotals = !salesSummaryHasClientFilters()
+    ? salesTotalsFromAggregate(salesAggregateTotals)
+    : null;
+  const tot            = aggregateTotals || getPOSTotals(rows);
   const avgMargin      = tot.cogs > 0 ? ((tot.grossRevenue - tot.cogs) / tot.cogs * 100).toFixed(4) : '0.0000';
-  const pendingRevenue = _reviewData.reduce((s, r) => s + (r.totalRevenue || 0), 0);
+  const pendingRevenue = !salesSummaryHasClientFilters() && reviewAggregateTotals
+    ? Number(reviewAggregateTotals.totalRevenue) || 0
+    : _reviewData.reduce((s, r) => s + (r.totalRevenue || 0), 0);
   const pendingCard    = `<div class="summary-card" style="border-color:#f59e0b">
         <div class="kpi-label" style="color:#d97706">Pending Revenue</div>
         <div class="kpi-value pending-revenue-value" style="color:#d97706">${formatPeso(pendingRevenue)}</div>

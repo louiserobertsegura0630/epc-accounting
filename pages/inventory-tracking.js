@@ -26,6 +26,8 @@ const INV_VS_OVERSCAN = 10;
 let _invVsScrollTop   = 0;
 let _invVsSentinelObs = null;
 let _invVsRAF         = 0;
+let _invVsLoadingMore = false;
+let _invVsWindowRows  = [];
 const POTENTIAL_PAGE_SIZE = 50;
 const POTENTIAL_MARKUP_KEY = 'inventoryPotentialMarkupSettings';
 const POTENTIAL_COLUMNS = [
@@ -602,7 +604,14 @@ function setTab(tab) {
   document.getElementById('tab-label').textContent = labels[tab];
   document.getElementById('inv-thead')?.closest('.table-container')?.classList.toggle('inv-hide-revenue-cols', tab === 'incoming');
   document.getElementById('potential-revenue-panel')?.classList.toggle('open', tab === 'potential');
+  resetInventoryVirtualScroll();
   invTable.setTab(tab);
+}
+
+function resetInventoryVirtualScroll() {
+  _invVsScrollTop = 0;
+  const scroll = document.getElementById('inv-tbody')?.closest('.table-scroll');
+  if (scroll) scroll.scrollTop = 0;
 }
 
 function resetForm() {
@@ -817,6 +826,10 @@ function invCurrentPageRows(rows = invFilteredRows()) {
   return rows.slice(start, start + invTable.pageSize);
 }
 
+function invVisibleRows() {
+  return _invVsWindowRows.length ? _invVsWindowRows : invCurrentPageRows();
+}
+
 function syncBulkSelectionUI() {
   const existing = new Set(DB.get('inventory_movements').map(m => m.id));
   const filtered = invFilteredRows().filter(r => !r._derived);
@@ -825,10 +838,12 @@ function syncBulkSelectionUI() {
     if (!existing.has(id) || !filteredSet.has(id)) selectedInvIds.delete(id);
   });
 
-  const filteredIds = filtered.map(r => r.id);
+  const visibleIds = invVisibleRows()
+    .filter(row => !row._derived)
+    .map(row => row.id);
   const selectedCount = selectedInvIds.size;
-  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => selectedInvIds.has(id));
-  const someFilteredSelected = filteredIds.some(id => selectedInvIds.has(id));
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedInvIds.has(id));
+  const someVisibleSelected = visibleIds.some(id => selectedInvIds.has(id));
 
   document.querySelectorAll('.inv-row-select').forEach(cb => {
     cb.checked = selectedInvIds.has(cb.value);
@@ -836,9 +851,9 @@ function syncBulkSelectionUI() {
 
   const selectAll = document.getElementById('inv-select-all');
   if (selectAll) {
-    selectAll.checked = allFilteredSelected;
-    selectAll.indeterminate = !allFilteredSelected && someFilteredSelected;
-    selectAll.disabled = filteredIds.length === 0;
+    selectAll.checked = allVisibleSelected;
+    selectAll.indeterminate = !allVisibleSelected && someVisibleSelected;
+    selectAll.disabled = visibleIds.length === 0;
   }
 
   const bar = document.getElementById('inv-bulk-bar');
@@ -866,7 +881,7 @@ function toggleInvRowSelection(id, checked) {
 }
 
 function toggleAllVisibleInvRows(checked) {
-  invFilteredRows().filter(row => !row._derived).forEach(row => {
+  invVisibleRows().filter(row => !row._derived).forEach(row => {
     if (checked) selectedInvIds.add(row.id);
     else selectedInvIds.delete(row.id);
   });
@@ -1741,8 +1756,16 @@ function _attachInvSentinel() {
   if (!el) return;
   const root = el.closest('.table-scroll');
   _invVsSentinelObs = new IntersectionObserver(entries => {
-    if (entries[0].isIntersecting && inventoryHasMoreRecords) {
-      loadInventoryBatch({ append: true }).then(() => invTable.render());
+    if (entries[0].isIntersecting && inventoryHasMoreRecords && !_invVsLoadingMore) {
+      _invVsLoadingMore = true;
+      invTable.render();
+      loadInventoryBatch({ append: true })
+        .then(() => invTable.render())
+        .catch(err => console.error('[Inventory] Load more failed:', err))
+        .finally(() => {
+          _invVsLoadingMore = false;
+          invTable.render();
+        });
     }
   }, { root, threshold: 0 });
   _invVsSentinelObs.observe(el);
@@ -1755,8 +1778,11 @@ invTable.render = function() {
     syncBulkSelectionUI();
     return;
   }
-  this._buildHeaders();
+  const thead = document.getElementById(this.cfg.theadId);
+  if (thead && !thead.querySelector('.header-row')) this._buildHeaders();
   this._refreshDynamicDropdowns();
+  this._refreshSortIcons();
+  this._refreshFilterDots();
 
   const allRows  = this._getProcessed();
   const tbody    = document.getElementById(this.cfg.tbodyId);
@@ -1765,6 +1791,7 @@ invTable.render = function() {
 
   if (!allRows.length) {
     if (scroll) scroll.classList.remove('vs-active');
+    _invVsWindowRows = [];
     tbody.innerHTML = typeof this.cfg.emptyHtml === 'function'
       ? this.cfg.emptyHtml(this.activeTab)
       : this.cfg.emptyHtml;
@@ -1780,14 +1807,17 @@ invTable.render = function() {
   const firstVisible = Math.max(0, Math.floor(_invVsScrollTop / INV_VS_ROW_H) - INV_VS_OVERSCAN);
   const lastVisible  = Math.min(totalRows - 1, firstVisible + INV_VS_WINDOW - 1);
   const windowRows   = allRows.slice(firstVisible, lastVisible + 1);
+  _invVsWindowRows = windowRows;
   const paddingTop    = firstVisible * INV_VS_ROW_H;
   const paddingBottom = Math.max(0, totalRows - lastVisible - 1) * INV_VS_ROW_H;
   const topSpacer    = paddingTop    ? `<tr style="height:${paddingTop}px"><td colspan="${COLS}"></td></tr>` : '';
   const bottomSpacer = paddingBottom ? `<tr style="height:${paddingBottom}px"><td colspan="${COLS}"></td></tr>` : '';
   const fetchSentinel = inventoryHasMoreRecords
     ? `<tr class="vs-fetch-sentinel"><td colspan="${COLS}"><div id="inv-fetch-sentinel"></div></td></tr>` : '';
+  const loadingRow = _invVsLoadingMore
+    ? `<tr class="vs-loading-row"><td colspan="${COLS}"><span class="spinner"></span> Loading more records...</td></tr>` : '';
 
-  tbody.innerHTML = topSpacer + windowRows.map(r => this.cfg.renderRow(r)).join('') + bottomSpacer + fetchSentinel;
+  tbody.innerHTML = topSpacer + windowRows.map(r => this.cfg.renderRow(r)).join('') + bottomSpacer + fetchSentinel + loadingRow;
 
   const displayTotal = this.remoteTotal != null && this.activeTab === 'all' && !this.hasActive()
     ? this.remoteTotal
@@ -1802,6 +1832,13 @@ invTable.render = function() {
   if (inventoryHasMoreRecords) _attachInvSentinel();
   syncBulkSelectionUI();
 };
+['setSort', 'setFilter', 'setRangeFilter', 'clearAll'].forEach(method => {
+  const original = invTable[method].bind(invTable);
+  invTable[method] = function(...args) {
+    resetInventoryVirtualScroll();
+    return original(...args);
+  };
+});
 invTable.render();
 
 // ─── VS scroll listener ───────────────────────────────────────────────────────

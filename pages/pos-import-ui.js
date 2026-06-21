@@ -65,7 +65,7 @@ document.getElementById('btn-rematch-now').addEventListener('click', async funct
     salesRangeStart = range.start;
     salesRangeEnd = range.end;
     salesLongProgress.show('Re-matching...', 0, total, progressHost);
-    const { processed, moved } = await rematchUnderReview({
+    const { processed, matched, moved, total: finalTotal } = await rematchUnderReview({
       start: range.start,
       end: range.end,
       total,
@@ -73,11 +73,16 @@ document.getElementById('btn-rematch-now').addEventListener('click', async funct
         salesLongProgress.update('Re-matching...', done, denominator);
       }
     });
+    const denominator = Number(finalTotal ?? total);
+    const totalText = Number.isFinite(denominator) && denominator >= 0
+      ? ` of ${denominator.toLocaleString()}`
+      : '';
+    const matchedCount = Number(matched ?? moved) || 0;
     if (moved > 0) {
-      result.textContent = `Done. Re-matched ${processed.toLocaleString()} item${processed !== 1 ? 's' : ''}, ${moved.toLocaleString()} moved to Sales Data.`;
+      result.textContent = `Done. Re-matched ${processed.toLocaleString()}${totalText} item${processed !== 1 ? 's' : ''}; ${matchedCount.toLocaleString()} matched, ${moved.toLocaleString()} moved to Sales Data.`;
       result.className   = 'ok';
     } else {
-      result.textContent = `Done. Re-matched ${processed.toLocaleString()} item${processed !== 1 ? 's' : ''}; no new matches found.`;
+      result.textContent = `Done. Re-matched ${processed.toLocaleString()}${totalText} item${processed !== 1 ? 's' : ''}; no new matches found.`;
       result.className   = '';
     }
   } catch (err) {
@@ -773,6 +778,7 @@ async function loadSelectedRecords(append = false) {
       salesRecordsLoaded = false;
       salesTotalRecords = null;
       salesTotalRevenue = null;
+      salesAggregateTotals = null;
       salesBrowseData = [];
       salesSearchMode = false;
       salesSearchTerm = '';
@@ -783,6 +789,7 @@ async function loadSelectedRecords(append = false) {
       reviewRecordsLoaded = false;
       reviewTotalRecords = null;
       reviewTotalRevenue = null;
+      reviewAggregateTotals = null;
       reviewBrowseData = [];
       reviewSearchMode = false;
       reviewSearchTerm = '';
@@ -795,6 +802,7 @@ async function loadSelectedRecords(append = false) {
       salesRecordsLoaded = false;
       salesTotalRecords = null;
       salesTotalRevenue = null;
+      salesAggregateTotals = null;
       salesBrowseData = [];
       salesSearchMode = false;
       salesSearchTerm = '';
@@ -806,6 +814,7 @@ async function loadSelectedRecords(append = false) {
       reviewRecordsLoaded = false;
       reviewTotalRecords = null;
       reviewTotalRevenue = null;
+      reviewAggregateTotals = null;
       reviewBrowseData = [];
       reviewSearchMode = false;
       reviewSearchTerm = '';

@@ -37,6 +37,7 @@ let salesRecordsLoaded = false;
 let salesRecordsLoading = false;
 let salesTotalRecords = null;
 let salesTotalRevenue = null;
+let salesAggregateTotals = null;
 let salesSearchMode = false;
 let salesSearchTerm = '';
 let reviewBrowseData = [];
@@ -46,6 +47,7 @@ let reviewRecordsLoaded = false;
 let reviewRecordsLoading = false;
 let reviewTotalRecords = null;
 let reviewTotalRevenue = null;
+let reviewAggregateTotals = null;
 let reviewSearchMode = false;
 let reviewSearchTerm = '';
 let inventoryUnitCostCache = Object.create(null);
@@ -658,11 +660,15 @@ async function sumRangeRecords(collectionName, fieldName) {
 }
 
 async function loadRangeAggregates(collectionName) {
-  const [count, totalRevenue] = await Promise.all([
+  const [count, totalRevenue, discount, srpwdDiscount, totalCost, unitsSold] = await Promise.all([
     countRangeRecords(collectionName),
-    sumRangeRecords(collectionName, 'totalRevenue')
+    sumRangeRecords(collectionName, 'totalRevenue'),
+    sumRangeRecords(collectionName, 'discount'),
+    sumRangeRecords(collectionName, 'srpwdDiscount'),
+    sumRangeRecords(collectionName, 'totalCost'),
+    sumRangeRecords(collectionName, 'unitsSold')
   ]);
-  return { count, totalRevenue };
+  return { count, totalRevenue, discount, srpwdDiscount, totalCost, unitsSold };
 }
 
 function mergeRecordResults(snapshots) {
@@ -713,7 +719,9 @@ async function searchCollectionRecords(collectionName, term) {
 
 async function loadSalesData({ append = false } = {}) {
   if (!salesRangeStart || !salesRangeEnd) return [];
-  const aggregatePromise = !append ? loadRangeAggregates('salesData') : Promise.resolve(null);
+  const aggregatePromise = !append
+    ? Promise.all([loadRangeAggregates('salesData'), loadRangeAggregates('underReviewData')])
+    : Promise.resolve(null);
   const query = buildRangeQuery('salesData', append, salesLastDocSnapshot);
   const snapPromise = query.get()
       .then(result => {
@@ -724,10 +732,15 @@ async function loadSalesData({ append = false } = {}) {
         if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
         throw err;
       });
-  const [aggregate, snap] = await Promise.all([aggregatePromise, snapPromise]);
-  if (aggregate) {
-    salesTotalRecords = aggregate.count;
-    salesTotalRevenue = aggregate.totalRevenue;
+  const [aggregates, snap] = await Promise.all([aggregatePromise, snapPromise]);
+  if (aggregates) {
+    const [salesAggregate, reviewAggregate] = aggregates;
+    salesAggregateTotals = salesAggregate;
+    reviewAggregateTotals = reviewAggregate;
+    salesTotalRecords = salesAggregate.count;
+    salesTotalRevenue = salesAggregate.totalRevenue;
+    reviewTotalRecords = reviewAggregate.count;
+    reviewTotalRevenue = reviewAggregate.totalRevenue;
   }
   salesLastDocSnapshot = snap.docs[snap.docs.length - 1] || salesLastDocSnapshot;
   salesHasMoreRecords = salesTotalRecords == null
@@ -757,6 +770,7 @@ async function loadUnderReview({ append = false } = {}) {
     });
   const [aggregate, snap] = await Promise.all([aggregatePromise, snapPromise]);
   if (aggregate) {
+    reviewAggregateTotals = aggregate;
     reviewTotalRecords = aggregate.count;
     reviewTotalRevenue = aggregate.totalRevenue;
   }
