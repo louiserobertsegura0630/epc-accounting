@@ -307,15 +307,15 @@ document.getElementById('f-gross-amount').addEventListener('input', calcFields);
 function resetForm() {
   document.getElementById('edit-id').value = '';
   document.getElementById('modal-purchase-title').textContent = 'Add Purchase';
-  ['f-total','f-input-vat','f-gross-amount','f-ewt-amount','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes'].forEach(id => {
+  ['f-supplier','f-total','f-input-vat','f-gross-amount','f-ewt-amount','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes'].forEach(id => {
     document.getElementById(id).value = '';
   });
+  setSupplierPickerValue('f-supplier', '');
   document.getElementById('f-date').value = todayISO();
   document.getElementById('f-ewt-rate').value = '';
   document.getElementById('f-input-vat-creditable').value = 'yes';
   document.getElementById('additions-list').innerHTML = '';
   calcFields({ updateGross: true });
-  populateSupplierDropdown(document.getElementById('f-supplier'));
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
@@ -840,7 +840,16 @@ function exportPurchasesCSV() {
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
 async function savePurchase() {
-  const supplier  = document.getElementById('f-supplier').value;
+  const supplierInput = document.getElementById('f-supplier-search')?.value.trim() || '';
+  let supplier  = document.getElementById('f-supplier').value;
+  if (!supplier && supplierInput) {
+    const match = DB.get('suppliers').find(item =>
+      String(item.name || '').trim().toLowerCase() === supplierInput.toLowerCase());
+    if (match) {
+      supplier = match.name;
+      setSupplierPickerValue('f-supplier', supplier);
+    }
+  }
   const date      = document.getElementById('f-date').value;
   const netAmount = parsePeso(document.getElementById('f-total').value);
   if (!supplier || !date || !netAmount) { alert('Supplier, date, and net amount are required.'); return; }
@@ -914,9 +923,7 @@ function editPurchase(id) {
 
   document.getElementById('edit-id').value = p.id;
   document.getElementById('modal-purchase-title').textContent = 'Edit Purchase';
-  populateSupplierDropdown(document.getElementById('f-supplier'));
-  ensurePurchaseSupplierOption(document.getElementById('f-supplier'), p.supplier);
-  document.getElementById('f-supplier').value   = p.supplier;
+  setSupplierPickerValue('f-supplier', p.supplier || '');
   document.getElementById('f-date').value        = p.date;
   const net = p.netAmount ?? p.total ?? 0;
   document.getElementById('f-total').value       = formatNum(net);
@@ -962,6 +969,12 @@ document.getElementById('btn-add-purchase').addEventListener('click', () => { re
 document.getElementById('btn-export-purchases')?.addEventListener('click', exportPurchasesCSV);
 document.getElementById('btn-export-filtered-purchases')?.addEventListener('click', exportPurchasesCSV);
 document.getElementById('btn-save-purchase').addEventListener('click', savePurchase);
+initSupplierPicker('f-supplier', 'f-supplier-search', 'f-supplier-results');
+document.getElementById('btn-search-purchase-supplier').addEventListener('click', () => {
+  const input = document.getElementById('f-supplier-search');
+  input.focus();
+  input.select();
+});
 document.getElementById('btn-import-purchases').addEventListener('click', () => document.getElementById('purchase-import-file').click());
 document.getElementById('btn-browse-purchase-import').addEventListener('click', event => {
   event.stopPropagation();

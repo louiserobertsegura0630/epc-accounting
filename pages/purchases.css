@@ -37,6 +37,17 @@
     .addition-row .remove-btn:hover { background: #fecaca; }
     #additions-list:empty + #btn-add-addition { margin-top: 0; }
 
+    .purchase-supplier-search {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .purchase-supplier-search .btn {
+      height: 40px;
+      white-space: nowrap;
+    }
+
     .purchase-import-card {
       display: flex;
       align-items: center;

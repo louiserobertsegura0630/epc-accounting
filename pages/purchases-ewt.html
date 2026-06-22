@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Purchases - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css">
-  <link rel="stylesheet" href="purchases.css">
+  <link rel="stylesheet" href="purchases.css?v=20260622-supplier-search">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -145,7 +145,12 @@
       <div class="form-row form-row-2">
         <div class="form-group">
           <label class="form-label">Supplier <span class="req">*</span></label>
-          <select class="form-select" id="f-supplier"></select>
+          <input type="hidden" id="f-supplier">
+          <div class="purchase-supplier-search">
+            <input type="text" class="form-input" id="f-supplier-search" placeholder="Search supplier..." autocomplete="off">
+            <button type="button" class="btn btn-outline-gray btn-sm" id="btn-search-purchase-supplier">Search</button>
+          </div>
+          <div class="supplier-picker-results" id="f-supplier-results"></div>
         </div>
         <div class="form-group">
           <label class="form-label">Date <span class="req">*</span></label>
@@ -284,6 +289,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260616-count-load-size"></script>
-<script src="purchases.js?v=20260622-manual-ewt-amount"></script>
+<script src="purchases.js?v=20260622-supplier-search"></script>
 </body>
 </html>
