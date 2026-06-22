@@ -458,6 +458,7 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
   }
 
   applySalesSummaryTotals(null);
+  if (progress) progress.show(`${label} Counting records...`, 0, 0);
 
   let salesCount = null;
   let reviewCount = null;
@@ -471,7 +472,8 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
   }
 
   const totalForProgress = (Number(salesCount) || 0) + (Number(reviewCount) || 0);
-  if (progress) progress.show(label, 0, totalForProgress);
+  const scanLabel = `${label} Scanning approved + pending sales...`;
+  if (progress) progress.update(scanLabel, 0, totalForProgress);
 
   const [productMap, inventoryCostMap] = await Promise.all([
     loadProductMasterMap(),
@@ -508,7 +510,7 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
       totals.count += 1;
     });
     processed += snap.docs.length;
-    if (progress) progress.update(label, processed, totalForProgress);
+    if (progress) progress.update(scanLabel, processed, totalForProgress);
     cursor = snap.docs[snap.docs.length - 1];
     if (snap.docs.length < VS_PAGE_SIZE) break;
     if (runId !== salesSummaryRunId) return null;
@@ -525,7 +527,7 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
       totals.pendingGrossSales += posGrossRevenue(row);
     });
     processed += snap.docs.length;
-    if (progress) progress.update(label, processed, totalForProgress);
+    if (progress) progress.update(scanLabel, processed, totalForProgress);
     cursor = snap.docs[snap.docs.length - 1];
     if (snap.docs.length < VS_PAGE_SIZE) break;
     if (runId !== salesSummaryRunId) return null;
@@ -539,7 +541,7 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
   if (runId === salesSummaryRunId) {
     applySalesSummaryTotals(totals);
     if (progress) {
-      progress.update(label, totalForProgress || processed, totalForProgress || processed);
+      progress.update(scanLabel, totalForProgress || processed, totalForProgress || processed);
       setTimeout(() => {
         if (runId === salesSummaryRunId) progress.hide();
       }, 500);

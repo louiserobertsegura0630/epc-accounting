@@ -20,10 +20,11 @@ const salesLongProgress = (() => {
     if (!el || !fill || !text) return;
     const safeProcessed = Math.max(0, Number(processed) || 0);
     const safeTotal = Math.max(0, Number(total) || 0);
-    const percent = safeTotal > 0 ? Math.min(100, Math.floor((safeProcessed / safeTotal) * 100)) : 0;
+    const percent = safeTotal > 0 ? Math.min(100, (safeProcessed / safeTotal) * 100) : 0;
+    const displayPercent = safeTotal > 0 ? percent.toFixed(percent < 10 && percent > 0 ? 1 : 0) : '0';
     fill.style.width = `${percent}%`;
     text.textContent = safeTotal > 0
-      ? `${label} ${percent}% (${safeProcessed.toLocaleString()} / ${safeTotal.toLocaleString()})`
+      ? `${label} ${displayPercent}% (${safeProcessed.toLocaleString()} / ${safeTotal.toLocaleString()} scanned)`
       : `${label} ${safeProcessed.toLocaleString()} processed`;
   }
 

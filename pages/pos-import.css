@@ -251,7 +251,10 @@
       padding:10px 14px; border-bottom:1px solid var(--border);
       background:#f8fafc; flex-wrap:wrap;
     }
-    #sales-long-progress-home { display:none; }
+    #sales-long-progress-home {
+      margin:-8px 0 16px;
+      min-height:18px;
+    }
     .sales-long-progress-host {
       flex:1 1 280px; min-width:220px;
     }
