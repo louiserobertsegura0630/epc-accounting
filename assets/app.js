@@ -903,9 +903,6 @@ const NAV = [
 
 const AUDIT_LOG_KEY = 'auditLog';
 const EPC_AUTH_DOMAIN = '@palogrocerette.local';
-const EPC_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-let _idleLogoutTimer = null;
-let _idleLogoutEventsBound = false;
 
 // Canonical role tokens that match firestore.rules ('accountant'|'limited'|'viewer').
 // Accepts any casing or spacing the admin may have typed in the Firestore console.
@@ -984,37 +981,6 @@ function logoutEPCUser() {
   const doRedirect = () => { location.replace('login.html'); };
   if (auth) auth.signOut().then(doRedirect).catch(doRedirect);
   else doRedirect();
-}
-
-function idleLogoutEPCUser() {
-  if (!_currentEPCUser) return;
-  logAudit('Auto Logout', 'User Session', `${currentUserFullName()} was signed out after 5 minutes of inactivity`);
-  _currentEPCUser = null;
-  sessionStorage.setItem('epc_signed_out_at', String(Date.now()));
-  const auth = getFirebaseAuth();
-  const doRedirect = () => { location.replace('login.html'); };
-  if (auth) auth.signOut().then(doRedirect).catch(doRedirect);
-  else doRedirect();
-}
-
-function resetIdleLogoutTimer() {
-  if (!_currentEPCUser) return;
-  clearTimeout(_idleLogoutTimer);
-  _idleLogoutTimer = setTimeout(idleLogoutEPCUser, EPC_IDLE_TIMEOUT_MS);
-}
-
-function startIdleLogoutWatch() {
-  resetIdleLogoutTimer();
-  if (_idleLogoutEventsBound) return;
-  _idleLogoutEventsBound = true;
-  ['click', 'keydown', 'scroll', 'touchstart', 'mousemove'].forEach(eventName => {
-    window.addEventListener(eventName, resetIdleLogoutTimer, { passive:true });
-  });
-}
-
-function stopIdleLogoutWatch() {
-  clearTimeout(_idleLogoutTimer);
-  _idleLogoutTimer = null;
 }
 
 function currentUserFullName(user = getCurrentUser()) {
@@ -1143,7 +1109,6 @@ function initSidebar(activeKey) {
 
   auth.onAuthStateChanged(async (firebaseUser) => {
     if (!firebaseUser) {
-      stopIdleLogoutWatch();
       location.replace('login.html');
       return;
     }
@@ -1214,7 +1179,6 @@ function initSidebar(activeKey) {
     }
 
     document.body.style.visibility = '';
-    startIdleLogoutWatch();
     // Signal that auth + user profile are ready so page scripts can read getCurrentUser().
     document.dispatchEvent(new CustomEvent('epc-auth-ready'));
     setTimeout(() => applyRolePermissions(activeKey), 0);
