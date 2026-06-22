@@ -450,7 +450,7 @@ function applySalesSummaryTotals(totals) {
     ? emptySalesSummaryTotals()
     : {
       grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0,
-      totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0
+      totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0, totalRevenue: 0
     });
   if (typeof updateSummaryCards === 'function') updateSummaryCards();
 }
@@ -495,7 +495,7 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
 
   const totals = typeof emptySalesSummaryTotals === 'function'
     ? emptySalesSummaryTotals()
-    : { grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0, totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0 };
+    : { grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0, totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0, totalRevenue: 0 };
   let processed = 0;
   let cursor = null;
 
@@ -527,6 +527,7 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
 
   const pendingRevenue = await pendingRevenuePromise;
   totals.pendingRevenue = Number(pendingRevenue) || 0;
+  totals.totalRevenue = (Number(totals.grossRevenue) || 0) + totals.pendingRevenue;
   processed += Number(reviewCount) || 0;
   if (progress) progress.update(label, processed, totalForProgress);
 
