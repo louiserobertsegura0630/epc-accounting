@@ -48,6 +48,7 @@ function renderSummary() {
   const approvedGross  = Number(tot.grossRevenue) || 0;
   const pendingGross   = Number(tot.pendingGrossSales ?? tot.pendingRevenue) || 0;
   const totalRevenue   = Number(tot.totalRevenue ?? (approvedGross + pendingGross)) || 0;
+  const totalDiscounts = Number(tot.totalDiscounts) || 0;
   const pendingCard    = `<div class="summary-card" style="border-color:#f59e0b">
         <div class="kpi-label" style="color:#d97706">Pending Gross Sales</div>
         <div class="kpi-value pending-revenue-value" style="color:#d97706">${formatPeso(pendingGross)}</div>
@@ -56,7 +57,8 @@ function renderSummary() {
     <div class="summary-card"><div class="kpi-label">Total Revenue</div><div class="kpi-value blue">${formatPeso(totalRevenue)}</div></div>
     <div class="summary-card"><div class="kpi-label">Approved Gross Sales</div><div class="kpi-value green">${formatPeso(approvedGross)}</div></div>
     ${pendingCard}
-    <div class="summary-card"><div class="kpi-label">Net Revenue</div><div class="kpi-value green">${formatPeso(tot.netRevenue)}</div></div>
+    <div class="summary-card"><div class="kpi-label">Total Discounts</div><div class="kpi-value red">${formatPeso(totalDiscounts)}</div></div>
+    <div class="summary-card"><div class="kpi-label">Approved Net Revenue</div><div class="kpi-value green">${formatPeso(tot.netRevenue)}</div></div>
     <div class="summary-card"><div class="kpi-label">Total COGS</div><div class="kpi-value red">${formatPeso(tot.cogs)}</div></div>
     <div class="summary-card"><div class="kpi-label">Gross Profit</div><div class="kpi-value blue">${formatPeso(tot.profit)}</div></div>
     <div class="summary-card"><div class="kpi-label">Avg Margin %</div><div class="kpi-value">${avgMargin}%</div></div>`;
