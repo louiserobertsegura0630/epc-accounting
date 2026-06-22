@@ -407,6 +407,21 @@ async function countSummaryQuery(collectionName, range) {
   return null;
 }
 
+async function sumUnderReviewPendingRevenue(range) {
+  const query = db.collection('underReviewData')
+    .where('date', '>=', range.start)
+    .where('date', '<=', range.end);
+  if (typeof query.aggregate !== 'function' ||
+      typeof firebase === 'undefined' ||
+      !firebase.firestore?.AggregateField?.sum) {
+    return null;
+  }
+  const snap = await query.aggregate({
+    pendingRevenue: firebase.firestore.AggregateField.sum('totalRevenue')
+  }).get();
+  return Number(snap.data().pendingRevenue) || 0;
+}
+
 function costedSalesSummaryRow(row, productMap, inventoryCostMap) {
   const codeKey = String(row.itemCode || '').trim();
   const product = productMap[codeKey] || productMap[codeKey.toUpperCase()];
@@ -467,6 +482,12 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
   const totalForProgress = (Number(salesCount) || 0) + (Number(reviewCount) || 0);
   if (progress) progress.show(label, 0, totalForProgress);
 
+  const pendingRevenuePromise = sumUnderReviewPendingRevenue(range)
+    .catch(err => {
+      console.warn('[Sales Summary] Pending revenue aggregation failed; continuing without pending total:', err);
+      return null;
+    });
+
   const [productMap, inventoryCostMap] = await Promise.all([
     loadProductMasterMap(),
     loadInventoryUnitCostMap()
@@ -504,21 +525,10 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
     if (runId !== salesSummaryRunId) return null;
   }
 
-  cursor = null;
-  while (true) {
-    let query = salesSummaryBaseQuery('underReviewData', range).limit(VS_PAGE_SIZE);
-    if (cursor) query = query.startAfter(cursor);
-    const snap = await query.get();
-    if (!snap.docs.length) break;
-    snap.docs.forEach(doc => {
-      totals.pendingRevenue += Number(doc.data().totalRevenue) || 0;
-    });
-    processed += snap.docs.length;
-    if (progress) progress.update(label, processed, totalForProgress);
-    cursor = snap.docs[snap.docs.length - 1];
-    if (snap.docs.length < VS_PAGE_SIZE) break;
-    if (runId !== salesSummaryRunId) return null;
-  }
+  const pendingRevenue = await pendingRevenuePromise;
+  totals.pendingRevenue = Number(pendingRevenue) || 0;
+  processed += Number(reviewCount) || 0;
+  if (progress) progress.update(label, processed, totalForProgress);
 
   totals.totalDiscounts = Math.max(0, totals.grossRevenue - totals.netRevenue);
   totals.discounts = Math.max(0, totals.totalDiscounts - totals.srpwdDiscounts);
@@ -830,20 +840,46 @@ async function countRecordsForDateRange(collectionName, start, end) {
 
 async function sumRangeRecords(collectionName, fieldName) {
   const query = buildRangeCountQuery(collectionName);
-  if (typeof firestoreSum !== 'function') return null;
-  return firestoreSum(query, fieldName, `${collectionName} ${fieldName} sum`);
+  if (typeof query.aggregate !== 'function' ||
+      typeof firebase === 'undefined' ||
+      !firebase.firestore?.AggregateField?.sum) {
+    return null;
+  }
+  const snap = await query.aggregate({
+    value: firebase.firestore.AggregateField.sum(fieldName)
+  }).get();
+  return Number(snap.data().value) || 0;
+}
+
+async function safeRangeCount(collectionName) {
+  try {
+    return await countRangeRecords(collectionName);
+  } catch (err) {
+    console.warn(`[Sales] ${collectionName} count failed; continuing without total:`, err);
+    return null;
+  }
+}
+
+async function safeRangeSum(collectionName, fieldName) {
+  try {
+    return await sumRangeRecords(collectionName, fieldName);
+  } catch (err) {
+    console.warn(`[Sales] ${collectionName} ${fieldName} sum failed; continuing without sum:`, err);
+    return null;
+  }
 }
 
 async function loadRangeAggregates(collectionName) {
-  const [count, totalRevenue, discount, srpwdDiscount, totalCost, unitsSold] = await Promise.all([
-    countRangeRecords(collectionName),
-    sumRangeRecords(collectionName, 'totalRevenue'),
-    sumRangeRecords(collectionName, 'discount'),
-    sumRangeRecords(collectionName, 'srpwdDiscount'),
-    sumRangeRecords(collectionName, 'totalCost'),
-    sumRangeRecords(collectionName, 'unitsSold')
+  const countPromise = safeRangeCount(collectionName);
+  if (collectionName !== 'underReviewData') {
+    return { count: await countPromise, totalRevenue: null };
+  }
+
+  const [count, totalRevenue] = await Promise.all([
+    countPromise,
+    safeRangeSum(collectionName, 'totalRevenue')
   ]);
-  return { count, totalRevenue, discount, srpwdDiscount, totalCost, unitsSold };
+  return { count, totalRevenue };
 }
 
 function mergeRecordResults(snapshots) {
