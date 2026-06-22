@@ -274,8 +274,7 @@ function calcFields(options = {}) {
     grossAmount = netAmount + inputVAT;
     grossEl.value = formatNum(grossAmount);
   }
-  const rate       = parseFloat(document.getElementById('f-ewt-rate').value) || 0;
-  const ewt        = netAmount * rate / 100;
+  const ewt        = parsePeso(document.getElementById('f-ewt-amount').value) || 0;
   const editId     = document.getElementById('edit-id').value;
   const existing   = editId ? DB.get('purchases').find(p => p.id === editId) : null;
   const ledgerDeductions = (existing?.discounts || 0) + (existing?.noStock || 0);
@@ -287,7 +286,6 @@ function calcFields(options = {}) {
 
   const netPayable = grossAmount - ewt - ded + additions;
 
-  document.getElementById('f-ewt-amount').value    = formatNum(ewt);
   document.getElementById('f-total-add').value     = formatNum(additions);
   document.getElementById('f-total-ded').value     = formatNum(ded);
   document.getElementById('f-net-payable').value   = formatNum(netPayable);
@@ -300,7 +298,7 @@ document.getElementById('f-total').addEventListener('input', function() {
 });
 document.getElementById('f-input-vat').addEventListener('input', () => calcFields({ updateGross: true }));
 document.getElementById('f-gross-amount').addEventListener('input', calcFields);
-['f-ewt-rate','f-bad-order','f-lacking','f-returns','f-other-ded'].forEach(id => {
+['f-ewt-rate','f-ewt-amount','f-bad-order','f-lacking','f-returns','f-other-ded'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('input', calcFields);
 });
@@ -309,7 +307,7 @@ document.getElementById('f-gross-amount').addEventListener('input', calcFields);
 function resetForm() {
   document.getElementById('edit-id').value = '';
   document.getElementById('modal-purchase-title').textContent = 'Add Purchase';
-  ['f-total','f-input-vat','f-gross-amount','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes'].forEach(id => {
+  ['f-total','f-input-vat','f-gross-amount','f-ewt-amount','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('f-date').value = todayISO();
@@ -852,7 +850,7 @@ async function savePurchase() {
   const grossAmountInput = document.getElementById('f-gross-amount').value.trim();
   const grossAmount     = grossAmountInput ? parsePeso(grossAmountInput) : (netAmount + inputVAT);
   const ewtRate         = parseFloat(document.getElementById('f-ewt-rate').value) || 0;
-  const ewtAmount       = netAmount * ewtRate / 100;
+  const ewtAmount       = parsePeso(document.getElementById('f-ewt-amount').value);
 
   const additions       = getAdditions();
   const totalAdditions  = additions.reduce((s,a) => s + a.amount, 0);
@@ -926,6 +924,7 @@ function editPurchase(id) {
   document.getElementById('f-gross-amount').value = p.grossAmount != null ? formatNum(p.grossAmount) : formatNum(net + (p.inputVAT || 0));
   document.getElementById('f-input-vat-creditable').value = p.inputVATCreditable === false ? 'no' : 'yes';
   document.getElementById('f-ewt-rate').value    = p.ewtRate != null && p.ewtRate !== '' ? String(p.ewtRate) : '';
+  document.getElementById('f-ewt-amount').value  = p.ewtAmount ? formatNum(p.ewtAmount) : '';
   document.getElementById('f-bad-order').value   = p.badOrder       ? formatNum(p.badOrder)       : '';
   document.getElementById('f-lacking').value     = p.lacking        ? formatNum(p.lacking)        : '';
   document.getElementById('f-returns').value     = p.returns        ? formatNum(p.returns)        : '';

@@ -186,8 +186,8 @@
           <input type="number" class="form-input" id="f-ewt-rate" min="0" step="0.01" placeholder="0">
         </div>
         <div class="form-group">
-          <label class="form-label">EWT Amount <span style="font-size:11px;color:var(--text-muted);font-weight:400">on Net Amount</span></label>
-          <input type="text" class="form-input computed" id="f-ewt-amount" readonly placeholder="Auto-computed">
+          <label class="form-label">EWT Amount (₱)</label>
+          <input type="text" class="form-input" id="f-ewt-amount" data-currency placeholder="0.00">
         </div>
       </div>
 
@@ -284,6 +284,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260616-count-load-size"></script>
-<script src="purchases.js?v=20260616-count-load-size"></script>
+<script src="purchases.js?v=20260622-manual-ewt-amount"></script>
 </body>
 </html>
