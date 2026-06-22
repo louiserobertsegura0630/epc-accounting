@@ -37,6 +37,7 @@ function emptySalesSummaryTotals() {
     unitsSold: 0,
     count: 0,
     pendingRevenue: 0,
+    pendingGrossSales: 0,
     totalRevenue: 0
   };
 }
@@ -44,21 +45,21 @@ function emptySalesSummaryTotals() {
 function renderSummary() {
   const tot            = salesSummaryTotals || emptySalesSummaryTotals();
   const avgMargin      = tot.cogs > 0 ? ((tot.grossRevenue - tot.cogs) / tot.cogs * 100).toFixed(4) : '0.0000';
-  const pendingRevenue = Number(tot.pendingRevenue) || 0;
-  const totalRevenue   = Number(tot.totalRevenue ?? (Number(tot.grossRevenue) + pendingRevenue)) || 0;
+  const approvedGross  = Number(tot.grossRevenue) || 0;
+  const pendingGross   = Number(tot.pendingGrossSales ?? tot.pendingRevenue) || 0;
+  const totalRevenue   = Number(tot.totalRevenue ?? (approvedGross + pendingGross)) || 0;
   const pendingCard    = `<div class="summary-card" style="border-color:#f59e0b">
-        <div class="kpi-label" style="color:#d97706">Pending Revenue</div>
-        <div class="kpi-value pending-revenue-value" style="color:#d97706">${formatPeso(pendingRevenue)}</div>
-        <div style="font-size:11px;color:#92400e;margin-top:2px">cost entry needed</div>
+        <div class="kpi-label" style="color:#d97706">Pending Gross Sales</div>
+        <div class="kpi-value pending-revenue-value" style="color:#d97706">${formatPeso(pendingGross)}</div>
       </div>`;
   document.getElementById('pos-summary').innerHTML = `
     <div class="summary-card"><div class="kpi-label">Total Revenue</div><div class="kpi-value blue">${formatPeso(totalRevenue)}</div></div>
-    <div class="summary-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-value green">${formatPeso(tot.grossRevenue)}</div></div>
+    <div class="summary-card"><div class="kpi-label">Approved Gross Sales</div><div class="kpi-value green">${formatPeso(approvedGross)}</div></div>
+    ${pendingCard}
     <div class="summary-card"><div class="kpi-label">Net Revenue</div><div class="kpi-value green">${formatPeso(tot.netRevenue)}</div></div>
     <div class="summary-card"><div class="kpi-label">Total COGS</div><div class="kpi-value red">${formatPeso(tot.cogs)}</div></div>
     <div class="summary-card"><div class="kpi-label">Gross Profit</div><div class="kpi-value blue">${formatPeso(tot.profit)}</div></div>
-    <div class="summary-card"><div class="kpi-label">Avg Margin %</div><div class="kpi-value">${avgMargin}%</div></div>
-    ${pendingCard}`;
+    <div class="summary-card"><div class="kpi-label">Avg Margin %</div><div class="kpi-value">${avgMargin}%</div></div>`;
   document.getElementById('cost-method-summary').textContent =
     `COGS computed using: ${costMethod === 'average' ? 'Average Price' : 'Latest Price'}${salesRangeStart && salesRangeEnd ? ` for ${formatDate(salesRangeStart)}–${formatDate(salesRangeEnd)}` : ''}`;
 }

@@ -360,6 +360,7 @@ function setReviewRangeFilter(key, part, value) {
 function setReviewDateFilter(part, value) {
   reviewFilters.columns.date[part] = value;
   resetReviewPageAndRender();
+  if (typeof triggerSalesSummaryRecompute === 'function') triggerSalesSummaryRecompute();
 }
 
 function setReviewSort(key) {
@@ -375,6 +376,7 @@ function setReviewSort(key) {
 function clearReviewFilters() {
   reviewFilters = freshReviewFilterDefaults();
   resetReviewPageAndRender();
+  if (activeTab === 'review' && typeof triggerSalesSummaryRecompute === 'function') triggerSalesSummaryRecompute();
 }
 
 function syncReviewSelectionUI(pageRows = getVisibleReviewRows()) {

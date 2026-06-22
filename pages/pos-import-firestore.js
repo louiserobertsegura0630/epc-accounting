@@ -385,6 +385,11 @@ function salesSummaryDateRange(filterState = salesFilters) {
   }
   if (columns.date?.from) start = start > columns.date.from ? start : columns.date.from;
   if (columns.date?.to) end = end < columns.date.to ? end : columns.date.to;
+  if (activeTab === 'review') {
+    const reviewDate = reviewFilters?.columns?.date || {};
+    if (reviewDate.from) start = start > reviewDate.from ? start : reviewDate.from;
+    if (reviewDate.to) end = end < reviewDate.to ? end : reviewDate.to;
+  }
   return start <= end ? { start, end } : null;
 }
 
@@ -405,21 +410,6 @@ async function countSummaryQuery(collectionName, range) {
   }
   if (typeof firestoreCount === 'function') return firestoreCount(query, `${collectionName} summary count`);
   return null;
-}
-
-async function sumUnderReviewPendingRevenue(range) {
-  const query = db.collection('underReviewData')
-    .where('date', '>=', range.start)
-    .where('date', '<=', range.end);
-  if (typeof query.aggregate !== 'function' ||
-      typeof firebase === 'undefined' ||
-      !firebase.firestore?.AggregateField?.sum) {
-    return null;
-  }
-  const snap = await query.aggregate({
-    pendingRevenue: firebase.firestore.AggregateField.sum('totalRevenue')
-  }).get();
-  return Number(snap.data().pendingRevenue) || 0;
 }
 
 function costedSalesSummaryRow(row, productMap, inventoryCostMap) {
@@ -450,7 +440,8 @@ function applySalesSummaryTotals(totals) {
     ? emptySalesSummaryTotals()
     : {
       grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0,
-      totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0, totalRevenue: 0
+      totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0,
+      pendingRevenue: 0, pendingGrossSales: 0, totalRevenue: 0
     });
   if (typeof updateSummaryCards === 'function') updateSummaryCards();
 }
@@ -482,12 +473,6 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
   const totalForProgress = (Number(salesCount) || 0) + (Number(reviewCount) || 0);
   if (progress) progress.show(label, 0, totalForProgress);
 
-  const pendingRevenuePromise = sumUnderReviewPendingRevenue(range)
-    .catch(err => {
-      console.warn('[Sales Summary] Pending revenue aggregation failed; continuing without pending total:', err);
-      return null;
-    });
-
   const [productMap, inventoryCostMap] = await Promise.all([
     loadProductMasterMap(),
     loadInventoryUnitCostMap()
@@ -495,7 +480,11 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
 
   const totals = typeof emptySalesSummaryTotals === 'function'
     ? emptySalesSummaryTotals()
-    : { grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0, totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0, pendingRevenue: 0, totalRevenue: 0 };
+    : {
+      grossRevenue: 0, netRevenue: 0, revenue: 0, discounts: 0, srpwdDiscounts: 0,
+      totalDiscounts: 0, cogs: 0, profit: 0, unitsSold: 0, count: 0,
+      pendingRevenue: 0, pendingGrossSales: 0, totalRevenue: 0
+    };
   let processed = 0;
   let cursor = null;
 
@@ -525,11 +514,25 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
     if (runId !== salesSummaryRunId) return null;
   }
 
-  const pendingRevenue = await pendingRevenuePromise;
-  totals.pendingRevenue = Number(pendingRevenue) || 0;
-  totals.totalRevenue = (Number(totals.grossRevenue) || 0) + totals.pendingRevenue;
-  processed += Number(reviewCount) || 0;
-  if (progress) progress.update(label, processed, totalForProgress);
+  cursor = null;
+  while (true) {
+    let query = salesSummaryBaseQuery('underReviewData', range).limit(VS_PAGE_SIZE);
+    if (cursor) query = query.startAfter(cursor);
+    const snap = await query.get();
+    if (!snap.docs.length) break;
+    snap.docs.forEach(doc => {
+      const row = { _id: doc.id, ...doc.data() };
+      totals.pendingGrossSales += posGrossRevenue(row);
+    });
+    processed += snap.docs.length;
+    if (progress) progress.update(label, processed, totalForProgress);
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.docs.length < VS_PAGE_SIZE) break;
+    if (runId !== salesSummaryRunId) return null;
+  }
+
+  totals.pendingRevenue = totals.pendingGrossSales;
+  totals.totalRevenue = (Number(totals.grossRevenue) || 0) + totals.pendingGrossSales;
 
   totals.totalDiscounts = Math.max(0, totals.grossRevenue - totals.netRevenue);
   totals.discounts = Math.max(0, totals.totalDiscounts - totals.srpwdDiscounts);

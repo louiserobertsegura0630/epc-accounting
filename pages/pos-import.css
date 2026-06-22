@@ -53,7 +53,7 @@
 
     #pos-summary {
       display:grid;
-      grid-template-columns:repeat(6, 1fr);
+      grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));
       gap:16px;
       margin:24px 0;
       align-items:stretch;
@@ -71,12 +71,6 @@
       text-overflow:ellipsis;
     }
     #pos-summary .pending-revenue-value { font-size:1.05rem; white-space:nowrap; }
-    @media (max-width:1400px) {
-      #pos-summary { grid-template-columns:repeat(4, 1fr); }
-    }
-    @media (max-width:1200px) {
-      #pos-summary { grid-template-columns:repeat(3, 1fr); }
-    }
     @media (max-width:768px) {
       #pos-summary { grid-template-columns:repeat(2, 1fr); }
     }
