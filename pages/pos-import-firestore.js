@@ -931,7 +931,10 @@ async function searchCollectionRecords(collectionName, term) {
 async function loadSalesData({ append = false } = {}) {
   if (!salesRangeStart || !salesRangeEnd) return [];
   const aggregatePromise = !append
-    ? Promise.all([loadRangeAggregates('salesData'), loadRangeAggregates('underReviewData')])
+    ? Promise.all([
+      safeRangeCount('salesData').then(count => ({ count, totalRevenue: null })),
+      loadRangeAggregates('underReviewData')
+    ])
     : Promise.resolve(null);
   const query = buildRangeQuery('salesData', append, salesLastDocSnapshot);
   const snapPromise = query.get()
