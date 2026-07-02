@@ -239,6 +239,15 @@ body {
 .table-scroll { overflow-x: auto; width: 100%; }
 .table-container + .table-container { margin-top: 0; }
 
+/* Virtual-scroll viewport (shared by any TrackingTable with cfg.virtual). */
+.table-scroll.vs-active { height: 600px; overflow-y: auto; }
+.table-scroll.vs-active table { border-collapse: separate; border-spacing: 0; }
+.table-scroll.vs-active thead .header-row th {
+  position: sticky; top: 0; z-index: 2; background: #fff;
+  border-bottom: 1px solid var(--card-border);
+}
+.table-scroll.vs-active tr.v-spacer td { padding: 0 !important; border: none !important; }
+
 .table-toolbar {
   padding: 14px 20px;
   border-bottom: 1px solid var(--card-border);

@@ -458,6 +458,7 @@ const supTable = new TrackingTable({
   id: 'sup',
   storageKey: 'supplies_movements',
   dateField: 'datePurchased',
+  virtual: true,
   theadId: 'sup-thead',
   tbodyId: 'sup-tbody',
   clearBtnId: 'btn-clear-sup',
