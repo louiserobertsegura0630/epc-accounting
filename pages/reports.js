@@ -10,7 +10,7 @@ const REPORT_COLLECTIONS = {
   purchases: { collection:'purchases', fallback:'purchases', dataKey:'purchases' },
   expenses: { collection:'expenses', fallback:'expenses', dataKey:'expenses' },
   supplies: { collection:'suppliesData', fallback:'supplies_movements', dataKey:'supplies' },
-  inventory: { collection:'inventoryData', fallback:'inventory_movements', dataKey:'inventory' },
+  inventory: { collection:'inventoryDaily', fallback:'inventory_movements', dataKey:'inventory', rollup:'inventory' },
   suppliers: { collection:'suppliers', fallback:'suppliers', dataKey:'suppliers' },
   esales: { collection:'eSalesRecords', fallback:'', dataKey:'esales' },
   ewtRemittances: { collection:'ewtRemittances', fallback:'', dataKey:'ewtRemittances' },
@@ -167,6 +167,63 @@ async function fetchSalesRollupRows() {
   return rows;
 }
 
+// Expand inventoryDaily/{date} rollup docs into per-item-day rows (Incoming) for
+// the report pipeline. Range-scoped: one read per day in view instead of scanning
+// the tens-of-thousands-of-row raw inventoryData collection.
+async function fetchInventoryRollupRows() {
+  const db = getFirestoreDB();
+  if (!db) return DB.get('inventory_movements') || [];
+  const start = (document.getElementById('report-start') || {}).value || '';
+  const end = (document.getElementById('report-end') || {}).value || '';
+  let q = db.collection('inventoryDaily').orderBy(firebase.firestore.FieldPath.documentId());
+  if (start) q = q.startAt(start);
+  if (end) q = q.endAt(end);
+  const snap = await q.get();
+  const rows = [];
+  snap.forEach(doc => {
+    const items = (doc.data() || {}).items || {};
+    const date = doc.id;
+    Object.keys(items).forEach(code => {
+      const it = items[code] || {};
+      rows.push({
+        _firestoreId: `${date}__${code}`,
+        dateDelivered: date,
+        date,
+        type: 'Incoming',
+        itemCode: code,
+        description: it.name || '',
+        category: '',
+        supplier: it.supplier || '',
+        unitCost: Number(it.unit_cost) || 0,
+        qty: Number(it.qty) || 0,
+        totalCost: Number(it.total_cost) || 0,
+      });
+    });
+  });
+  return rows;
+}
+
+// Latest unit cost per item from the itemCost/{code} rollup (one doc per code)
+// instead of scanning raw inventoryData. Cached for the session.
+let _reportItemCostMap = null;
+async function loadReportItemCostMap() {
+  if (_reportItemCostMap) return _reportItemCostMap;
+  const db = getFirestoreDB();
+  const map = {};
+  if (db) {
+    try {
+      const snap = await db.collection('itemCost').get();
+      snap.forEach(doc => {
+        const uc = Number((doc.data() || {}).unit_cost) || 0;
+        map[doc.id] = uc;
+        map[String(doc.id).toUpperCase()] = uc;
+      });
+    } catch (e) { console.warn('[Reports] itemCost read failed:', e); }
+  }
+  _reportItemCostMap = map;
+  return map;
+}
+
 // Sum salesDaily.totals.revenue for all days strictly before the report start.
 // Cheap: reads only the day-docs before `from`, once per range change.
 async function loadSalesPriorInflow() {
@@ -194,6 +251,7 @@ async function fetchReportCollection(name, fallbackKey = '') {
   const localRows = fallbackKey ? DB.get(fallbackKey) : [];
   if (name === 'purchases' && localRows.length) return localRows;
   if (name === 'salesDaily') return await fetchSalesRollupRows();
+  if (name === 'inventoryDaily') return await fetchInventoryRollupRows();
   const db = getFirestoreDB();
   if (!db) return localRows;
   const snapshot = await db.collection(name).get();
@@ -205,6 +263,7 @@ async function fetchReportCollection(name, fallbackKey = '') {
 async function loadReportCollections(keys, { force = false } = {}) {
   const uniqueKeys = [...new Set(keys)].filter(key => REPORT_COLLECTIONS[key]);
   const keysToLoad = force ? uniqueKeys : uniqueKeys.filter(key => !loadedReportCollections.has(key));
+  if (force) _reportItemCostMap = null;   // refresh latest costs on explicit re-generate
   if (!keysToLoad.length) return;
   const loaded = await Promise.all(keysToLoad.map(async key => {
     const cfg = REPORT_COLLECTIONS[key];
@@ -216,6 +275,7 @@ async function loadReportCollections(keys, { force = false } = {}) {
     loadedReportCollections.add(key);
   });
   if (keysToLoad.includes('sales')) await loadSalesPriorInflow();
+  if (keysToLoad.includes('inventory')) await loadReportItemCostMap();
   backfillSalesCategories();
   if (loadedReportCollections.has('productMaster')) startProductMasterReportListener();
 }
@@ -238,18 +298,10 @@ async function ensureActiveReportData({ force = false } = {}) {
   await loadReportCollections(REPORT_TAB_COLLECTIONS[activeReportTab] || [], { force });
 }
 
-function startProductMasterReportListener() {
-  if (productMasterReportListenerStarted) return;
-  const db = getFirestoreDB();
-  if (!db) return;
-  productMasterReportListenerStarted = true;
-  db.collection('productMaster').onSnapshot(snapshot => {
-    REPORT_DATA.productMaster = snapshot.docs.map(doc => ({ _firestoreId:doc.id, ...doc.data() }));
-    loadedReportCollections.add('productMaster');
-    backfillSalesCategories();
-    if (activeReportTab === 'inventory' || activeReportTab === 'income') renderActiveReport();
-  }, err => console.error('[Reports] Product Master listener failed:', err));
-}
+// Product Master is loaded on demand via loadReportCollections (a one-time .get()).
+// The old persistent onSnapshot listener re-read the whole collection and
+// re-rendered on every change — removed to keep report reads bounded and cheap.
+function startProductMasterReportListener() { /* no-op: productMaster loads on demand */ }
 
 function setDefaultReportDates() {
   const now = new Date();
@@ -690,9 +742,13 @@ function reportInventoryCostDate(row) {
   return String(row?.dateDelivered || row?.rowDate || row?.date || row?.importedAt || '').slice(0, 10);
 }
 
+// Latest unit cost per item — served from the itemCost rollup (loaded during
+// loadReportCollections). Falls back to whatever is in the loaded inventory rows.
 function reportInventoryUnitCostMap() {
+  if (_reportItemCostMap && Object.keys(_reportItemCostMap).length) return _reportItemCostMap;
+  // Fallback: derive from loaded inventoryDaily rows if itemCost wasn't available.
   const latestByCode = {};
-  REPORT_DATA.inventory.forEach(row => {
+  (REPORT_DATA.inventory || []).forEach(row => {
     const code = String(row.itemCode || row.code || '').trim();
     const unitCost = Number(row.unitCost) || 0;
     if (!code || unitCost <= 0) return;
