@@ -2814,9 +2814,8 @@ async function misImportMappedRows(mappedRows, onProgress) {
     const description = String(m.description || '').trim();
     const unitCost = toNum(m.unit_cost);
     const qty = toNum(m.qty);
-    let totalCost = toNum(m.total_cost);
-    if (!totalCost) totalCost = unitCost * qty;
-    if ((!itemCode && !description) || (!(unitCost > 0) && !(totalCost > 0))) { zeroCost++; return; }
+    const totalCost = unitCost * qty;   // total_cost is always auto-computed
+    if ((!itemCode && !description) || !(unitCost > 0)) { zeroCost++; return; }
     const rowDate = normDate(m.date_delivered) || importDate;
     const supplier = String(m.supplier || '').trim();
     const row = {

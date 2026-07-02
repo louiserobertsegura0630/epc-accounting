@@ -43,8 +43,8 @@
       { name: 'item_code',      label: 'Item Code',      required: true,  type: 'text' },
       { name: 'description',    label: 'Description',    required: true,  type: 'text' },
       { name: 'qty',            label: 'Quantity',       required: true,  type: 'number' },
-      { name: 'unit_cost',      label: 'Unit Cost',      required: false, type: 'number' },
-      { name: 'total_cost',     label: 'Total Cost',     required: false, type: 'number' },
+      { name: 'unit_cost',      label: 'Unit Cost',      required: true,  type: 'number' },
+      // total_cost is ALWAYS auto-computed as qty × unit_cost — never mapped from a column.
       { name: 'category',       label: 'Category',       required: false, type: 'text' },
       { name: 'supplier',       label: 'Supplier',       required: false, type: 'text' },
       { name: 'date_delivered', label: 'Date Delivered', required: false, type: 'date' },
