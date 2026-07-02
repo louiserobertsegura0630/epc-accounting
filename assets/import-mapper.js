@@ -683,11 +683,21 @@
     host.innerHTML = '';
     if (!uploads.length) { host.append(el('p', { class: 'imp-note', text: 'No uploads yet.' })); return; }
 
+    // Paginate: 5 uploads per page. Current page is remembered per host + sort.
+    const PAGE_SIZE = 5;
+    const totalPages = Math.max(1, Math.ceil(uploads.length / PAGE_SIZE));
+    let page = Number(host.dataset.uploadsPage) || 1;
+    if (page > totalPages) page = totalPages;
+    if (page < 1) page = 1;
+    host.dataset.uploadsPage = String(page);
+    const start = (page - 1) * PAGE_SIZE;
+    const pageUploads = uploads.slice(start, start + PAGE_SIZE);
+
     const table = el('table', { class: 'imp-table imp-uploads' });
     const head = ['Date(s)', 'Type', 'File', 'Rows', 'Product-Days', 'Uploaded By', 'Uploaded At', ''];
     table.append(el('thead', {}, [el('tr', {}, head.map((h) => el('th', { text: h })))]));
     const tb = el('tbody');
-    uploads.forEach((u) => {
+    pageUploads.forEach((u) => {
       const ds = (u.dates || []).slice().sort();
       const dateLabel = ds.length <= 3 ? ds.join(', ') : `${ds[0]} … ${ds[ds.length - 1]} (${ds.length} days)`;
       const del = el('button', { class: 'btn btn-sm imp-del', text: 'Delete/Replace' });
@@ -705,6 +715,20 @@
     });
     table.append(tb);
     host.append(table);
+
+    // Pager (only when more than one page).
+    if (totalPages > 1) {
+      const goTo = (p) => { host.dataset.uploadsPage = String(p); renderUploadsList(host, opts); };
+      const prev = el('button', { class: 'btn btn-sm', text: '‹ Prev' });
+      prev.disabled = page <= 1;
+      prev.addEventListener('click', () => goTo(page - 1));
+      const next = el('button', { class: 'btn btn-sm', text: 'Next ›' });
+      next.disabled = page >= totalPages;
+      next.addEventListener('click', () => goTo(page + 1));
+      const info = el('span', { class: 'imp-note', text:
+        `Page ${page} of ${totalPages} — ${uploads.length.toLocaleString()} upload(s)` });
+      host.append(el('div', { class: 'imp-uploads-pager' }, [prev, info, next]));
+    }
   }
 
   function confirmDelete(upload, onDone) {

@@ -147,7 +147,11 @@ function openSalesImporter(file) {
     onDone: () => { try { loadSelectedRecords(false); } catch (e) {} refreshUploadsList(); },
   });
 }
-document.getElementById('uploads-sort')?.addEventListener('change', refreshUploadsList);
+document.getElementById('uploads-sort')?.addEventListener('change', () => {
+  const host = document.getElementById('uploads-list');
+  if (host) host.dataset.uploadsPage = '1';   // reset to first page on re-sort
+  refreshUploadsList();
+});
 // Initial uploads-list load once Firebase is ready.
 if (typeof getFirestoreDB === 'function') { setTimeout(refreshUploadsList, 300); }
 else window.addEventListener('load', () => setTimeout(refreshUploadsList, 600));
