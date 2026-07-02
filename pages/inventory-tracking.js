@@ -2962,6 +2962,67 @@ async function misImportMappedRows(mappedRows, onProgress) {
     }, Math.min(s + chunk.length, itemCostList.length));
     await sleep(150);
   }
+
+  // 5b) COST-MATCH HOOK: newly-imported item costs backfill any sales that were
+  //     uploaded first (cost-blind). Order-independent — inventory always wins.
+  //     Reads salesDaily day-docs, applies itemLatest cost per item_code, writes
+  //     cost/profit into products[code] and totals, and shrinks awaitingCost*.
+  try {
+    const num = (v) => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+    const costFor = (code) => {
+      const c = itemLatest.get(code);
+      return c && c.unit_cost > 0 ? c.unit_cost : null;
+    };
+    const salesSnap = await db.collection('salesDaily').get();
+    const salesUpdates = [];
+    salesSnap.forEach((doc) => {
+      const data = doc.data() || {};
+      const products = data.products || {};
+      let changed = false;
+      let tCost = 0, tProfit = 0, awItems = 0, awRevenue = 0;
+      Object.keys(products).forEach((code) => {
+        const p = products[code];
+        const units = num(p.units), revenue = num(p.revenue);
+        let uc = (p.unit_cost != null ? num(p.unit_cost) : null);
+        if (uc == null || uc <= 0) {
+          const nc = costFor(code);
+          if (nc != null) { uc = nc; p.unit_cost = nc; changed = true; }
+        }
+        if (uc != null && uc > 0) {
+          const cost = Math.round(units * uc * 100) / 100;
+          const profit = Math.round((revenue - cost) * 100) / 100;
+          p.cost = cost; p.profit = profit;
+          tCost += cost; tProfit += profit;
+        } else {
+          awItems++; awRevenue += revenue;
+        }
+      });
+      if (changed) {
+        const totals = data.totals || {};
+        totals.cost = Math.round(tCost * 100) / 100;
+        totals.profit = Math.round(tProfit * 100) / 100;
+        salesUpdates.push({ id: doc.id, data: {
+          products, totals,
+          awaitingCostItemCount: awItems,
+          awaitingCostRevenue: Math.round(awRevenue * 100) / 100,
+          lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+        } });
+      }
+    });
+    let matched = 0;
+    for (let s = 0; s < salesUpdates.length; s += FS_BATCH) {
+      const chunk = salesUpdates.slice(s, s + FS_BATCH);
+      await commitFreshBatchWithRetry(() => {
+        const batch = db.batch();
+        chunk.forEach((w) => batch.set(db.collection('salesDaily').doc(w.id), w.data, { merge: true }));
+        return batch;
+      }, Math.min(s + chunk.length, salesUpdates.length));
+      await sleep(150);
+    }
+    matched = salesUpdates.length;
+    if (matched > 0) { try { showToast(`✅ Matched costs into ${matched} sales day(s).`, 'success'); } catch (e) {} }
+  } catch (e) { console.warn('sales cost-match failed:', e); }
+
   // uploads tracking record (one per import).
   try {
     await db.collection('uploads').add({

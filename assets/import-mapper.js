@@ -261,51 +261,71 @@
     return { inserted, salesData: 0, underReviewData: 0 };
   }
 
+  // COST-BLIND sales import → per-day rollups (salesDaily). Never writes raw sale
+  // rows; never reads itemCost. Every item_code is "awaiting cost" at upload —
+  // the inventory importer later fills cost/profit and shrinks these counts.
   async function importSales(rows, onProgress) {
     const db = global.getFirestoreDB();
-    // Prefetch inventory cost map once (itemCode -> {unitCost, dateDelivered}).
-    onProgress(0, rows.length, 'Loading inventory costs…');
-    const costMap = await loadInventoryCostMap(db);
-    let inserted = 0, toSales = 0, toReview = 0;
-    for (let start = 0; start < rows.length; start += 400) {
-      const chunk = rows.slice(start, start + 400);
-      const batch = db.batch();
-      chunk.forEach((r) => {
-        const code = String(r.item_code || '').trim();
-        const date = normDate(r.date);
-        const units = num(r.units_sold);
-        const price = num(r.unit_selling_price);
-        const revenue = Math.round(units * price * 100) / 100;
-        const base = {
-          itemCode: code, date,
-          productName: String(r.product_name || '').trim(),
-          unitsSold: units, sellingPrice: price, srpUnit: price,
-          totalRevenue: revenue,
-          discount: 0, srpwdDiscount: 0, uom: '', category: 'Uncategorized',
-          importedAt: new Date().toISOString(), filename: 'upload-mapper',
-        };
-        // Route like POS: cost valid on/before sale date -> salesData, else underReviewData.
-        const cost = costForDate(costMap, code, date);
-        if (cost != null) {
-          const totalCost = Math.round(cost * units * 100) / 100;
-          batch.set(db.collection('salesData').doc(), Object.assign(base, {
-            unitCost: cost, totalCost,
-            grossProfit: Math.round((revenue - totalCost) * 100) / 100,
-            costMethod: 'inventory_at_sale_date', resolvedAt: new Date().toISOString(),
-          }));
-          toSales++;
-        } else {
-          batch.set(db.collection('underReviewData').doc(), Object.assign(base, {
-            nameLower: base.productName.toLowerCase(),
-          }));
-          toReview++;
-        }
+    const FVT = global.firebase && global.firebase.firestore && global.firebase.firestore.FieldValue;
+    const serverTs = () => (FVT ? FVT.serverTimestamp() : new Date().toISOString());
+
+    // 1) Consolidate in memory: date -> { products: Map(code -> {name,units,revenue}) }.
+    const byDate = new Map();
+    rows.forEach((r) => {
+      const code = String(r.item_code || '').trim();
+      const date = normDate(r.date);
+      if (!code || !date) return;
+      const units = num(r.units_sold) || 0;
+      const price = num(r.unit_selling_price) || 0;
+      const revenue = Math.round(units * price * 100) / 100;
+      if (!byDate.has(date)) byDate.set(date, new Map());
+      const day = byDate.get(date);
+      let p = day.get(code);
+      if (!p) { p = { name: String(r.product_name || '').trim(), units: 0, revenue: 0 }; day.set(code, p); }
+      p.units += units;
+      p.revenue = Math.round((p.revenue + revenue) * 100) / 100;
+      if (!p.name && r.product_name) p.name = String(r.product_name).trim();
+    });
+
+    // 2) Build one salesDaily doc per date. awaitingCost = ALL items (cost-blind).
+    const writes = [];
+    let productDays = 0, awaitingItemsTotal = 0, awaitingRevenueTotal = 0;
+    byDate.forEach((day, date) => {
+      const products = {};
+      let tUnits = 0, tRevenue = 0, awItems = 0, awRevenue = 0;
+      day.forEach((p, code) => {
+        products[code] = { name: p.name || '', units: p.units, revenue: p.revenue };
+        tUnits += p.units; tRevenue += p.revenue;
+        awItems++; awRevenue += p.revenue;      // cost-blind: every item awaits cost
+        productDays++;
       });
+      tRevenue = Math.round(tRevenue * 100) / 100;
+      awRevenue = Math.round(awRevenue * 100) / 100;
+      awaitingItemsTotal += awItems; awaitingRevenueTotal += awRevenue;
+      writes.push({ date, data: {
+        products, totals: { units: tUnits, revenue: tRevenue },
+        awaitingCostItemCount: awItems, awaitingCostRevenue: awRevenue,
+        lastUpdated: serverTs(),
+      } });
+    });
+
+    // 3) Write salesDaily with set() (idempotent REPLACE), chunked 400/batch.
+    let written = 0;
+    for (let s = 0; s < writes.length; s += 400) {
+      const chunk = writes.slice(s, s + 400);
+      const batch = db.batch();
+      chunk.forEach((w) => batch.set(db.collection('salesDaily').doc(w.date), w.data));
       await batch.commit();
-      inserted += chunk.length;
-      onProgress(inserted, rows.length);
+      written += chunk.length;
+      onProgress(written, writes.length, `Saving daily sales ${written}/${writes.length}…`);
     }
-    return { inserted, salesData: toSales, underReviewData: toReview };
+
+    const dates = [...byDate.keys()].sort();
+    return {
+      inserted: productDays, productDays, dates: dates.length,
+      awaitingItems: awaitingItemsTotal, awaitingRevenue: Math.round(awaitingRevenueTotal * 100) / 100,
+      summary: `${rows.length.toLocaleString()} rows → ${productDays.toLocaleString()} product-days across ${dates.length} date(s). ${awaitingItemsTotal.toLocaleString()} items (₱${Math.round(awaitingRevenueTotal).toLocaleString()} revenue) awaiting cost.`,
+    };
   }
 
   // Load inventory cost history: itemCode -> sorted [{d, cost}].
@@ -378,10 +398,15 @@
         }
       }
     }
-    // Raw rows (still written alongside rollups) are keyed by a content-hash id,
-    // so query by the date field and delete in pages.
-    const queryCols = type === 'inventory' ? [['inventoryData', 'dateDelivered']]
-                                           : [['salesData', 'date'], ['underReviewData', 'date']];
+    if (type === 'sales') {
+      // Sales is rollup-only: delete the salesDaily day-doc (keyed by date).
+      for (const d of dateSet) {
+        try { await db.collection('salesDaily').doc(d).delete(); removed++; } catch (e) { /* may not exist */ }
+      }
+    }
+    // Legacy raw rows (inventory still writes them) keyed by content-hash id:
+    // query by date field and delete in pages. Sales no longer writes raw rows.
+    const queryCols = type === 'inventory' ? [['inventoryData', 'dateDelivered']] : [];
     for (const [col, field] of queryCols) {
       for (const d of dateSet) {
         // eslint-disable-next-line no-constant-condition
@@ -595,12 +620,12 @@
         // --- Record the upload ONLY after all batches succeeded (built-in flows only) ---
         if (!customImporter) {
           status.textContent = 'Recording upload…';
-          await recordUpload(db, fieldSetName, fileDates, state.file && state.file.name, res.inserted, productDays);
+          // rowCount = file rows; productDays = distinct (date x item) from the importer.
+          await recordUpload(db, fieldSetName, fileDates, state.file && state.file.name, rows.length, (res.productDays != null ? res.productDays : productDays));
         }
 
         status.textContent = 'Done.';
-        let summary = res.summary || `Inserted ${(res.inserted || 0).toLocaleString()} row(s) across ${fileDates.length} date(s).`;
-        if (fieldSetName === 'sales') summary += `  (salesData: ${res.salesData.toLocaleString()}, underReviewData: ${res.underReviewData.toLocaleString()})`;
+        const summary = res.summary || `Inserted ${(res.inserted || 0).toLocaleString()} row(s) across ${fileDates.length} date(s).`;
         body.append(el('p', { class: 'imp-ok', text: summary }));
         footer.append(el('button', { class: 'btn btn-primary', onclick: () => { close(); onDone(res); } }, ['Close']));
       } catch (e) {

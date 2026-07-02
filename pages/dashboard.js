@@ -50,6 +50,59 @@ function actRow(label, count) {
   </div>`;
 }
 
+// ─── Cheap sales reads from salesDaily rollups ───────────────────────────────
+// salesDaily/{YYYY-MM-DD} = { products:{code:{name,units,revenue,cost,profit,unit_cost}},
+//   totals:{units,revenue,cost,profit}, awaitingCostItemCount, awaitingCostRevenue }.
+// Expand a day-doc into POS-shaped rows so getPOSTotals/onDay/product-perf keep working,
+// without ever scanning the raw salesData collection.
+const _salesDailyCache = new Map(); // date -> POS-shaped rows[]
+function salesDayToRows(date, data) {
+  const products = (data && data.products) || {};
+  const rows = [];
+  Object.keys(products).forEach((code) => {
+    const p = products[code] || {};
+    const units = Number(p.units) || 0;
+    const revenue = Number(p.revenue) || 0;
+    rows.push({
+      date, itemCode: code, productName: p.name || code,
+      unitsSold: units, totalRevenue: revenue, revenue,
+      unitCost: Number(p.unit_cost) || 0,
+      totalCost: (p.cost != null ? Number(p.cost) : (Number(p.unit_cost) || 0) * units) || 0,
+    });
+  });
+  return rows;
+}
+async function loadSalesForDate(date) {
+  if (_salesDailyCache.has(date)) return _salesDailyCache.get(date);
+  const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
+  let rows = [];
+  if (db) {
+    try {
+      const doc = await db.collection('salesDaily').doc(date).get();
+      if (doc.exists) rows = salesDayToRows(date, doc.data());
+    } catch (e) { console.warn('[Dashboard] salesDaily read failed for', date, e); }
+  }
+  _salesDailyCache.set(date, rows);
+  return rows;
+}
+// Read a date range of salesDaily docs by document-id (one read per existing day).
+async function loadSalesRange(from, to) {
+  const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
+  if (!db) return [];
+  try {
+    const snap = await db.collection('salesDaily')
+      .orderBy(firebase.firestore.FieldPath.documentId())
+      .startAt(from).endAt(to).get();
+    const rows = [];
+    snap.forEach((doc) => {
+      const r = salesDayToRows(doc.id, doc.data());
+      _salesDailyCache.set(doc.id, r);
+      rows.push(...r);
+    });
+    return rows;
+  } catch (e) { console.warn('[Dashboard] salesDaily range read failed', from, to, e); return []; }
+}
+
 // ─── Firestore loader (mirrors reports.js fetchReportCollection) ──────────────
 async function loadDashData() {
   async function fetchC(name, fallback) {
@@ -66,7 +119,7 @@ async function loadDashData() {
   }
 
   const [pos, purchases, supplies, esales, inventory, expenses, products] = await Promise.all([
-    fetchC('salesData',     'pos_sales'),
+    loadSalesForDate(SNAP_DATE),   // cheap: one salesDaily/{date} read, not a full scan
     fetchC('purchases',     'purchases'),
     fetchC('suppliesData',  'supplies_movements'),
     fetchC('eSalesRecords', 'esales'),
@@ -277,10 +330,11 @@ function generateDayReport() {
 }
 
 // ─── Date control ─────────────────────────────────────────────────────────────
-function setSnapDate(date) {
+async function setSnapDate(date) {
   SNAP_DATE = date || today;
   const el = document.getElementById('snap-date');
   if (el) el.value = SNAP_DATE;
+  DASH_DATA.pos = await loadSalesForDate(SNAP_DATE);  // one salesDaily/{date} read (cached)
   buildDailyOperationsSummary();
 }
 function setSnapToday() { setSnapDate(today); }
@@ -371,7 +425,7 @@ function makeBarChart(canvasId, items, color, measure) {
   });
 }
 
-function buildProductPerformance() {
+async function buildProductPerformance() {
   let st = {};
   try { st = JSON.parse(localStorage.getItem(PROD_PERF_KEY) || '{}'); } catch(e) {}
   const win   = st.window || 'month';
@@ -394,7 +448,8 @@ function buildProductPerformance() {
   if (lbl) lbl.textContent = `Product Performance: ${prodWindowLabel(win, range)}`;
 
   const byCode = {};
-  DASH_DATA.pos.filter(r => {
+  const rangeRows = await loadSalesRange(range.from, range.to);  // cheap: docs by id range
+  rangeRows.filter(r => {
     const d = snapDateFromRow(r);
     return d >= range.from && d <= range.to;
   }).forEach(r => {
