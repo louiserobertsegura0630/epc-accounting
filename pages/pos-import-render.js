@@ -488,6 +488,8 @@ async function openSalesDetail(id) {
     if (activeSalesDetailId !== id) return; // modal was closed or switched
     pmData = pmResult;
     renderCostInfo(pmData);
+    // Recompute the preview now that PM cost (Latest/Average) is available.
+    recomputeSalesDetailPreview();
   } catch (err) {
     console.error('[POS Sales Detail] Product Master lookup failed:', err);
     const costSection = document.getElementById('cost-info-section');
@@ -630,7 +632,11 @@ function getSalesDetailValues() {
   const productName  = document.getElementById('sales-detail-product-name')?.value?.trim() || row.productName || '';
   const itemCode     = document.getElementById('sales-detail-item-code')?.value?.trim() || row.itemCode || '';
   const category     = document.getElementById('sales-detail-category')?.value || row.category || 'Uncategorized';
-  const unitCost     = Number(row.unitCost) || 0;
+  // Unit cost comes from Product Master using the selected cost method
+  // (Latest vs Average). Fall back to the row's own cost if PM is missing.
+  const unitCost     = (typeof pmData !== 'undefined' && pmData)
+    ? (Number(productCostForMethod(pmData)) || 0)
+    : (Number(row.unitCost) || 0);
   const totalRevenue = unitsSold * sellingPrice;
   const totalCost    = unitsSold * unitCost;
   const grossProfit  = salesGrossProfitAmount({ unitsSold, unitCost, totalCost, sellingPrice, totalRevenue });

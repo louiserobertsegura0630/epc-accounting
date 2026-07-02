@@ -1036,6 +1036,10 @@ document.querySelectorAll('input[name="cost-method"]').forEach(input => {
     costMethod = this.value;
     localStorage.setItem('costMethod', costMethod);
     logAudit('Settings', 'Sales COGS Method', `Changed COGS method to ${costMethod === 'average' ? 'Average Price' : 'Latest Price'}`);
+    // If the sale detail modal is open, refresh its profit/margin for the new method.
+    if (typeof recomputeSalesDetailPreview === 'function' && document.getElementById('sales-detail-gross-profit')) {
+      recomputeSalesDetailPreview();
+    }
     recomputeAllSalesCOGS().finally(() => triggerSalesSummaryRecompute('Computing Sales summary...'));
   });
 });

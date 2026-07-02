@@ -318,10 +318,12 @@ function salesMarginPercent(grossProfit, row) {
 
 function salesGrossProfitAmount(row) {
   const unitsSold = Number(row?.unitsSold) || 0;
-  const totalCost = Number(row?.totalCost) || ((Number(row?.unitCost) || 0) * unitsSold);
-  const unitCost = unitsSold > 0 ? totalCost / unitsSold : Number(row?.unitCost) || 0;
-  const sellingPrice = Number(row?.sellingPrice ?? row?.srpUnit) || 0;
-  return sellingPrice - unitCost;
+  const unitCost = Number(row?.unitCost) || 0;
+  const totalCost = Number(row?.totalCost) || (unitCost * unitsSold);
+  // Gross profit = total revenue − (unit cost × units sold).
+  const totalRevenue = Number(row?.totalRevenue) ||
+    ((Number(row?.sellingPrice ?? row?.srpUnit) || 0) * unitsSold);
+  return totalRevenue - totalCost;
 }
 
 function normalizeSalesFinancials(row, inventoryCostMap = null) {
@@ -596,43 +598,29 @@ async function recomputeAllSalesCOGS() {
   setCostMethodInputsDisabled(true);
 
   try {
+    // Sales is rollup-only: recompute COGS in memory for the loaded rows using the
+    // selected cost method (Latest/Average from Product Master). No DB write —
+    // there are no per-sale documents to update.
     const rows = _salesData.map(row => ({ ...row }));
-    const [productMap, inventoryCostMap] = await Promise.all([
-      loadProductMasterMap(),
-      loadInventoryUnitCostMap(rows.map(row => row.itemCode)),
-    ]);
-    const batchSize = 499;
-    const totalBatches = Math.max(1, Math.ceil(rows.length / batchSize));
-
-    for (let start = 0; start < rows.length; start += batchSize) {
-      const chunk = rows.slice(start, start + batchSize);
-      const batch = db.batch();
-      chunk.forEach(row => {
-        const codeKey = String(row.itemCode || '').trim();
-        const product = productMap[codeKey] || productMap[codeKey.toUpperCase()];
-        const unitCost = inventoryUnitCostForCode(inventoryCostMap, codeKey) ||
-          (product ? productCostForMethod(product) : (Number(row.unitCost) || 0));
-        const unitsSold = Number(row.unitsSold) || 0;
-        const totalRevenue = Number(row.totalRevenue) || 0;
-        const totalCost = unitCost * unitsSold;
-        const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost, totalCost });
-        const margin = salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost, totalCost });
-        Object.assign(row, { unitCost, totalCost, grossProfit, margin, costMethod });
-        batch.update(db.collection('salesData').doc(row._id), {
-          unitCost, totalCost, grossProfit, margin, costMethod
-        });
-      });
-      await batch.commit();
-      const percent = Math.round((Math.floor(start / batchSize) + 1) / totalBatches * 100);
-      fillEl.style.width = `${percent}%`;
-      labelEl.textContent = `Recomputing COGS... ${percent}%`;
-    }
-
-    _salesData = rows;
+    const productMap = await loadProductMasterMap();
+    rows.forEach(row => {
+      const codeKey = String(row.itemCode || '').trim();
+      const product = productMap[codeKey] || productMap[codeKey.toUpperCase()];
+      // Honor Latest vs Average: Product Master cost by method wins.
+      const unitCost = product ? (Number(productCostForMethod(product)) || 0) : (Number(row.unitCost) || 0);
+      const unitsSold = Number(row.unitsSold) || 0;
+      const totalRevenue = Number(row.totalRevenue) || 0;
+      const totalCost = unitCost * unitsSold;
+      const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost, totalCost, totalRevenue });
+      const margin = salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost, totalCost, totalRevenue });
+      Object.assign(row, { unitCost, totalCost, grossProfit, margin, costMethod });
+    });
     fillEl.style.width = '100%';
     labelEl.textContent = 'COGS recompute complete! ✓';
+    _salesData = rows;
+    salesBrowseData = rows;
     renderAll();
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 600));
   } catch (err) {
     console.error('[POS COGS] Recompute failed:', err);
     alert('Could not recompute COGS. Please check your connection and try again.');
