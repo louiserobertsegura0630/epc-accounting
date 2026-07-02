@@ -51,6 +51,37 @@ service cloud.firestore {
                    && (userRole() == 'accountant' || userRole() == 'limited');
     }
 
+    // ── Per-day rollups + import bookkeeping (written by the importers) ────────
+    // inventoryDaily / dailyPurchases / itemCost come from inventory import.
+    // salesDaily is a derived rollup (updated by sales import AND by the inventory
+    // cost-match hook), so inventory uploaders (limited) must be able to write it.
+    // uploads tracks each import for the Delete/Replace list.
+    match /inventoryDaily/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /dailyPurchases/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /itemCost/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /salesDaily/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+    match /uploads/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
+
     // ── Collections writable by accountant only ───────────────────────────────
     // salesData, underReviewData, eSalesRecords, expenses, ewtRemittances
     match /salesData/{doc} {

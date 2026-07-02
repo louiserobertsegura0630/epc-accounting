@@ -6,7 +6,7 @@ const REPORT_DATA = {
 };
 let activeReportTab = 'income';
 const REPORT_COLLECTIONS = {
-  sales: { collection:'salesData', fallback:'pos_sales', dataKey:'sales' },
+  sales: { collection:'salesDaily', fallback:'pos_sales', dataKey:'sales', rollup:'sales' },
   purchases: { collection:'purchases', fallback:'purchases', dataKey:'purchases' },
   expenses: { collection:'expenses', fallback:'expenses', dataKey:'expenses' },
   supplies: { collection:'suppliesData', fallback:'supplies_movements', dataKey:'supplies' },
@@ -27,6 +27,10 @@ const REPORT_TAB_COLLECTIONS = {
 };
 const loadedReportCollections = new Set();
 let productMasterReportListenerStarted = false;
+// Sales revenue for all days BEFORE the current report-start (for cash flow opening
+// balance). Populated whenever sales is loaded, since REPORT_DATA.sales is now
+// range-scoped and no longer contains pre-range rows.
+let salesPriorInflow = { before: null, total: 0 };
 const FEATURE_CUSTOM_REPORT = false;
 let reportChart = null;
 let purchasesBarChart = null;
@@ -124,9 +128,72 @@ function escReport(value) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Expand salesDaily/{date} rollup docs into per-line rows matching the shape the
+// report pipeline expects (one row per item per day). Range-scoped by the report's
+// start/end dates so we only read the days in view (cheap: one read per day).
+async function fetchSalesRollupRows() {
+  const db = getFirestoreDB();
+  if (!db) return DB.get('pos_sales') || [];
+  const start = (document.getElementById('report-start') || {}).value || '';
+  const end = (document.getElementById('report-end') || {}).value || '';
+  let q = db.collection('salesDaily').orderBy(firebase.firestore.FieldPath.documentId());
+  if (start) q = q.startAt(start);
+  if (end) q = q.endAt(end);
+  const snap = await q.get();
+  const rows = [];
+  snap.forEach(doc => {
+    const data = doc.data() || {};
+    const products = data.products || {};
+    const date = doc.id;
+    Object.keys(products).forEach(code => {
+      const p = products[code] || {};
+      const units = Number(p.units) || 0;
+      const revenue = Number(p.revenue) || 0;
+      const unitCost = Number(p.unit_cost) || 0;
+      rows.push({
+        _firestoreId: `${date}__${code}`,
+        date,
+        itemCode: code,
+        productName: p.name || code,
+        category: p.category || '',
+        unitsSold: units,
+        totalRevenue: revenue,
+        sellingPrice: units > 0 ? Math.round((revenue / units) * 10000) / 10000 : 0,
+        unitCost,
+        totalCost: (p.cost != null ? Number(p.cost) : unitCost * units) || 0,
+      });
+    });
+  });
+  return rows;
+}
+
+// Sum salesDaily.totals.revenue for all days strictly before the report start.
+// Cheap: reads only the day-docs before `from`, once per range change.
+async function loadSalesPriorInflow() {
+  const from = (document.getElementById('report-start') || {}).value || '';
+  const db = getFirestoreDB();
+  if (!from || !db) { salesPriorInflow = { before: from, total: 0, earliest: null }; return; }
+  try {
+    const snap = await db.collection('salesDaily')
+      .orderBy(firebase.firestore.FieldPath.documentId())
+      .endBefore(from).get();
+    let total = 0; let earliest = null;
+    snap.forEach(doc => {
+      const t = (doc.data() || {}).totals || {};
+      total += Number(t.revenue) || 0;
+      if (earliest === null) earliest = doc.id;   // ordered by id asc → first is earliest
+    });
+    salesPriorInflow = { before: from, total: Math.round(total * 100) / 100, earliest };
+  } catch (e) {
+    console.warn('[Reports] prior sales inflow read failed:', e);
+    salesPriorInflow = { before: from, total: 0, earliest: null };
+  }
+}
+
 async function fetchReportCollection(name, fallbackKey = '') {
   const localRows = fallbackKey ? DB.get(fallbackKey) : [];
   if (name === 'purchases' && localRows.length) return localRows;
+  if (name === 'salesDaily') return await fetchSalesRollupRows();
   const db = getFirestoreDB();
   if (!db) return localRows;
   const snapshot = await db.collection(name).get();
@@ -148,7 +215,23 @@ async function loadReportCollections(keys, { force = false } = {}) {
     REPORT_DATA[dataKey] = rows;
     loadedReportCollections.add(key);
   });
+  if (keysToLoad.includes('sales')) await loadSalesPriorInflow();
+  backfillSalesCategories();
   if (loadedReportCollections.has('productMaster')) startProductMasterReportListener();
+}
+
+// salesDaily rows carry no category (it lives in productMaster). Stamp it on once
+// both are loaded so category filters / breakdowns / the inventory matrix work.
+function backfillSalesCategories() {
+  if (!Array.isArray(REPORT_DATA.sales) || !REPORT_DATA.sales.length) return;
+  if (!Array.isArray(REPORT_DATA.productMaster) || !REPORT_DATA.productMaster.length) return;
+  const products = reportProductMap();
+  REPORT_DATA.sales.forEach(row => {
+    if (row.category) return;
+    const code = String(row.itemCode || row.code || '').trim();
+    const p = products[code] || products[code.toUpperCase()];
+    if (p && p.category) row.category = p.category;
+  });
 }
 
 async function ensureActiveReportData({ force = false } = {}) {
@@ -163,6 +246,7 @@ function startProductMasterReportListener() {
   db.collection('productMaster').onSnapshot(snapshot => {
     REPORT_DATA.productMaster = snapshot.docs.map(doc => ({ _firestoreId:doc.id, ...doc.data() }));
     loadedReportCollections.add('productMaster');
+    backfillSalesCategories();
     if (activeReportTab === 'inventory' || activeReportTab === 'income') renderActiveReport();
   }, err => console.error('[Reports] Product Master listener failed:', err));
 }
@@ -1735,7 +1819,9 @@ const CF_OVERRIDE_KEY = 'cfBeginOverride';
 function cfComputedBeginBalance(from) {
   if (!from) return 0;
   const before = r => { const d = reportDate(r); return d && d < from; };
-  const inflow  = REPORT_DATA.sales.filter(before).reduce((s,r) => s+(Number(r.totalRevenue)||0), 0);
+  // Sales inflow before the range comes from the salesDaily prior-sum (range-scoped
+  // REPORT_DATA.sales no longer holds pre-range rows).
+  const inflow  = (salesPriorInflow.before === from) ? salesPriorInflow.total : 0;
   const purchases = reportPurchasesData();
   const purOut  = purchases.filter(before).reduce((s,r) => s+purchaseSpend(r), 0);
   const supOut  = REPORT_DATA.supplies.filter(before).reduce((s,r) => s+(Number(r.totalCost??r.amount)||0), 0);
@@ -1746,7 +1832,7 @@ function cfEarliestDate(from) {
   if (!from) return null;
   const purchases = reportPurchasesData();
   const dates = [
-    ...REPORT_DATA.sales.map(r => reportDate(r)),
+    (salesPriorInflow.before === from ? salesPriorInflow.earliest : null),
     ...purchases.map(r => reportDate(r)),
     ...REPORT_DATA.supplies.map(r => reportDate(r)),
   ].filter(d => d && d < from).sort();
