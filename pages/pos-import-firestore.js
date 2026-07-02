@@ -490,29 +490,31 @@ async function computeSummaryTotals(filterState = salesFilters, options = {}) {
   let processed = 0;
   let cursor = null;
 
-  while (true) {
-    let query = salesSummaryBaseQuery('salesData', range).limit(VS_PAGE_SIZE);
-    if (cursor) query = query.startAfter(cursor);
-    const snap = await query.get();
-    if (!snap.docs.length) break;
-    snap.docs.forEach(doc => {
-      const row = costedSalesSummaryRow({ _id: doc.id, ...doc.data() }, productMap, inventoryCostMap);
-      if (!rowMatchesFilters(row, filters)) return;
-      const grossRevenue = posGrossRevenue(row);
-      const netRevenue = posNetRevenue(row);
-      totals.grossRevenue += grossRevenue;
-      totals.netRevenue += netRevenue;
-      totals.revenue += netRevenue;
-      totals.srpwdDiscounts += posSrpwdDiscount(row);
-      totals.cogs += Number(row.totalCost) || 0;
-      totals.profit += grossRevenue - (Number(row.totalCost) || 0);
-      totals.unitsSold += Number(row.unitsSold) || 0;
-      totals.count += 1;
+  // Approved sales now live in salesDaily rollups: read the day-docs in range and
+  // expand each into per-item-day rows, then cost + total them.
+  {
+    let q = db.collection('salesDaily').orderBy(firebase.firestore.FieldPath.documentId());
+    if (range.start) q = q.startAt(range.start);
+    if (range.end) q = q.endAt(range.end);
+    const snap = await q.get();
+    snap.forEach(doc => {
+      salesDailyDocToRows(doc.id, doc.data()).forEach(base => {
+        const row = costedSalesSummaryRow(base, productMap, inventoryCostMap);
+        if (!rowMatchesFilters(row, filters)) return;
+        const grossRevenue = posGrossRevenue(row);
+        const netRevenue = posNetRevenue(row);
+        totals.grossRevenue += grossRevenue;
+        totals.netRevenue += netRevenue;
+        totals.revenue += netRevenue;
+        totals.srpwdDiscounts += posSrpwdDiscount(row);
+        totals.cogs += Number(row.totalCost) || 0;
+        totals.profit += grossRevenue - (Number(row.totalCost) || 0);
+        totals.unitsSold += Number(row.unitsSold) || 0;
+        totals.count += 1;
+      });
     });
-    processed += snap.docs.length;
+    processed += snap.size;
     if (progress) progress.update(scanLabel, processed, totalForProgress);
-    cursor = snap.docs[snap.docs.length - 1];
-    if (snap.docs.length < VS_PAGE_SIZE) break;
     if (runId !== salesSummaryRunId) return null;
   }
 
@@ -934,41 +936,60 @@ async function searchCollectionRecords(collectionName, term) {
   return mergeRecordResults(snapshots);
 }
 
+// Expand salesDaily/{date} rollup docs into per-item-day rows for the Sales Data
+// table. Sales is rollup-only now (no raw salesData), so we read just the day-docs
+// in the selected range — one read per day — and unpack their products map.
+function salesDailyDocToRows(date, data) {
+  const products = (data && data.products) || {};
+  const rows = [];
+  Object.keys(products).forEach(code => {
+    const p = products[code] || {};
+    const unitsSold = Number(p.units) || 0;
+    const totalRevenue = Number(p.revenue) || 0;
+    const unitCost = Number(p.unit_cost) || 0;
+    rows.push({
+      _id: `${date}__${code}`,
+      _fromRollup: true,
+      date,
+      itemCode: code,
+      productName: p.name || code,
+      category: p.category || '',
+      unitsSold,
+      sellingPrice: unitsSold > 0 ? Math.round((totalRevenue / unitsSold) * 10000) / 10000 : 0,
+      totalRevenue,
+      discount: 0,
+      srpwdDiscount: 0,
+      unitCost,
+      salesFlag: 'Approved',
+    });
+  });
+  return rows;
+}
+
 async function loadSalesData({ append = false } = {}) {
   if (!salesRangeStart || !salesRangeEnd) return [];
-  const aggregatePromise = !append
-    ? Promise.all([
-      safeRangeCount('salesData').then(count => ({ count, totalRevenue: null })),
-      loadRangeAggregates('underReviewData')
-    ])
-    : Promise.resolve(null);
-  const query = buildRangeQuery('salesData', append, salesLastDocSnapshot);
-  const snapPromise = query.get()
-      .then(result => {
-        if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('sales read');
-        return result;
-      })
-      .catch(err => {
-        if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
-        throw err;
-      });
-  const [aggregates, snap] = await Promise.all([aggregatePromise, snapPromise]);
-  if (aggregates) {
-    const [salesAggregate, reviewAggregate] = aggregates;
-    salesTotalRecords = salesAggregate.count;
-    salesTotalRevenue = salesAggregate.totalRevenue;
-    reviewTotalRecords = reviewAggregate.count;
-    reviewTotalRevenue = reviewAggregate.totalRevenue;
+  let q = db.collection('salesDaily').orderBy(firebase.firestore.FieldPath.documentId());
+  if (salesRangeStart) q = q.startAt(salesRangeStart);
+  if (salesRangeEnd) q = q.endAt(salesRangeEnd);
+  let snap;
+  try {
+    snap = await q.get();
+    if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('sales read (salesDaily)');
+  } catch (err) {
+    if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
+    throw err;
   }
-  salesLastDocSnapshot = snap.docs[snap.docs.length - 1] || salesLastDocSnapshot;
-  salesHasMoreRecords = salesTotalRecords == null
-    ? snap.docs.length === VS_PAGE_SIZE
-    : (append ? salesBrowseData.length + snap.docs.length : snap.docs.length) < salesTotalRecords;
-  salesRecordsLoaded = true;
-  const rawRows = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+  const rawRows = [];
+  snap.forEach(doc => rawRows.push(...salesDailyDocToRows(doc.id, doc.data())));
   const inventoryCostMap = await loadInventoryUnitCostMap(rawRows.map(row => row.itemCode));
   const rows = rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
-  salesBrowseData = append ? [...salesBrowseData, ...rows] : rows;
+
+  salesTotalRecords = rows.length;
+  salesTotalRevenue = rows.reduce((s, r) => s + (Number(r.totalRevenue) || 0), 0);
+  salesHasMoreRecords = false;          // rollup range is loaded in one pass
+  salesLastDocSnapshot = null;
+  salesRecordsLoaded = true;
+  salesBrowseData = rows;               // not paginated; full range in memory
   salesSearchMode = false;
   salesSearchTerm = '';
   return salesBrowseData;
@@ -1004,12 +1025,17 @@ async function loadUnderReview({ append = false } = {}) {
 }
 
 async function searchSalesData(term) {
-  const rawRows = await searchCollectionRecords('salesData', term);
-  const inventoryCostMap = await loadInventoryUnitCostMap(rawRows.map(row => row.itemCode));
+  // Sales is rollup-only: search within the loaded range (salesBrowseData). Make
+  // sure the range is loaded first, then filter by item code / product name.
+  if (!salesRecordsLoaded) { await loadSalesData({ append: false }); }
+  const q = String(term || '').trim().toLowerCase();
   salesSearchMode = true;
-  salesSearchTerm = String(term || '').trim();
+  salesSearchTerm = q;
   salesHasMoreRecords = false;
-  return rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
+  if (!q) return salesBrowseData;
+  return salesBrowseData.filter(r =>
+    String(r.itemCode || '').toLowerCase().includes(q) ||
+    String(r.productName || '').toLowerCase().includes(q));
 }
 
 async function searchUnderReview(term) {
@@ -1054,7 +1080,16 @@ async function fetchAllRecordsForExport(collectionName, start, end, onProgress) 
 }
 
 async function exportSalesDataRange(start, end, onProgress) {
-  const rawRows = await fetchAllRecordsForExport('salesData', start, end, onProgress);
+  // Sales is rollup-only: read salesDaily/{date} docs in range and expand.
+  let q = db.collection('salesDaily').orderBy(firebase.firestore.FieldPath.documentId());
+  if (start) q = q.startAt(start);
+  if (end) q = q.endAt(end);
+  const snap = await q.get();
+  const rawRows = [];
+  snap.forEach(doc => {
+    rawRows.push(...salesDailyDocToRows(doc.id, doc.data()));
+    if (typeof onProgress === 'function') onProgress(rawRows.length);
+  });
   if (!rawRows.length) return null;
   const itemCodes = [...new Set(rawRows.map(r => r.itemCode).filter(Boolean))];
   const inventoryCostMap = await loadInventoryUnitCostMap(itemCodes);
