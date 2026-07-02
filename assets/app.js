@@ -883,7 +883,6 @@ const NAV = [
   { href:'dashboard.html', icon:'grid',    label:'Dashboard',         key:'dashboard' },
   { section:'TRANSACTIONS' },
   { href:'pos-import.html',icon:'upload',  label:'Sales',             key:'pos-import' },
-  { href:'data-upload.html',icon:'upload', label:'Data Upload',       key:'data-upload' },
   { href:'purchases-ewt.html', icon:'bag', label:'Purchases',         key:'purchases' },
   { href:'expenses.html',  icon:'card',    label:'Expenses',          key:'expenses' },
   { section:'TRACKING' },

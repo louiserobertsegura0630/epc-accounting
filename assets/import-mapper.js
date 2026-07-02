@@ -638,7 +638,20 @@
       }
     }
 
-    renderPick();
+    // If a file was handed in (drag-drop / external picker), skip the pick step.
+    async function startWithFile(file) {
+      state.file = file;
+      try {
+        state.grid = await parseFile(state.file);
+        if (!state.grid.length) throw new Error('File appears empty.');
+        renderMapping();
+      } catch (e) {
+        renderPick();
+        const err = $('#imp-pick-err'); if (err) err.textContent = 'Could not read file: ' + e.message;
+      }
+    }
+    if (opts && opts.initialFile) startWithFile(opts.initialFile);
+    else renderPick();
     return { close };
   }
 

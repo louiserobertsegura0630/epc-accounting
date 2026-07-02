@@ -7,10 +7,12 @@
   <title>Sales - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css">
   <script src="../assets/vendor/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
+  <link rel="stylesheet" href="../assets/import-mapper.css">
   <link rel="stylesheet" href="pos-import.css?v=20260622-summary-progress">
 </head>
 <body>
@@ -59,6 +61,23 @@
         <div class="progress-wrap"><div class="progress-fill" id="progress-fill"></div></div>
       </div>
 
+    </div>
+
+    <!-- Uploaded files: view + delete/replace to free a blocked date -->
+    <div class="card mb-24">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div style="font-size:16px;font-weight:700;">Uploaded Files</div>
+        <label class="imp-note" style="margin:0;">Sort by
+          <select id="uploads-sort">
+            <option value="uploadedAt-desc">Most recent</option>
+            <option value="date">Date (ascending)</option>
+            <option value="date-desc">Date (descending)</option>
+            <option value="type">Type</option>
+          </select>
+        </label>
+      </div>
+      <p class="imp-note">Each date can be uploaded once per type. Use Delete/Replace to free a date and correct a bad upload.</p>
+      <div id="uploads-list"></div>
     </div>
 
     <!-- Page-load overlay -->
@@ -375,11 +394,12 @@
   </div>
 </div>
 
-<script src="../assets/app.js?v=20260622-no-auto-logout"></script>
+<script src="../assets/app.js?v=20260702-nav-no-dataupload"></script>
 <script src="../assets/shared-utils.js?v=20260619-full-range-rematch"></script>
+<script src="../assets/import-mapper.js?v=20260702-sales2"></script>
 <script src="pos-import-firestore.js?v=20260622-summary-progress"></script>
 <script src="pos-import-parser.js?v=20260611-dsr-all-sheets-lineitems"></script>
 <script src="pos-import-render.js?v=20260622-discounts-net-revenue"></script>
-<script src="pos-import-ui.js?v=20260622-summary-progress"></script>
+<script src="pos-import-ui.js?v=20260702-mapper-sales"></script>
 </body>
 </html>

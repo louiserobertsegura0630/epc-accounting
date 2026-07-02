@@ -120,7 +120,38 @@ document.getElementById('btn-rematch-now').addEventListener('click', async funct
 const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 
-dropZone.addEventListener('click',    () => { if (!fileInput.disabled && canEditSalesPage()) fileInput.click(); });
+// Sales import now uses the config-driven column-mapping dialog (writes salesDaily
+// rollups). It accepts header-less / arbitrary-order files by letting the user map
+// columns, replacing the old fixed-header parser.
+function uploadsSortOpt() {
+  const v = (document.getElementById('uploads-sort') || {}).value || 'uploadedAt-desc';
+  if (v === 'date-desc') return { sortKey: 'date', dir: 'desc' };
+  if (v === 'uploadedAt-desc') return { sortKey: 'uploadedAt', dir: 'desc' };
+  if (v === 'type') return { sortKey: 'type', dir: 'asc' };
+  return { sortKey: 'date', dir: 'asc' };
+}
+function refreshUploadsList() {
+  if (typeof EPCImport !== 'undefined' && EPCImport.renderUploadsList && document.getElementById('uploads-list')) {
+    EPCImport.renderUploadsList('#uploads-list', uploadsSortOpt());
+  }
+}
+function openSalesImporter(file) {
+  if (typeof EPCImport === 'undefined' || !EPCImport.openImportDialog) {
+    alert('Import module not loaded. Please refresh the page.');
+    return;
+  }
+  EPCImport.openImportDialog({
+    fieldSet: 'sales',
+    title: 'Import Sales (map columns)',
+    initialFile: file || null,
+    onDone: () => { try { loadSelectedRecords(false); } catch (e) {} refreshUploadsList(); },
+  });
+}
+document.getElementById('uploads-sort')?.addEventListener('change', refreshUploadsList);
+// Initial uploads-list load once Firebase is ready.
+if (typeof getFirestoreDB === 'function') { setTimeout(refreshUploadsList, 300); }
+else window.addEventListener('load', () => setTimeout(refreshUploadsList, 600));
+dropZone.addEventListener('click',    () => { if (canEditSalesPage()) openSalesImporter(); });
 dropZone.addEventListener('dragover',  e => {
   e.preventDefault();
   if (canEditSalesPage()) dropZone.classList.add('dragover');
@@ -128,13 +159,8 @@ dropZone.addEventListener('dragover',  e => {
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
   e.preventDefault(); dropZone.classList.remove('dragover');
-  if (fileInput.disabled || !requireSalesEditAccess()) return;
-  if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', function() {
-  if (!requireSalesEditAccess()) { this.value = ''; return; }
-  if (this.files[0]) processFile(this.files[0]);
-  this.value = '';
+  if (!requireSalesEditAccess()) return;
+  openSalesImporter(e.dataTransfer.files[0] || null);
 });
 
 function syncSalesSelectionUI(pageRows = getVisibleSalesRows()) {
