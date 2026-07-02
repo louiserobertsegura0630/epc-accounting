@@ -768,6 +768,20 @@ th.has-filter .th-label::after {
 .col-filter-range .col-filter { flex: 1; width: 0; }
 .range-sep { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 
+/* Date-range filters: stack From/To vertically so the full date is readable
+   (native date inputs have a wide intrinsic min-width and clip in a narrow cell). */
+.col-filter-range.col-filter-range-date { flex-direction: column; align-items: stretch; gap: 4px; }
+.col-filter-range-date .col-filter { width: 100%; flex: none; min-width: 118px; }
+.col-filter-range-date .range-sep { display: none; }
+.col-filter-range-date .col-filter-date-field { display: flex; align-items: center; gap: 5px; }
+.col-filter-range-date .col-filter-date-label {
+  font-size: 10px; font-weight: 600; color: var(--text-muted);
+  min-width: 26px; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.col-filter-range-date .col-filter-date-field .col-filter { min-width: 0; }
+/* Ensure native date inputs never collapse to just the picker icon. */
+input.col-filter[type="date"] { min-width: 118px; }
+
 /* ─── Filter Toolbar (Purchases / EWT) ──────────────────────────────────── */
 .filter-toolbar {
   background: #fafbff;

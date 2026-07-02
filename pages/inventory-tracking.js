@@ -705,6 +705,55 @@ async function loadInventoryDailyPage({ pageDays = 14, beforeDate = null } = {})
   return { rows, lastDate, hasMore: snap.docs.length === pageDays };
 }
 
+// Load inventory movements for a specific date range from inventoryDaily rollups.
+// Reads only the day-docs in [from,to] — one read per day in range.
+async function loadInventoryDailyRange(from, to) {
+  const db = getFirestoreDB();
+  if (!db) return { rows: [], days: 0 };
+  let q = db.collection('inventoryDaily').orderBy(firebase.firestore.FieldPath.documentId(), 'desc');
+  if (from) q = q.where(firebase.firestore.FieldPath.documentId(), '>=', from);
+  if (to) q = q.where(firebase.firestore.FieldPath.documentId(), '<=', to);
+  const snap = await q.get();
+  const rows = [];
+  snap.forEach((doc) => {
+    const items = doc.data().items || {};
+    Object.keys(items).forEach((code) => {
+      const it = items[code];
+      rows.push({ dateDelivered: doc.id, type: 'Incoming', itemCode: code, description: it.name || '', category: '', supplier: '', unitCost: it.unit_cost, qty: it.qty, totalCost: it.total_cost, _fromRollup: true });
+    });
+  });
+  return { rows, days: snap.docs.length };
+}
+
+// Generate button: fetch only the selected date window, replacing the table.
+async function generateInventory() {
+  const btn = document.getElementById('btn-generate-inv');
+  const status = document.getElementById('inv-query-status');
+  const from = (document.getElementById('inv-range-start') || {}).value || '';
+  const to = (document.getElementById('inv-range-end') || {}).value || '';
+  if (!from && !to) { if (status) status.textContent = 'Pick a date range first.'; return; }
+  if (from && to && from > to) { if (status) status.textContent = 'Start date is after end date.'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  if (status) status.textContent = 'Loading…';
+  try {
+    const { rows, days } = await loadInventoryDailyRange(from, to);
+    // Replace movements with the queried window (drop previous rollup rows).
+    const derived = (DB.get('inventory_movements') || []).filter((m) => m.type === 'Outgoing');
+    DB.set('inventory_movements', [...rows, ...derived]);
+    inventoryHasMoreRecords = false;
+    updateInventoryLoadMoreControl();
+    invTable.render();
+    renderSummary();
+    const itemDays = rows.length;
+    if (status) status.textContent = `${itemDays.toLocaleString()} item-day(s) across ${days} day(s).`;
+  } catch (e) {
+    console.error('[Inventory] Generate failed:', e);
+    if (status) status.textContent = 'Load failed: ' + (e && e.message ? e.message : 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
+  }
+}
+
 async function refreshInventoryAggregates() {
   const db = getFirestoreDB();
   if (!db) return;
@@ -3061,8 +3110,21 @@ function watchInventoryProductMaster() {
   }, err => console.error('[Inventory] Product Master listener failed:', err));
 }
 
+// Load-on-demand: the movements table starts EMPTY and is filled only when the
+// user picks a date range and clicks Generate — so opening the page costs almost
+// nothing (no full-history scan). KPIs still summarize via cheap dailyPurchases.
+(function initInventoryGenerateBar() {
+  const now = new Date();
+  const first = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const s = document.getElementById('inv-range-start'); if (s && !s.value) s.value = first;
+  const e = document.getElementById('inv-range-end'); if (e && !e.value) e.value = last;
+  const btn = document.getElementById('btn-generate-inv');
+  if (btn) btn.addEventListener('click', generateInventory);
+})();
+
+DB.set('inventory_movements', []);   // start empty; Generate fills it
 Promise.all([
-  loadInventoryBatch({ append: false }),
   loadSuppliersFromFirestore(),
   loadProductMasterFromFirestore()
 ])
@@ -3071,6 +3133,7 @@ Promise.all([
     renderSummary();
     refreshInventoryAggregates();
     watchInventoryProductMaster();
+    generateInventory();   // auto-run for the default (current-month) range
   })
   .catch(err => console.error('[Inventory] Firestore load failed:', err));
 

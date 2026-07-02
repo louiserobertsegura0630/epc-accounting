@@ -1554,12 +1554,17 @@ class TrackingTable {
         <option value="">All</option>${opts}</select>`;
     }
     if (col.filterType === 'date-range') {
-      return `<div class="col-filter-range">
-        <input class="col-filter" type="date"
-          oninput="${self}.setRangeFilter('${col.key}','from',this.value)">
-        <span class="range-sep">–</span>
-        <input class="col-filter" type="date"
-          oninput="${self}.setRangeFilter('${col.key}','to',this.value)">
+      return `<div class="col-filter-range col-filter-range-date">
+        <label class="col-filter-date-field">
+          <span class="col-filter-date-label">From</span>
+          <input class="col-filter" type="date" aria-label="From date"
+            oninput="${self}.setRangeFilter('${col.key}','from',this.value)">
+        </label>
+        <label class="col-filter-date-field">
+          <span class="col-filter-date-label">To</span>
+          <input class="col-filter" type="date" aria-label="To date"
+            oninput="${self}.setRangeFilter('${col.key}','to',this.value)">
+        </label>
       </div>`;
     }
     if (col.filterType === 'num-range') {
