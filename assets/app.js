@@ -1334,7 +1334,7 @@ class TrackingTable {
     this.filters[colKey] = val;
     this.page = 1;
     this._refreshFilterDots();
-    this.render();
+    this._renderDebounced();
   }
 
   setRangeFilter(colKey, part, val) {
@@ -1343,7 +1343,15 @@ class TrackingTable {
     this.filters[colKey][part] = val;
     this.page = 1;
     this._refreshFilterDots();
-    this.render();
+    this._renderDebounced();
+  }
+
+  // Debounce re-render for filter typing (big datasets: avoid re-filtering the
+  // whole set on every keystroke). Non-virtual tables render immediately.
+  _renderDebounced() {
+    if (!this.cfg.virtual) { this.render(); return; }
+    clearTimeout(this._renderTimer);
+    this._renderTimer = setTimeout(() => this.render(), 140);
   }
 
   clearAll() {
@@ -1373,6 +1381,9 @@ class TrackingTable {
   render() {
     this._refreshDynamicDropdowns();
     const processed  = this._getProcessed();
+
+    if (this.cfg.virtual) { this._renderVirtual(processed); this._refreshClearBtn(); return; }
+
     const totalPages = Math.max(1, Math.ceil(processed.length / this.pageSize));
     if (this.page > totalPages) this.page = totalPages;
 
@@ -1389,6 +1400,72 @@ class TrackingTable {
     }
     this._renderPagination(processed.length);
     this._refreshClearBtn();
+  }
+
+  // ─── Virtual scrolling ───────────────────────────────────────────────────────
+  // Renders only the rows visible in the scroll viewport (+ a small overscan),
+  // using top/bottom spacer rows to preserve scroll height. Keeps thousands of
+  // rows smooth without paginating.
+  _renderVirtual(processed) {
+    const tbody = document.getElementById(this.cfg.tbodyId);
+    if (!tbody) return;
+    this._vRows = processed;
+    const colspan = this.cfg.columns.length;
+
+    if (!processed.length) {
+      tbody.innerHTML = typeof this.cfg.emptyHtml === 'function'
+        ? this.cfg.emptyHtml(this.activeTab) : this.cfg.emptyHtml;
+      const pg = document.getElementById(this.cfg.paginationId);
+      if (pg) pg.innerHTML = '';
+      return;
+    }
+
+    const scroller = tbody.closest('.table-scroll');
+    if (scroller) scroller.classList.add('vs-active');
+    if (scroller && !this._vBound) {
+      this._vBound = true;
+      let ticking = false;
+      scroller.addEventListener('scroll', () => {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => { ticking = false; this._paintVirtualWindow(); });
+      });
+    }
+    // Fixed row height estimate (px). Rows can wrap, so use a generous value and
+    // let overscan absorb variance.
+    this._vRowH = this._vRowH || 64;
+    this._vColspan = colspan;
+    this._paintVirtualWindow(true);
+
+    // Show a simple total count where pagination used to be.
+    const pg = document.getElementById(this.cfg.paginationId);
+    if (pg) pg.innerHTML = `<div class="pagination-info">${processed.length.toLocaleString()} row(s)</div>`;
+  }
+
+  _paintVirtualWindow(force) {
+    const tbody = document.getElementById(this.cfg.tbodyId);
+    const scroller = tbody && tbody.closest('.table-scroll');
+    const rows = this._vRows || [];
+    if (!tbody || !scroller || !rows.length) return;
+    const rowH = this._vRowH;
+    const viewH = scroller.clientHeight || 600;
+    const scrollTop = scroller.scrollTop;
+    const overscan = 8;
+    const first = Math.max(0, Math.floor(scrollTop / rowH) - overscan);
+    const visibleCount = Math.ceil(viewH / rowH) + overscan * 2;
+    const last = Math.min(rows.length, first + visibleCount);
+
+    if (!force && this._vFirst === first && this._vLast === last) return;
+    this._vFirst = first; this._vLast = last;
+
+    const padTop = first * rowH;
+    const padBot = (rows.length - last) * rowH;
+    const colspan = this._vColspan;
+    const slice = rows.slice(first, last).map(r => this.cfg.renderRow(r)).join('');
+    tbody.innerHTML =
+      (padTop > 0 ? `<tr class="v-spacer" style="height:${padTop}px"><td colspan="${colspan}"></td></tr>` : '') +
+      slice +
+      (padBot > 0 ? `<tr class="v-spacer" style="height:${padBot}px"><td colspan="${colspan}"></td></tr>` : '');
   }
 
   setPage(p) {

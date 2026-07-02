@@ -8,7 +8,9 @@
   border-collapse: separate;
   border-spacing: 0;
 }
-.table-scroll.vs-active thead th {
+/* Keep the column header row pinned while results scroll. The filter + generate
+   rows scroll away (they are the query form, used before scrolling results). */
+.table-scroll.vs-active thead .header-row th {
   position: sticky;
   top: 0;
   z-index: 2;

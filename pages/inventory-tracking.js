@@ -754,6 +754,8 @@ async function generateInventory() {
     computeInventoryKpisFromLoaded();   // KPIs reflect the generated set only
     invTable.render();
     renderSummary();
+    const delBtn = document.getElementById('btn-delete-all-inv');
+    if (delBtn) delBtn.style.display = rows.length ? '' : 'none';
     if (status) status.textContent = `${rows.length.toLocaleString()} item-day(s) across ${days} day(s).`;
   } catch (e) {
     console.error('[Inventory] Generate failed:', e);
@@ -926,6 +928,89 @@ const selectedInvIds = new Set();
 
 function invFilteredRows() {
   return invTable ? invTable._getProcessed() : [];
+}
+
+// Delete every row matching the CURRENT filter (not just the visible page). Scoped
+// to the generated window + column filters. Rewrites the affected inventoryDaily /
+// dailyPurchases rollups and removes the matching raw inventoryData rows.
+function deleteAllFilteredInventory() {
+  const rows = invFilteredRows().filter(r => r.type === 'Incoming' && !r._derived);
+  if (!rows.length) { alert('Nothing to delete for the current filter.'); return; }
+  const dates = [...new Set(rows.map(r => r.dateDelivered))].sort();
+  confirmDelete(
+    `Delete <strong>${rows.length.toLocaleString()}</strong> item-day record(s) across <strong>${dates.length}</strong> day(s) matching the current filter?<br><br>This rewrites the affected daily rollups and removes the underlying rows. It cannot be undone.`,
+    () => performDeleteAllFilteredInventory(rows, dates));
+}
+
+async function performDeleteAllFilteredInventory(rows, dates) {
+  const db = getFirestoreDB();
+  if (!db) { alert('Database unavailable.'); return; }
+  const status = document.getElementById('inv-query-status');
+  if (status) status.textContent = 'Deleting…';
+
+  // Group the item codes to remove, per date.
+  const removeByDate = new Map(); // date -> Set(itemCode)
+  rows.forEach(r => {
+    if (!removeByDate.has(r.dateDelivered)) removeByDate.set(r.dateDelivered, new Set());
+    removeByDate.get(r.dateDelivered).add(String(r.itemCode));
+  });
+
+  try {
+    for (const date of removeByDate.keys()) {
+      const codes = removeByDate.get(date);
+      const dref = db.collection('inventoryDaily').doc(date);
+      const snap = await dref.get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        const items = data.items || {};
+        let qty = 0, cost = 0;
+        Object.keys(items).forEach(code => {
+          if (codes.has(code)) { delete items[code]; return; }
+          qty += Number(items[code].qty) || 0;
+          cost += Number(items[code].total_cost) || 0;
+        });
+        cost = Math.round(cost * 100) / 100;
+        if (Object.keys(items).length === 0) {
+          await dref.delete();
+          await db.collection('dailyPurchases').doc(date).delete().catch(() => {});
+        } else {
+          await dref.set({ items, totals: { qty, total_cost: cost }, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() });
+          await db.collection('dailyPurchases').doc(date).set({ total_cost: cost, qty, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        }
+      }
+      // Remove matching raw inventoryData rows for this date + codes, in pages.
+      // (Query by date, filter codes client-side, batch-delete.)
+      let cursor = null;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        let q = db.collection('inventoryData').where('dateDelivered', '==', date).limit(400);
+        const rs = await q.get();
+        if (rs.empty) break;
+        const batch = db.batch();
+        let n = 0;
+        rs.docs.forEach(doc => {
+          const d = doc.data();
+          if (codes.has(String(d.itemCode))) { batch.delete(doc.ref); n++; }
+        });
+        if (n > 0) await batch.commit();
+        if (rs.size < 400) break;
+        if (cursor === rs.docs[rs.docs.length - 1].id) break;
+        cursor = rs.docs[rs.docs.length - 1].id;
+      }
+    }
+    // Drop the deleted rows from the in-memory table.
+    const remaining = (DB.get('inventory_movements') || []).filter(m =>
+      !(m.type === 'Incoming' && !m._derived && removeByDate.get(m.dateDelivered)?.has(String(m.itemCode))));
+    DB.set('inventory_movements', remaining);
+    computeInventoryKpisFromLoaded();
+    invTable.render();
+    if (status) status.textContent = `Deleted ${rows.length.toLocaleString()} record(s).`;
+    logAudit('Delete', 'Inventory', `Bulk-deleted ${rows.length} item-days across ${dates.length} dates (filtered)`);
+  } catch (e) {
+    console.error('[Inventory] Delete all failed:', e);
+    if (status) status.textContent = 'Delete failed: ' + (e && e.message ? e.message : 'error');
+    alert('Delete failed. Some records may remain. Please retry.');
+  }
 }
 
 function invCurrentPageRows(rows = invFilteredRows()) {
@@ -1805,6 +1890,7 @@ const invTable = new TrackingTable({
   id: 'inv',
   storageKey: 'inventory_movements',
   dateField: 'dateDelivered',
+  virtual: true,
   generate: { label: 'Generate', onClick: 'generateInventory', statusId: 'inv-query-status' },
   theadId: 'inv-thead',
   tbodyId: 'inv-tbody',

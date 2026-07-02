@@ -7,7 +7,7 @@
   <title>Inventory Tracking - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css?v=20260702-generate2">
   <link rel="stylesheet" href="../assets/import-mapper.css">
-  <link rel="stylesheet" href="inventory-tracking.css">
+  <link rel="stylesheet" href="inventory-tracking.css?v=20260702-vscroll">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -56,6 +56,7 @@
         <span class="table-toolbar-title" id="tab-label">All Movements</span>
         <input type="text" class="search-input" id="search-inv" placeholder="Search item, supplier, category…">
         <button class="btn btn-outline-gray btn-sm" id="btn-clear-inv" onclick="clearInventoryActiveFilters()" style="display:none">Clear Filters</button>
+        <button class="btn btn-danger btn-sm" id="btn-delete-all-inv" type="button" onclick="deleteAllFilteredInventory()" style="display:none">Delete All (filtered)</button>
       </div>
       <div class="potential-revenue-panel" id="potential-revenue-panel">
         <div class="potential-subtabs">
@@ -531,9 +532,9 @@ self.onmessage = function(e) {
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20260702-generate2"></script>
+<script src="../assets/app.js?v=20260702-vscroll"></script>
 <script src="../assets/shared-utils.js"></script>
 <script src="../assets/import-mapper.js?v=20260702-sales2"></script>
-<script src="inventory-tracking.js?v=20260702-generate2"></script>
+<script src="inventory-tracking.js?v=20260702-vscroll"></script>
 </body>
 </html>
