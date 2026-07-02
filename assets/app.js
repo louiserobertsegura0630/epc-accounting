@@ -1536,9 +1536,24 @@ class TrackingTable {
         : `<th class="filter-cell-empty" data-col="${col.key}"></th>`
     ).join('');
 
+    // Optional "Generate" row under the filters: turns the column filter row into a
+    // query form. cfg.generate = { label, onClick:'globalFnName', statusId }.
+    let generateRow = '';
+    if (this.cfg.generate) {
+      const g = this.cfg.generate;
+      const span = this.cfg.columns.length;
+      generateRow =
+        `<tr class="generate-row"><th colspan="${span}" class="generate-cell">
+          <button class="btn btn-primary btn-sm" id="${g.btnId || 'tt-generate-' + id}" type="button"
+            onclick="${g.onClick}()">${g.label || 'Generate'}</button>
+          <span class="generate-status" id="${g.statusId || 'tt-generate-status-' + id}"></span>
+        </th></tr>`;
+    }
+
     thead.innerHTML =
       `<tr class="header-row">${headerCells}</tr>` +
-      `<tr class="filter-row">${filterCells}</tr>`;
+      `<tr class="filter-row">${filterCells}</tr>` +
+      generateRow;
   }
 
   _buildFilterInput(col) {

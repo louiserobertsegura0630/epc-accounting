@@ -5,7 +5,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventory Tracking - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20260702-datefilter">
+  <link rel="stylesheet" href="../assets/style.css?v=20260702-generate2">
   <link rel="stylesheet" href="../assets/import-mapper.css">
   <link rel="stylesheet" href="inventory-tracking.css">
 </head>
@@ -56,14 +56,6 @@
         <span class="table-toolbar-title" id="tab-label">All Movements</span>
         <input type="text" class="search-input" id="search-inv" placeholder="Search item, supplier, category…">
         <button class="btn btn-outline-gray btn-sm" id="btn-clear-inv" onclick="clearInventoryActiveFilters()" style="display:none">Clear Filters</button>
-      </div>
-      <div class="records-query-toolbar" id="inv-generate-bar">
-        <span>Date range</span>
-        <input type="date" class="form-input" id="inv-range-start" aria-label="From date">
-        <span class="range-sep">–</span>
-        <input type="date" class="form-input" id="inv-range-end" aria-label="To date">
-        <button class="btn btn-primary btn-sm" id="btn-generate-inv" type="button">Generate</button>
-        <span id="inv-query-status" style="font-size:12.5px;color:var(--text-secondary)"></span>
       </div>
       <div class="potential-revenue-panel" id="potential-revenue-panel">
         <div class="potential-subtabs">
@@ -539,9 +531,9 @@ self.onmessage = function(e) {
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20260702-generate"></script>
+<script src="../assets/app.js?v=20260702-generate2"></script>
 <script src="../assets/shared-utils.js"></script>
 <script src="../assets/import-mapper.js?v=20260702-sales2"></script>
-<script src="inventory-tracking.js?v=20260702-generate"></script>
+<script src="inventory-tracking.js?v=20260702-generate2"></script>
 </body>
 </html>

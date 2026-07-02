@@ -17,6 +17,7 @@ let inventoryAggregateTotals = null;
 let inventoryLastDocSnapshot = null;
 let inventoryDailyCursor = null;   // last date loaded for the rollup-based movements table
 let inventoryHasMoreRecords = false;
+let inventoryHasGenerated = false;   // KPIs/table stay blank until Generate is run
 let inventorySalesRematchRunning = false;
 const INVENTORY_SALES_REMATCH_PAGE_SIZE = 500;
 
@@ -634,21 +635,25 @@ function resetForm() {
 }
 
 function renderSummary() {
+  // Before Generate, KPIs stay blank (no history scan) — they reflect only the
+  // generated date window once the user runs a query.
+  const blank = !inventoryHasGenerated;
   const movs = DB.get('inventory_movements');
   const inVal = inventoryAggregateTotals?.inVal ?? movs.filter(m=>m.type==='Incoming').reduce((s,m)=>s+(m.totalCost||0),0);
   const outVal = inventoryAggregateTotals?.outVal ?? movs.filter(m=>m.type==='Outgoing').reduce((s,m)=>s+(m.totalCost||0),0);
+  const show = (cls, v) => blank ? '<div class="kpi-value kpi-muted">—</div>' : `<div class="kpi-value ${cls}">${formatPeso(v)}</div>`;
   document.getElementById('inv-summary').innerHTML = `
     <div class="summary-card">
       <div class="kpi-label">Total Incoming Value</div>
-      <div class="kpi-value green">${formatPeso(inVal)}</div>
+      ${show('green', inVal)}
     </div>
     <div class="summary-card">
       <div class="kpi-label">Total Outgoing Value</div>
-      <div class="kpi-value red">${formatPeso(outVal)}</div>
+      ${show('red', outVal)}
     </div>
     <div class="summary-card">
       <div class="kpi-label">Net Movement</div>
-      <div class="kpi-value ${(inVal-outVal)>=0?'blue':''}">${formatPeso(inVal-outVal)}</div>
+      ${show((inVal-outVal)>=0?'blue':'', inVal-outVal)}
     </div>`;
 }
 
@@ -725,27 +730,31 @@ async function loadInventoryDailyRange(from, to) {
   return { rows, days: snap.docs.length };
 }
 
-// Generate button: fetch only the selected date window, replacing the table.
+// Generate: the DATE column filter (From/To) is the fetch window. Reads only those
+// day-docs, then the other column filters (item code, type, category, supplier,
+// qty, cost) apply client-side via the table's normal filtering.
 async function generateInventory() {
-  const btn = document.getElementById('btn-generate-inv');
+  const btn = document.getElementById('tt-generate-inv') || document.querySelector('#inv-thead .generate-row .btn');
   const status = document.getElementById('inv-query-status');
-  const from = (document.getElementById('inv-range-start') || {}).value || '';
-  const to = (document.getElementById('inv-range-end') || {}).value || '';
-  if (!from && !to) { if (status) status.textContent = 'Pick a date range first.'; return; }
-  if (from && to && from > to) { if (status) status.textContent = 'Start date is after end date.'; return; }
+  const dateF = (invTable.filters && invTable.filters.dateDelivered) || {};
+  const from = dateF.from || '';
+  const to = dateF.to || '';
+  if (!from && !to) { if (status) status.textContent = 'Set the Date filter (From / To) first.'; return; }
+  if (from && to && from > to) { if (status) status.textContent = 'From date is after To date.'; return; }
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (status) status.textContent = 'Loading…';
   try {
     const { rows, days } = await loadInventoryDailyRange(from, to);
-    // Replace movements with the queried window (drop previous rollup rows).
+    // Replace movements with the queried window (keep locally-derived Outgoing rows).
     const derived = (DB.get('inventory_movements') || []).filter((m) => m.type === 'Outgoing');
     DB.set('inventory_movements', [...rows, ...derived]);
     inventoryHasMoreRecords = false;
+    inventoryHasGenerated = true;
     updateInventoryLoadMoreControl();
+    computeInventoryKpisFromLoaded();   // KPIs reflect the generated set only
     invTable.render();
     renderSummary();
-    const itemDays = rows.length;
-    if (status) status.textContent = `${itemDays.toLocaleString()} item-day(s) across ${days} day(s).`;
+    if (status) status.textContent = `${rows.length.toLocaleString()} item-day(s) across ${days} day(s).`;
   } catch (e) {
     console.error('[Inventory] Generate failed:', e);
     if (status) status.textContent = 'Load failed: ' + (e && e.message ? e.message : 'error');
@@ -754,34 +763,20 @@ async function generateInventory() {
   }
 }
 
-async function refreshInventoryAggregates() {
-  const db = getFirestoreDB();
-  if (!db) return;
-  let inVal = null, count = null;
-  try {
-    const agg = await sumDailyPurchases(db);   // whole history; ~1 read/day
-    inVal = agg.total;
-    count = null; // item-day count not needed for the KPI; movements table sets its own total
-  } catch (e) {
-    // Fallback to the old raw-row aggregation only if dailyPurchases is unavailable.
-    try {
-      const collection = db.collection('inventoryData');
-      inVal = await firestoreSum(collection.where('type', '==', 'Incoming'), 'totalCost', 'inventory incoming value sum');
-    } catch (e2) { console.warn('incoming-value read failed:', e2); }
-  }
-  // Outgoing value from local derived (salesData) rows.
+// KPI totals computed from the currently-loaded rows (no history scan).
+function computeInventoryKpisFromLoaded() {
   const movs = DB.get('inventory_movements') || [];
+  const inVal = movs.filter((m) => m.type === 'Incoming').reduce((s, m) => s + (Number(m.totalCost) || 0), 0);
   const outVal = movs.filter((m) => m.type === 'Outgoing').reduce((s, m) => s + (Number(m.totalCost) || 0), 0);
-  inventoryAggregateTotals = {
-    count: count ?? inventoryAggregateTotals?.count,
-    inVal: inVal ?? inventoryAggregateTotals?.inVal,
-    outVal: outVal ?? inventoryAggregateTotals?.outVal
-  };
-  inventoryHasMoreRecords = inventoryAggregateTotals.count == null
-    ? inventoryHasMoreRecords
-    : DB.get('inventory_movements').length < inventoryAggregateTotals.count;
-  updateInventoryLoadMoreControl();
+  inventoryAggregateTotals = { count: null, inVal, outVal };
   renderSummary();
+}
+
+// KPIs now reflect ONLY the generated (loaded) window — no whole-history scan.
+// Before Generate they stay blank; after Generate/edits they sum the loaded rows.
+async function refreshInventoryAggregates() {
+  if (!inventoryHasGenerated) { renderSummary(); return; }
+  computeInventoryKpisFromLoaded();
 }
 
 function inventoryLoadLimit() {
@@ -1810,6 +1805,7 @@ const invTable = new TrackingTable({
   id: 'inv',
   storageKey: 'inventory_movements',
   dateField: 'dateDelivered',
+  generate: { label: 'Generate', onClick: 'generateInventory', statusId: 'inv-query-status' },
   theadId: 'inv-thead',
   tbodyId: 'inv-tbody',
   clearBtnId: 'btn-clear-inv',
@@ -3110,18 +3106,22 @@ function watchInventoryProductMaster() {
   }, err => console.error('[Inventory] Product Master listener failed:', err));
 }
 
-// Load-on-demand: the movements table starts EMPTY and is filled only when the
-// user picks a date range and clicks Generate — so opening the page costs almost
-// nothing (no full-history scan). KPIs still summarize via cheap dailyPurchases.
-(function initInventoryGenerateBar() {
+// Load-on-demand: the movements table + KPIs start EMPTY and are filled only when
+// the user sets the Date filter and clicks Generate — so opening the page costs
+// almost nothing (no full-history scan). The Date column filter is the query window.
+function seedInventoryDateFilter() {
   const now = new Date();
   const first = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-  const s = document.getElementById('inv-range-start'); if (s && !s.value) s.value = first;
-  const e = document.getElementById('inv-range-end'); if (e && !e.value) e.value = last;
-  const btn = document.getElementById('btn-generate-inv');
-  if (btn) btn.addEventListener('click', generateInventory);
-})();
+  invTable.filters.dateDelivered = { from: first, to: last };
+  // Reflect the default into the rendered date inputs.
+  const cell = document.querySelector('#inv-thead .filter-row [data-col="dateDelivered"]');
+  if (cell) {
+    const inputs = cell.querySelectorAll('input[type="date"]');
+    if (inputs[0]) inputs[0].value = first;
+    if (inputs[1]) inputs[1].value = last;
+  }
+}
 
 DB.set('inventory_movements', []);   // start empty; Generate fills it
 Promise.all([
@@ -3129,11 +3129,11 @@ Promise.all([
   loadProductMasterFromFirestore()
 ])
   .then(() => {
-    invTable.render();
-    renderSummary();
-    refreshInventoryAggregates();
+    invTable.render();          // builds header + filter row + Generate button
+    seedInventoryDateFilter();  // default the Date window to the current month
+    renderSummary();            // shows blank KPIs until Generate
     watchInventoryProductMaster();
-    generateInventory();   // auto-run for the default (current-month) range
+    generateInventory();        // auto-run once for the default month
   })
   .catch(err => console.error('[Inventory] Firestore load failed:', err));
 

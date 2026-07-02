@@ -782,6 +782,23 @@ th.has-filter .th-label::after {
 /* Ensure native date inputs never collapse to just the picker icon. */
 input.col-filter[type="date"] { min-width: 118px; }
 
+/* Generate row: turns the column filters into a query form. */
+.generate-row th.generate-cell {
+  padding: 8px 10px !important;
+  background: #f8fafc !important;
+  border-bottom: 2px solid var(--card-border) !important;
+  text-align: left !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-weight: normal !important;
+}
+.generate-row .generate-status {
+  margin-left: 10px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.kpi-value.kpi-muted { color: var(--text-muted); }
+
 /* ─── Filter Toolbar (Purchases / EWT) ──────────────────────────────────── */
 .filter-toolbar {
   background: #fafbff;
