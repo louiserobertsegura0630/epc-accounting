@@ -231,7 +231,7 @@ function renderSalesFilterRow() {
     <th class="filter-cell">${salesRangeFilter('discount')}</th>
     <th class="filter-cell">${salesRangeFilter('srpwdDiscount')}</th>
     <th class="filter-cell">${salesRangeFilter('totalRevenue')}</th>
-    <th class="filter-cell">${salesRangeFilter('unitCost')}</th>
+    <th class="filter-cell sales-unitcost-col">${salesRangeFilter('unitCost')}</th>
     <th class="filter-cell">${salesRangeFilter('grossProfit')}</th>
     <th class="filter-cell">${salesRangeFilter('margin')}</th>
     <th class="filter-cell"><select class="col-filter sales-filter-flag" onchange="setSalesColumnFilter('flag', this.value)">
@@ -391,7 +391,7 @@ function _salesRowHTML(r) {
     <td class="mono">${formatPeso(r.discount)}</td>
     <td class="mono">${formatPeso(r.srpwdDiscount)}</td>
     <td class="mono"><strong>${formatPeso(r.totalRevenue)}</strong></td>
-    <td class="mono">${formatPeso(r.unitCost)}</td>
+    <td class="mono sales-unitcost-col">${formatPeso(r.unitCost)}</td>
     <td class="mono" style="color:${Number(r.grossProfit) < 0 ? '#dc2626' : 'var(--success)'}">${formatPeso(r.grossProfit)}</td>
     <td class="mono">${Number(r.margin || 0).toFixed(4)}%</td>
     <td>${flag ? `<span class="badge ${flag.badgeClass} sales-flag-badge">${flag.label}</span>` : ''}</td>

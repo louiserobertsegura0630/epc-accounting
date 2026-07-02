@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
   <link rel="stylesheet" href="../assets/import-mapper.css">
-  <link rel="stylesheet" href="pos-import.css?v=20260622-summary-progress">
+  <link rel="stylesheet" href="pos-import.css?v=20260703-hide-unitcost">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -184,7 +184,7 @@
                 <th class="sortable" onclick="setSalesSort('discount')">Discount <span class="sort-icon" data-sales-sort="discount">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('srpwdDiscount')">SR/PWD Discount <span class="sort-icon" data-sales-sort="srpwdDiscount">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('totalRevenue')">Total Revenue Received <span class="sort-icon" data-sales-sort="totalRevenue">⇅</span></th>
-                <th class="sortable" onclick="setSalesSort('unitCost')">Unit Cost <span class="sort-icon" data-sales-sort="unitCost">⇅</span></th>
+                <th class="sortable sales-unitcost-col" onclick="setSalesSort('unitCost')">Unit Cost <span class="sort-icon" data-sales-sort="unitCost">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('grossProfit')">Gross Profit <span class="sort-icon" data-sales-sort="grossProfit">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('margin')">Margin % <span class="sort-icon" data-sales-sort="margin">⇅</span></th>
                 <th class="sortable" onclick="setSalesSort('flag')">Flag <span class="sort-icon" data-sales-sort="flag">⇅</span></th>
@@ -399,7 +399,7 @@
 <script src="../assets/import-mapper.js?v=20260702-sales2"></script>
 <script src="pos-import-firestore.js?v=20260703-itemcost"></script>
 <script src="pos-import-parser.js?v=20260611-dsr-all-sheets-lineitems"></script>
-<script src="pos-import-render.js?v=20260622-discounts-net-revenue"></script>
+<script src="pos-import-render.js?v=20260703-hide-unitcost"></script>
 <script src="pos-import-ui.js?v=20260702-mapper-sales"></script>
 </body>
 </html>

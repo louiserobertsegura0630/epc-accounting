@@ -358,3 +358,6 @@
       text-align: center; padding: 12px;
       color: var(--text-secondary); font-size: 13px;
     }
+
+/* Hide the Unit Cost column in the Sales/Under Review tables. */
+.sales-unitcost-col { display: none !important; }
