@@ -253,44 +253,46 @@ function inventoryQueryCodes(itemCodes = []) {
   return [...codes];
 }
 
+// Latest unit cost per item code. Reads the purpose-built itemCost/{code} rollup
+// (one doc per code, latest-delivery-wins) instead of scanning raw inventoryData.
 async function loadInventoryUnitCostMap(itemCodes = []) {
   const requestedCodes = inventoryQueryCodes(itemCodes);
+  const setCost = (code, unitCost) => {
+    const entry = { unitCost: Number(unitCost) || 0, date: '' };
+    inventoryUnitCostCache[code] = entry;
+    inventoryUnitCostCache[code.toUpperCase()] = entry;
+  };
+
   if (requestedCodes.length) {
-    const missingCodes = requestedCodes.filter(code =>
-      inventoryUnitCostCache[code] === undefined && inventoryUnitCostCache[code.toUpperCase()] === undefined
-    );
-    for (let start = 0; start < missingCodes.length; start += 30) {
-      const chunk = missingCodes.slice(start, start + 30);
-      const snap = await db.collection('inventoryData').where('itemCode', 'in', chunk).get()
-        .then(result => {
-          if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('inventory cost read');
-          return result;
-        })
-        .catch(err => {
-          if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
-          throw err;
-        });
-      mergeInventoryCostRows(snap.docs.map(doc => doc.data()));
-      chunk.forEach(code => {
-        if (inventoryUnitCostCache[code] === undefined) {
-          inventoryUnitCostCache[code] = { unitCost: 0, date: '' };
-        }
+    // Only look up codes we haven't cached yet.
+    const missing = [...new Set(requestedCodes.map(c => String(c).trim()).filter(Boolean))]
+      .filter(code => inventoryUnitCostCache[code] === undefined && inventoryUnitCostCache[code.toUpperCase()] === undefined);
+    // itemCost docs are keyed by the exact item code — fetch each (batched reads).
+    for (let start = 0; start < missing.length; start += 50) {
+      const chunk = missing.slice(start, start + 50);
+      const snaps = await Promise.all(chunk.map(code =>
+        db.collection('itemCost').doc(code).get().catch(() => null)));
+      snaps.forEach((snap, i) => {
+        const code = chunk[i];
+        const uc = snap && snap.exists ? Number(snap.data().unit_cost) || 0 : 0;
+        setCost(code, uc);
       });
     }
     return Object.fromEntries(Object.entries(inventoryUnitCostCache).map(([code, entry]) => [code, entry.unitCost]));
   }
 
+  // No specific codes → load the whole itemCost collection once (cheap: one doc/code).
   if (inventoryFullCostMapPromise) return inventoryFullCostMapPromise;
-  inventoryFullCostMapPromise = db.collection('inventoryData').get()
+  inventoryFullCostMapPromise = db.collection('itemCost').get()
     .then(result => {
-      if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('inventory cost read');
-      return result;
+      if (typeof logFirestoreReadSuccess === 'function') logFirestoreReadSuccess('itemCost read');
+      result.forEach(doc => setCost(doc.id, Number(doc.data().unit_cost) || 0));
+      return Object.fromEntries(Object.entries(inventoryUnitCostCache).map(([code, entry]) => [code, entry.unitCost]));
     })
     .catch(err => {
       if (typeof logFirestoreReadFailure === 'function') logFirestoreReadFailure(err);
       throw err;
-    })
-    .then(snap => mergeInventoryCostRows(snap.docs.map(doc => doc.data())));
+    });
   return inventoryFullCostMapPromise;
 }
 
@@ -981,7 +983,7 @@ async function loadSalesData({ append = false } = {}) {
   }
   const rawRows = [];
   snap.forEach(doc => rawRows.push(...salesDailyDocToRows(doc.id, doc.data())));
-  const inventoryCostMap = await loadInventoryUnitCostMap(rawRows.map(row => row.itemCode));
+  const inventoryCostMap = await loadInventoryUnitCostMap();  // full itemCost map (1 bulk read)
   const rows = rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
 
   salesTotalRecords = rows.length;
@@ -1091,8 +1093,7 @@ async function exportSalesDataRange(start, end, onProgress) {
     if (typeof onProgress === 'function') onProgress(rawRows.length);
   });
   if (!rawRows.length) return null;
-  const itemCodes = [...new Set(rawRows.map(r => r.itemCode).filter(Boolean))];
-  const inventoryCostMap = await loadInventoryUnitCostMap(itemCodes);
+  const inventoryCostMap = await loadInventoryUnitCostMap();  // full itemCost map
   return rawRows.map(row => normalizeSalesFinancials(row, inventoryCostMap));
 }
 
