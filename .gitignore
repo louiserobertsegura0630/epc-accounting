@@ -33,3 +33,9 @@ ui-debug.log
 
 # Node (if build tools are ever added)
 node_modules/
+serviceAccountKey.json
+
+# Local data backups & generated exports/scripts (never commit)
+backup/
+exports/
+new-project-web-config.txt

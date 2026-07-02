@@ -47,12 +47,13 @@ const DB = {
 // Product Master keeps an in-memory cache because existing pages use
 // synchronous reads while rendering. Firestore is the shared source of truth.
 const EPC_FIREBASE_CONFIG = {
-  apiKey:            'AIzaSyBm2ASuGDvYBgG7_G1xHryeIyv3kOaEYZg',
-  authDomain:        'palo-grocerette-accounting.firebaseapp.com',
-  projectId:         'palo-grocerette-accounting',
-  storageBucket:     'palo-grocerette-accounting.firebasestorage.app',
-  messagingSenderId: '46771511408',
-  appId:             '1:46771511408:web:0b2cd68d0f8f4405a154b5'
+  apiKey:            'AIzaSyBLS0j1JHbErA-FuhDJHyDbnrS6QGKeTzA',
+  authDomain:        'inventory-system-1fb4d.firebaseapp.com',
+  projectId:         'inventory-system-1fb4d',
+  storageBucket:     'inventory-system-1fb4d.firebasestorage.app',
+  messagingSenderId: '662813830984',
+  appId:             '1:662813830984:web:20d397824ca57f6bbf0d7d',
+  measurementId:     'G-BDXKE5EC0F'
 };
 const EPC_FIRESTORE_EMULATOR_HOST = 'localhost';
 const EPC_FIRESTORE_EMULATOR_PORT = 8080;
@@ -882,6 +883,7 @@ const NAV = [
   { href:'dashboard.html', icon:'grid',    label:'Dashboard',         key:'dashboard' },
   { section:'TRANSACTIONS' },
   { href:'pos-import.html',icon:'upload',  label:'Sales',             key:'pos-import' },
+  { href:'data-upload.html',icon:'upload', label:'Data Upload',       key:'data-upload' },
   { href:'purchases-ewt.html', icon:'bag', label:'Purchases',         key:'purchases' },
   { href:'expenses.html',  icon:'card',    label:'Expenses',          key:'expenses' },
   { section:'TRACKING' },

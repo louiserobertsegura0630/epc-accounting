@@ -1,10 +1,29 @@
 {
   "hosting": {
+    "target": "app",
     "public": ".",
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "**/*serviceAccount*.json",
+      "**/*service-account*.json",
+      "**/*firebase-adminsdk*.json",
+      "**/*-firebase-adminsdk-*.json",
+      "serviceAccountKey.json",
+      "serviceAccountKey-new.json",
+      "new-project-web-config.txt",
+      "backup/**",
+      "exports/**",
+      "scripts/**",
+      "package.json",
+      "package-lock.json",
+      "skills-lock.json",
+      "firestore.rules",
+      "firestore.indexes.json",
+      "*.js",
+      "*.log",
+      "data/**"
     ]
   },
   "firestore": {

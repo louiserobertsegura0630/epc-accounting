@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventory Tracking - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="../assets/import-mapper.css">
   <link rel="stylesheet" href="inventory-tracking.css">
 </head>
 <body>
@@ -397,7 +398,7 @@
 
 <!-- Worker source — not executed by browser (type is non-JS) -->
 <script type="text/worker-template" id="mis-worker-src">
-importScripts('../assets/vendor/xlsx.full.min.js');
+importScripts('__XLSX_URL__');
 
 var MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
 
@@ -532,6 +533,7 @@ self.onmessage = function(e) {
 
 <script src="../assets/app.js?v=20260622-no-auto-logout"></script>
 <script src="../assets/shared-utils.js"></script>
-<script src="inventory-tracking.js?v=20260621-virtual-list-only"></script>
+<script src="../assets/import-mapper.js?v=20260702-rollups"></script>
+<script src="inventory-tracking.js?v=20260702-rollups"></script>
 </body>
 </html>

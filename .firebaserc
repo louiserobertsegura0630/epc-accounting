@@ -1,5 +1,16 @@
 {
   "projects": {
-    "default": "palo-grocerette-accounting"
-  }
+    "default": "inventory-system-1fb4d",
+    "old": "palo-grocerette-accounting"
+  },
+  "targets": {
+    "inventory-system-1fb4d": {
+      "hosting": {
+        "app": [
+          "epc-inventory-system"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

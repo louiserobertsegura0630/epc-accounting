@@ -15,6 +15,7 @@ let potentialSortDir = 'desc';
 let potentialFilters = {};
 let inventoryAggregateTotals = null;
 let inventoryLastDocSnapshot = null;
+let inventoryDailyCursor = null;   // last date loaded for the rollup-based movements table
 let inventoryHasMoreRecords = false;
 let inventorySalesRematchRunning = false;
 const INVENTORY_SALES_REMATCH_PAGE_SIZE = 500;
@@ -651,16 +652,77 @@ function renderSummary() {
     </div>`;
 }
 
+// Total Incoming Value now SUMS dailyPurchases (one read per day), not raw rows.
+// Outgoing still comes from salesData-derived rows in memory (unchanged model).
+async function sumDailyPurchases(db, fromDate, toDate) {
+  let q = db.collection('dailyPurchases');
+  if (fromDate) q = q.where(firebase.firestore.FieldPath.documentId(), '>=', fromDate);
+  if (toDate)   q = q.where(firebase.firestore.FieldPath.documentId(), '<=', toDate);
+  const snap = await q.get();
+  let total = 0, qty = 0, days = 0;
+  snap.forEach((doc) => { const d = doc.data(); total += Number(d.total_cost) || 0; qty += Number(d.qty) || 0; days++; });
+  return { total: Math.round(total * 100) / 100, qty, days };
+}
+
+// Per-product lookup: read inventoryDaily day-docs in [fromDate,toDate] and pick
+// item_code out of each in the browser — one read per day, never a raw-row scan.
+async function lookupItemAcrossDays(itemCode, fromDate, toDate) {
+  const db = getFirestoreDB();
+  if (!db) return [];
+  const code = String(itemCode || '').trim();
+  if (!code) return [];
+  let q = db.collection('inventoryDaily');
+  if (fromDate) q = q.where(firebase.firestore.FieldPath.documentId(), '>=', fromDate);
+  if (toDate)   q = q.where(firebase.firestore.FieldPath.documentId(), '<=', toDate);
+  const snap = await q.get();
+  const out = [];
+  snap.forEach((doc) => {
+    const it = (doc.data().items || {})[code];
+    if (it) out.push({ date: doc.id, itemCode: code, name: it.name, qty: it.qty, unitCost: it.unit_cost, totalCost: it.total_cost });
+  });
+  out.sort((a, b) => a.date.localeCompare(b.date));
+  return out;
+}
+
+// Server-side paginated movements table from inventoryDaily. Fetch a window of
+// day-docs (newest first), unpack their items into item-day rows. One read/day.
+async function loadInventoryDailyPage({ pageDays = 14, beforeDate = null } = {}) {
+  const db = getFirestoreDB();
+  if (!db) return { rows: [], lastDate: null, hasMore: false };
+  let q = db.collection('inventoryDaily').orderBy(firebase.firestore.FieldPath.documentId(), 'desc');
+  if (beforeDate) q = q.where(firebase.firestore.FieldPath.documentId(), '<', beforeDate);
+  q = q.limit(pageDays);
+  const snap = await q.get();
+  const rows = [];
+  snap.forEach((doc) => {
+    const items = doc.data().items || {};
+    Object.keys(items).forEach((code) => {
+      const it = items[code];
+      rows.push({ dateDelivered: doc.id, type: 'Incoming', itemCode: code, description: it.name || '', category: '', supplier: '', unitCost: it.unit_cost, qty: it.qty, totalCost: it.total_cost, _fromRollup: true });
+    });
+  });
+  const lastDate = snap.docs.length ? snap.docs[snap.docs.length - 1].id : null;
+  return { rows, lastDate, hasMore: snap.docs.length === pageDays };
+}
+
 async function refreshInventoryAggregates() {
   const db = getFirestoreDB();
   if (!db) return;
-  const collection = db.collection('inventoryData');
-  const [count, inVal, outVal] = await Promise.all([
-    firestoreCount(collection, 'inventory count'),
-    firestoreSum(collection.where('type', '==', 'Incoming'), 'totalCost', 'inventory incoming value sum'),
-    firestoreSum(collection.where('type', '==', 'Outgoing'), 'totalCost', 'inventory outgoing value sum')
-  ]);
-  if (count != null) invTable.setRemoteTotal(count);
+  let inVal = null, count = null;
+  try {
+    const agg = await sumDailyPurchases(db);   // whole history; ~1 read/day
+    inVal = agg.total;
+    count = null; // item-day count not needed for the KPI; movements table sets its own total
+  } catch (e) {
+    // Fallback to the old raw-row aggregation only if dailyPurchases is unavailable.
+    try {
+      const collection = db.collection('inventoryData');
+      inVal = await firestoreSum(collection.where('type', '==', 'Incoming'), 'totalCost', 'inventory incoming value sum');
+    } catch (e2) { console.warn('incoming-value read failed:', e2); }
+  }
+  // Outgoing value from local derived (salesData) rows.
+  const movs = DB.get('inventory_movements') || [];
+  const outVal = movs.filter((m) => m.type === 'Outgoing').reduce((s, m) => s + (Number(m.totalCost) || 0), 0);
   inventoryAggregateTotals = {
     count: count ?? inventoryAggregateTotals?.count,
     inVal: inVal ?? inventoryAggregateTotals?.inVal,
@@ -689,22 +751,23 @@ async function loadInventoryBatch({ append = false } = {}) {
   if (!db) return DB.get('inventory_movements');
   if (!append) {
     inventoryLastDocSnapshot = null;
+    inventoryDailyCursor = null;
     _invVsScrollTop = 0;
     const scroll = document.getElementById('inv-tbody')?.closest('.table-scroll');
     if (scroll) scroll.scrollTop = 0;
   }
-  let query = db.collection('inventoryData')
-    .orderBy(firebase.firestore.FieldPath.documentId())
-    .limit(inventoryLoadLimit());
-  if (append && inventoryLastDocSnapshot) query = query.startAfter(inventoryLastDocSnapshot);
-  const snap = await query.get();
-  inventoryLastDocSnapshot = snap.docs[snap.docs.length - 1] || inventoryLastDocSnapshot;
-  const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
-  DB.set('inventory_movements', append ? [...DB.get('inventory_movements'), ...rows] : rows);
-  const total = inventoryAggregateTotals?.count;
-  inventoryHasMoreRecords = total == null
-    ? snap.docs.length === clampRecordsLoadLimit('inv-load-limit', { syncInput: false })
-    : DB.get('inventory_movements').length < total;
+  // Movements table now reads per-day rollups (inventoryDaily), newest-first,
+  // a fixed window of days per page — server-side pagination, one read/day.
+  const PAGE_DAYS = 30;
+  const before = append ? inventoryDailyCursor : null;
+  const page = await loadInventoryDailyPage({ pageDays: PAGE_DAYS, beforeDate: before });
+  inventoryDailyCursor = page.lastDate || inventoryDailyCursor;
+  const existing = append ? DB.get('inventory_movements') : [];
+  // Keep any locally-derived Outgoing rows (from salesData) on a fresh (non-append) load.
+  const derivedOutgoing = existing.filter((r) => r.type === 'Outgoing');
+  const merged = append ? [...existing, ...page.rows] : [...page.rows, ...derivedOutgoing];
+  DB.set('inventory_movements', merged);
+  inventoryHasMoreRecords = page.hasMore;
   updateInventoryLoadMoreControl();
   return DB.get('inventory_movements');
 }
@@ -1750,6 +1813,32 @@ const invTable = new TrackingTable({
     ? '<tr><td colspan="13"><div class="empty-state"><p>No incoming inventory items with potential revenue found.</p></div></td></tr>'
     : '<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">📦</div><p>No inventory movements yet.</p></div></td></tr>',
 });
+// Server-side item search: when the box holds an item-code-like value, fetch that
+// item's day-rows from inventoryDaily (one read/day) and merge them in, so a code
+// that isn't in the loaded window still appears — without scanning raw rows.
+let _invSearchTimer = null, _invSearchLoaded = new Set();
+(function wireInventoryItemSearch() {
+  const box = document.getElementById('search-inv');
+  if (!box) return;
+  box.addEventListener('input', () => {
+    clearTimeout(_invSearchTimer);
+    const q = box.value.trim();
+    if (!/^[0-9A-Za-z._-]{5,}$/.test(q) || _invSearchLoaded.has(q)) return; // only code-like queries
+    _invSearchTimer = setTimeout(async () => {
+      try {
+        const hits = await lookupItemAcrossDays(q);   // whole history; ~1 read/day
+        if (!hits.length) return;
+        _invSearchLoaded.add(q);
+        const rows = hits.map((h) => ({ dateDelivered: h.date, type: 'Incoming', itemCode: h.itemCode, description: h.name || '', category: '', supplier: '', unitCost: h.unitCost, qty: h.qty, totalCost: h.totalCost, _fromRollup: true }));
+        const cur = DB.get('inventory_movements') || [];
+        const seen = new Set(cur.map((r) => `${r.itemCode}|${r.dateDelivered}`));
+        const add = rows.filter((r) => !seen.has(`${r.itemCode}|${r.dateDelivered}`));
+        if (add.length) { DB.set('inventory_movements', [...cur, ...add]); invTable.render(); }
+      } catch (e) { console.warn('item search failed:', e); }
+    }, 350);
+  });
+})();
+
 function _attachInvSentinel() {
   if (_invVsSentinelObs) _invVsSentinelObs.disconnect();
   const el = document.getElementById('inv-fetch-sentinel');
@@ -2101,7 +2190,11 @@ function updatePreviewMeta() {
 // ─── Web Worker (blob URL from inline template) ───────────────────────────────
 function getMISWorker() {
   if (_misWorker) _misWorker.terminate();
-  const src  = document.getElementById('mis-worker-src').textContent;
+  let src = document.getElementById('mis-worker-src').textContent;
+  // Resolve SheetJS to an ABSOLUTE URL so importScripts works inside the blob worker
+  // (relative paths have no valid base in a blob:// worker, which fails when deployed).
+  const xlsxUrl = new URL('../assets/vendor/xlsx.full.min.js', document.baseURI).href;
+  src = src.replace('__XLSX_URL__', xlsxUrl);
   const blob = new Blob([src], { type: 'application/javascript' });
   const url  = URL.createObjectURL(blob);
   _misWorker = new Worker(url);
@@ -2670,7 +2763,233 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
   });
 });
 
-document.getElementById('btn-import-mis').addEventListener('click', () => { resetMISModal(); openModal('modal-mis'); });
+// ─── NEW: QBO-style mapping import (replaces the position-based MIS parser) ────
+// Writes to inventoryData (content-hash dedup), suppliers, and productMaster —
+// preserving the exact behavior of the old confirm handler above. Called by the
+// reusable EPCImport dialog via its opts.importer hook.
+async function misImportMappedRows(mappedRows, onProgress) {
+  const db = getFirestoreDB();
+  if (!db) throw new Error('Database unavailable.');
+  const FS_BATCH = 400;
+  const importDate = todayISO();
+
+  // ── DUPLICATE-DATE BLOCK (all-or-nothing) ─────────────────────────────
+  // Collect the distinct delivery dates in this file; if any date already has
+  // an inventory upload, reject the WHOLE file and name the conflicts.
+  const _nd = (v) => { const s = String(v == null ? '' : v).trim(); const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${('0'+m[2]).slice(-2)}-${('0'+m[3]).slice(-2)}`; const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10); };
+  const fileDates = new Set();
+  mappedRows.forEach((m) => { const d = _nd(m.date_delivered) || importDate; fileDates.add(d); });
+  try {
+    const snap = await db.collection('uploads').where('type', '==', 'inventory').get();
+    const conflicts = [];
+    snap.forEach((doc) => { const u = doc.data(); (u.dates || []).forEach((d) => { if (fileDates.has(d)) conflicts.push({ date: d, fileName: u.fileName || '(unnamed)' }); }); });
+    if (conflicts.length) {
+      const byDate = {};
+      conflicts.forEach((c) => { (byDate[c.date] = byDate[c.date] || new Set()).add(c.fileName); });
+      const lines = Object.keys(byDate).sort().map((d) => `${d} (already in ${[...byDate[d]].join(', ')})`);
+      const err = new Error(`Blocked — ${Object.keys(byDate).length} date(s) already have an inventory upload:\n• ${lines.join('\n• ')}\nDelete/replace those dates first, or upload a file without them.`);
+      err.isDuplicateBlock = true;
+      throw err;
+    }
+  } catch (e) { if (e.isDuplicateBlock) throw e; /* read failure: proceed (idempotent replace still protects) */ }
+  const toNum = (v) => { const n = Number(String(v == null ? '' : v).replace(/,/g, '').trim()); return Number.isFinite(n) ? n : 0; };
+  const normDate = (v) => {
+    const s = String(v == null ? '' : v).trim();
+    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return `${m[1]}-${('0'+m[2]).slice(-2)}-${('0'+m[3]).slice(-2)}`;
+    const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  };
+
+  // 1) Build inventory rows (skip zero-cost, like the old flow), dedup by content hash.
+  const invRows = DB.get('inventory_movements');
+  const existing = new Map(invRows.map((r) => [inventoryMovementKey(r), r]));
+  const toSave = [];
+  const queued = new Set();
+  let zeroCost = 0;
+  const rawForPM = []; // {itemCode, description, supplier, unitCost, rowDate} for PM/supplier sync
+  const rawForPMFull = []; // adds qty for the per-day rollups
+
+  mappedRows.forEach((m) => {
+    const itemCode = String(m.item_code || '').trim();
+    const description = String(m.description || '').trim();
+    const unitCost = toNum(m.unit_cost);
+    const qty = toNum(m.qty);
+    let totalCost = toNum(m.total_cost);
+    if (!totalCost) totalCost = unitCost * qty;
+    if ((!itemCode && !description) || (!(unitCost > 0) && !(totalCost > 0))) { zeroCost++; return; }
+    const rowDate = normDate(m.date_delivered) || importDate;
+    const supplier = String(m.supplier || '').trim();
+    const row = {
+      id: genId(), type: 'Incoming', itemCode, description,
+      category: String(m.category || '').trim() || 'Uncategorized', supplier,
+      unitCost: unitCost > 0 ? unitCost : (qty > 0 ? totalCost / qty : 0), qty,
+      totalCost, documentNo: String(m.document_no || '').trim(), uom: String(m.uom || '').trim(),
+      dateDelivered: rowDate, notes: 'Imported from MIS file',
+    };
+    const key = inventoryMovementKey(row, importDate);
+    const already = existing.get(key);
+    const fsId = inventoryFirestoreDocId(already || row);
+    if (!queued.has(fsId)) {
+      queued.add(fsId);
+      const target = already || row;
+      target._firestoreId = fsId;
+      if (!already) { invRows.push(row); existing.set(key, row); }
+      toSave.push(target);
+    }
+    rawForPM.push({ itemCode, description, supplier, unitCost: row.unitCost, rowDate });
+    rawForPMFull.push({ itemCode, description, supplier, unitCost: row.unitCost, qty: row.qty, rowDate });
+  });
+  DB.set('inventory_movements', invRows);
+
+  // 2) Write inventoryData (chunked, fresh batch per commit).
+  let inserted = 0;
+  for (let s = 0; s < toSave.length; s += FS_BATCH) {
+    const chunk = toSave.slice(s, s + FS_BATCH);
+    await commitFreshBatchWithRetry(() => {
+      const batch = db.batch();
+      chunk.forEach((r) => { const fr = { ...r }; delete fr._firestoreId; batch.set(db.collection('inventoryData').doc(r._firestoreId || inventoryFirestoreDocId(r)), fr, { merge: true }); });
+      return batch;
+    }, Math.min(s + chunk.length, toSave.length));
+    inserted += chunk.length;
+    if (onProgress) onProgress(inserted, toSave.length, `Saving inventory ${inserted}/${toSave.length}…`);
+    await sleep(200);
+  }
+
+  // 3) Suppliers upsert (distinct names).
+  const supByName = new Map();
+  rawForPM.forEach((r) => { const n = r.supplier; const k = n.toLowerCase(); if (n && !supByName.has(k)) supByName.set(k, n); });
+  const supList = [...supByName.values()];
+  for (let s = 0; s < supList.length; s += FS_BATCH) {
+    const chunk = supList.slice(s, s + FS_BATCH);
+    await commitFreshBatchWithRetry(() => {
+      const batch = db.batch();
+      chunk.forEach((name) => batch.set(db.collection('suppliers').doc(supplierFirestoreDocId(name)),
+        { id: supplierFirestoreDocId(name), name, category: '', address: '', contactPerson: '', phone: '', email: '', notes: '', status: 'Active' }, { merge: true }));
+      return batch;
+    }, Math.min(s + chunk.length, supList.length));
+    await sleep(200);
+  }
+
+  // 4) Product Master sync (adds new item codes, appends cost history).
+  let productsUpdated = 0;
+  try {
+    await loadProductMasterFromFirestore('', false);
+    const existingProducts = productMasterRows().map(normalizeProductCostData);
+    const byCode = new Map(existingProducts.map((p) => [String(p.itemCode || p.code || '').trim().toLowerCase(), p]).filter(([c]) => c));
+    const changed = new Map();
+    rawForPM.forEach((r) => {
+      if (!r.itemCode || !(Number(r.unitCost) > 0)) return;
+      const key = r.itemCode.toLowerCase();
+      let p = byCode.get(key);
+      const entry = { date: r.rowDate || importDate, unitCost: Number(r.unitCost), supplier: r.supplier };
+      const hkey = `${entry.date}|${entry.unitCost}`;
+      if (p) { if (p.costHistory.some((h) => `${h.date}|${Number(h.unitCost)}` === hkey)) { changed.set(key, p); return; } }
+      else { p = normalizeProductCostData({ id: genId(), itemCode: r.itemCode, productName: r.description, category: 'Uncategorized', supplier: r.supplier, costHistory: [], status: 'Active' }); byCode.set(key, p); existingProducts.push(p); }
+      p.costHistory.push(entry);
+      const norm = normalizeProductCostData(p);
+      Object.assign(p, norm, { productName: p.productName || r.description, supplier: r.supplier || p.supplier || '', lastUpdated: norm.latestDate });
+      changed.set(key, p);
+    });
+    const toUpsert = [...changed.values()];
+    await upsertProductMasterRowsInFirestore(toUpsert, () => {}, { batchSize: 200, commitBatch: (b) => b.commit(), delay: () => sleep(200) });
+    cacheProductMasterRows(existingProducts);
+    productsUpdated = toUpsert.length;
+  } catch (e) { console.warn('Product Master sync failed:', e); }
+
+  // 5) PER-DAY ROLLUPS + purchases totals + itemCost + uploads tracking.
+  //    Consolidate in memory, then REPLACE each date's docs (idempotent).
+  const byDate = new Map();  // date -> { items: Map(code -> {name,qty,unit_cost,total_cost}), totalQty, totalCost }
+  const itemLatest = new Map(); // code -> { unit_cost, effective_date, name }
+  rawForPMFull.forEach((r) => {
+    const date = r.rowDate || importDate;
+    if (!byDate.has(date)) byDate.set(date, { items: new Map(), totalQty: 0, totalCost: 0 });
+    const day = byDate.get(date);
+    let it = day.items.get(r.itemCode);
+    if (!it) { it = { name: r.description, qty: 0, unit_cost: r.unitCost, total_cost: 0 }; day.items.set(r.itemCode, it); }
+    it.qty += r.qty;
+    if (r.unitCost > 0) it.unit_cost = r.unitCost;      // latest nonzero cost wins within the day
+    it.total_cost = Math.round(it.qty * it.unit_cost * 100) / 100;
+    if (r.name) it.name = r.description || it.name;
+    // latest-delivery-wins cost per item (across the whole file)
+    const prev = itemLatest.get(r.itemCode);
+    if (!prev || date >= prev.effective_date) itemLatest.set(r.itemCode, { unit_cost: r.unitCost, effective_date: date, name: r.description || (prev && prev.name) || '' });
+  });
+
+  const importDates = [...byDate.keys()].sort();
+  let itemDays = 0;
+  const dailyWrites = [];   // {ref, data}
+  const purchaseWrites = [];
+  byDate.forEach((day, date) => {
+    const items = {};
+    let dQty = 0, dCost = 0;
+    day.items.forEach((it, code) => {
+      const total = Math.round(it.qty * it.unit_cost * 100) / 100;
+      items[code] = { name: it.name || '', qty: it.qty, unit_cost: it.unit_cost, total_cost: total };
+      dQty += it.qty; dCost += total; itemDays++;
+    });
+    dCost = Math.round(dCost * 100) / 100;
+    dailyWrites.push({ date, data: { items, totals: { qty: dQty, total_cost: dCost }, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() } });
+    purchaseWrites.push({ date, data: { total_cost: dCost, qty: dQty, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() } });
+  });
+
+  // Idempotent REPLACE: set() (not merge) overwrites each date's rollup entirely.
+  for (let s = 0; s < dailyWrites.length; s += FS_BATCH) {
+    const chunk = dailyWrites.slice(s, s + FS_BATCH);
+    await commitFreshBatchWithRetry(() => {
+      const batch = db.batch();
+      chunk.forEach((w) => batch.set(db.collection('inventoryDaily').doc(w.date), w.data));
+      return batch;
+    }, Math.min(s + chunk.length, dailyWrites.length));
+    await sleep(150);
+  }
+  for (let s = 0; s < purchaseWrites.length; s += FS_BATCH) {
+    const chunk = purchaseWrites.slice(s, s + FS_BATCH);
+    await commitFreshBatchWithRetry(() => {
+      const batch = db.batch();
+      chunk.forEach((w) => batch.set(db.collection('dailyPurchases').doc(w.date), w.data));
+      return batch;
+    }, Math.min(s + chunk.length, purchaseWrites.length));
+    await sleep(150);
+  }
+  // itemCost: latest delivery wins.
+  const itemCostList = [...itemLatest.entries()];
+  for (let s = 0; s < itemCostList.length; s += FS_BATCH) {
+    const chunk = itemCostList.slice(s, s + FS_BATCH);
+    await commitFreshBatchWithRetry(() => {
+      const batch = db.batch();
+      chunk.forEach(([code, c]) => batch.set(db.collection('itemCost').doc(code), { unit_cost: c.unit_cost, effective_date: c.effective_date, name: c.name, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }));
+      return batch;
+    }, Math.min(s + chunk.length, itemCostList.length));
+    await sleep(150);
+  }
+  // uploads tracking record (one per import).
+  try {
+    await db.collection('uploads').add({
+      type: 'inventory', dates: importDates,
+      fileName: (typeof MIS_SOURCE_FILE !== 'undefined' && MIS_SOURCE_FILE) || '',
+      rowCount: mappedRows.length, itemDays,
+      uploadedBy: (typeof currentUserFullName === 'function' ? currentUserFullName() : (typeof getCurrentUser === 'function' ? getCurrentUser().username : '')) || 'Unknown',
+      uploadedAt: new Date().toISOString(),
+    });
+  } catch (e) { console.warn('uploads record failed:', e); }
+
+  try { logAudit('Import', 'MIS Inventory', `Imported ${inserted} raw rows, ${itemDays} item-days across ${importDates.length} dates, ${productsUpdated} products, ${supList.length} suppliers`); } catch (e) {}
+  invTable.render(); renderSummary(); refreshInventoryAggregates();
+  try { rematchUnderReview().then(({ moved }) => { if (moved > 0) showToast(`✅ ${moved} Under Review item(s) matched and moved to Sales Data!`, 'success'); }); } catch (e) {}
+
+  return { inserted, summary: `${mappedRows.length.toLocaleString()} file rows → ${itemDays.toLocaleString()} item-days across ${importDates.length} date(s); ${supList.length.toLocaleString()} new suppliers.${zeroCost ? ` (${zeroCost} zero-cost skipped)` : ''}` };
+}
+
+document.getElementById('btn-import-mis').addEventListener('click', () => {
+  if (typeof EPCImport === 'undefined') { resetMISModal(); openModal('modal-mis'); return; }
+  EPCImport.openImportDialog({
+    fieldSet: 'inventory_mis',
+    title: 'Import Inventory (map columns)',
+    skipDuplicateCheck: true,
+    importer: misImportMappedRows,
+    onDone: () => { invTable.render(); renderSummary(); },
+  });
+});
 vsInit();
 function watchInventoryProductMaster() {
   const db = getFirestoreDB();

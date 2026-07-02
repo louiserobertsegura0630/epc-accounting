@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Upload - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="../assets/import-mapper.css">
+  <!-- parsers -->
+  <script src="../assets/vendor/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Data Upload</h1>
+      <p>Upload a CSV or Excel file, then map its columns to the system fields. Works the same for sales and inventory.</p>
+    </div>
+  </header>
+
+  <section class="card" style="max-width:760px;">
+    <h3>Sales</h3>
+    <p class="imp-note">Daily sales per item code. The system computes revenue, cost, and status.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button class="btn btn-primary" id="btn-upload-sales">Upload Sales File</button>
+      <a class="btn" href="../exports/sales_template.xlsx" download>Download Sales Template</a>
+    </div>
+  </section>
+
+  <section class="card" style="max-width:760px; margin-top:16px;">
+    <h3>Inventory</h3>
+    <p class="imp-note">Delivery/receiving lines. The system computes total cost (qty × unit cost).</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button class="btn btn-primary" id="btn-upload-inventory">Upload Inventory File</button>
+      <a class="btn" href="../exports/inventory_template.xlsx" download>Download Inventory Template</a>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <h3 style="margin:0;">Uploaded Data</h3>
+      <label class="imp-note" style="margin:0;">Sort by
+        <select id="uploads-sort">
+          <option value="date">Date (ascending)</option>
+          <option value="date-desc">Date (descending)</option>
+          <option value="type">Type</option>
+          <option value="uploadedAt-desc">Most recent</option>
+        </select>
+      </label>
+    </div>
+    <p class="imp-note">Each date can be uploaded once per type. Use Delete/Replace to free a date and correct a bad upload.</p>
+    <div id="uploads-list"></div>
+  </section>
+
+</div>
+
+<script src="../assets/app.js?v=20260622-no-auto-logout"></script>
+<script src="../assets/shared-utils.js?v=20260619-full-range-rematch"></script>
+<script src="../assets/import-mapper.js?v=20260701-uniform-uploader"></script>
+<script>
+  function currentSort() {
+    const v = document.getElementById('uploads-sort').value;
+    if (v === 'date-desc') return { sortKey: 'date', dir: 'desc' };
+    if (v === 'uploadedAt-desc') return { sortKey: 'uploadedAt', dir: 'desc' };
+    if (v === 'type') return { sortKey: 'type', dir: 'asc' };
+    return { sortKey: 'date', dir: 'asc' };
+  }
+  function refreshList() { EPCImport.renderUploadsList('#uploads-list', currentSort()); }
+
+  document.getElementById('btn-upload-sales').addEventListener('click', () => {
+    EPCImport.openImportDialog({ fieldSet: 'sales', onDone: refreshList });
+  });
+  document.getElementById('btn-upload-inventory').addEventListener('click', () => {
+    EPCImport.openImportDialog({ fieldSet: 'inventory', onDone: refreshList });
+  });
+  document.getElementById('uploads-sort').addEventListener('change', refreshList);
+
+  // Initial load (wait until Firebase is ready via app.js).
+  if (typeof getFirestoreDB === 'function') refreshList();
+  else window.addEventListener('load', () => { setTimeout(refreshList, 500); });
+</script>
+</body>
+</html>
