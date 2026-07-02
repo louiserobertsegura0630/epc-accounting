@@ -689,6 +689,40 @@ async function lookupItemAcrossDays(itemCode, fromDate, toDate) {
   return out;
 }
 
+// Memoized code -> supplier map from Product Master (for backfilling old rollup
+// rows that predate storing supplier in inventoryDaily).
+let _invSupplierMap = null;
+function inventorySupplierForCode(code) {
+  if (!_invSupplierMap) {
+    _invSupplierMap = new Map();
+    (getCachedProductMasterRows() || []).forEach((p) => {
+      const c = inventoryProductCode(p);
+      if (c && p.supplier) _invSupplierMap.set(c, p.supplier);
+    });
+  }
+  return _invSupplierMap.get(inventoryCode(code)) || '';
+}
+function invalidateInvSupplierMap() { _invSupplierMap = null; }
+
+// Build a movements-table row from one inventoryDaily item entry. Gives it a stable
+// id (date__code) so selection works, and resolves supplier (rollup first, then
+// Product Master fallback for older data that didn't store it).
+function rollupItemToRow(date, code, it) {
+  return {
+    id: `${date}__${code}`,
+    dateDelivered: date,
+    type: 'Incoming',
+    itemCode: code,
+    description: it.name || '',
+    category: '',
+    supplier: it.supplier || inventorySupplierForCode(code) || '',
+    unitCost: it.unit_cost,
+    qty: it.qty,
+    totalCost: it.total_cost,
+    _fromRollup: true,
+  };
+}
+
 // Server-side paginated movements table from inventoryDaily. Fetch a window of
 // day-docs (newest first), unpack their items into item-day rows. One read/day.
 async function loadInventoryDailyPage({ pageDays = 14, beforeDate = null } = {}) {
@@ -701,10 +735,7 @@ async function loadInventoryDailyPage({ pageDays = 14, beforeDate = null } = {})
   const rows = [];
   snap.forEach((doc) => {
     const items = doc.data().items || {};
-    Object.keys(items).forEach((code) => {
-      const it = items[code];
-      rows.push({ dateDelivered: doc.id, type: 'Incoming', itemCode: code, description: it.name || '', category: '', supplier: '', unitCost: it.unit_cost, qty: it.qty, totalCost: it.total_cost, _fromRollup: true });
-    });
+    Object.keys(items).forEach((code) => rows.push(rollupItemToRow(doc.id, code, items[code])));
   });
   const lastDate = snap.docs.length ? snap.docs[snap.docs.length - 1].id : null;
   return { rows, lastDate, hasMore: snap.docs.length === pageDays };
@@ -722,10 +753,7 @@ async function loadInventoryDailyRange(from, to) {
   const rows = [];
   snap.forEach((doc) => {
     const items = doc.data().items || {};
-    Object.keys(items).forEach((code) => {
-      const it = items[code];
-      rows.push({ dateDelivered: doc.id, type: 'Incoming', itemCode: code, description: it.name || '', category: '', supplier: '', unitCost: it.unit_cost, qty: it.qty, totalCost: it.total_cost, _fromRollup: true });
-    });
+    Object.keys(items).forEach((code) => rows.push(rollupItemToRow(doc.id, code, items[code])));
   });
   return { rows, days: snap.docs.length };
 }
@@ -1019,7 +1047,9 @@ function invCurrentPageRows(rows = invFilteredRows()) {
 }
 
 function invVisibleRows() {
-  return _invVsWindowRows.length ? _invVsWindowRows : invCurrentPageRows();
+  // In virtual mode the "select all" scope is the full filtered set, not just the
+  // rendered window — so the header checkbox selects everything the query matches.
+  return invFilteredRows();
 }
 
 function syncBulkSelectionUI() {
@@ -1030,9 +1060,7 @@ function syncBulkSelectionUI() {
     if (!existing.has(id) || !filteredSet.has(id)) selectedInvIds.delete(id);
   });
 
-  const visibleIds = invVisibleRows()
-    .filter(row => !row._derived)
-    .map(row => row.id);
+  const visibleIds = filtered.map(row => row.id);
   const selectedCount = selectedInvIds.size;
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedInvIds.has(id));
   const someVisibleSelected = visibleIds.some(id => selectedInvIds.has(id));
@@ -1865,8 +1893,8 @@ document.getElementById('btn-export-inv').addEventListener('click', exportInvent
 document.getElementById('btn-save-inv').addEventListener('click', saveInv);
 document.getElementById('btn-make-outgoing').addEventListener('click', openMakeOutgoingModal);
 document.getElementById('btn-confirm-make-outgoing').addEventListener('click', saveBulkOutgoing);
-document.getElementById('btn-delete-selected').addEventListener('click', openBulkDeleteModal);
-document.getElementById('btn-deselect-inv').addEventListener('click', deselectAllInvRows);
+document.getElementById('btn-delete-selected')?.addEventListener('click', openBulkDeleteModal);
+document.getElementById('btn-deselect-inv')?.addEventListener('click', deselectAllInvRows);
 document.getElementById('btn-cancel-bulk-delete').addEventListener('click', () => closeModal('modal-bulk-delete'));
 document.getElementById('btn-confirm-bulk-delete').addEventListener('click', confirmBulkDelete);
 document.getElementById('btn-save-potential-markup').addEventListener('click', savePotentialMarkup);
@@ -1890,7 +1918,6 @@ const invTable = new TrackingTable({
   id: 'inv',
   storageKey: 'inventory_movements',
   dateField: 'dateDelivered',
-  virtual: true,
   generate: { label: 'Generate', onClick: 'generateInventory', statusId: 'inv-query-status' },
   theadId: 'inv-thead',
   tbodyId: 'inv-tbody',
@@ -1923,7 +1950,7 @@ const invTable = new TrackingTable({
       <td class="mono">${m.itemCode}</td>
       <td>${formatDate(m.dateDelivered)}</td>
       <td><span class="badge ${m.type==='Incoming'?'badge-green':'badge-red'}">${m.type}</span></td>
-      <td>${invEsc(inventoryDisplayDescription(m))}</td>
+      <td title="${invEsc(inventoryDisplayDescription(m))}">${invEsc(inventoryDisplayDescription(m))}</td>
       <td>${invEsc(inventoryDisplayCategory(m))}</td>
       <td>${m.supplier||'—'}</td>
       <td class="mono">${m.qty.toLocaleString()}</td>
@@ -3035,11 +3062,12 @@ async function misImportMappedRows(mappedRows, onProgress) {
     if (!byDate.has(date)) byDate.set(date, { items: new Map(), totalQty: 0, totalCost: 0 });
     const day = byDate.get(date);
     let it = day.items.get(r.itemCode);
-    if (!it) { it = { name: r.description, qty: 0, unit_cost: r.unitCost, total_cost: 0 }; day.items.set(r.itemCode, it); }
+    if (!it) { it = { name: r.description, qty: 0, unit_cost: r.unitCost, total_cost: 0, supplier: r.supplier || '' }; day.items.set(r.itemCode, it); }
     it.qty += r.qty;
     if (r.unitCost > 0) it.unit_cost = r.unitCost;      // latest nonzero cost wins within the day
     it.total_cost = Math.round(it.qty * it.unit_cost * 100) / 100;
     if (r.name) it.name = r.description || it.name;
+    if (r.supplier && !it.supplier) it.supplier = r.supplier;
     // latest-delivery-wins cost per item (across the whole file)
     const prev = itemLatest.get(r.itemCode);
     if (!prev || date >= prev.effective_date) itemLatest.set(r.itemCode, { unit_cost: r.unitCost, effective_date: date, name: r.description || (prev && prev.name) || '' });
@@ -3054,7 +3082,7 @@ async function misImportMappedRows(mappedRows, onProgress) {
     let dQty = 0, dCost = 0;
     day.items.forEach((it, code) => {
       const total = Math.round(it.qty * it.unit_cost * 100) / 100;
-      items[code] = { name: it.name || '', qty: it.qty, unit_cost: it.unit_cost, total_cost: total };
+      items[code] = { name: it.name || '', qty: it.qty, unit_cost: it.unit_cost, total_cost: total, supplier: it.supplier || '' };
       dQty += it.qty; dCost += total; itemDays++;
     });
     dCost = Math.round(dCost * 100) / 100;
@@ -3188,6 +3216,17 @@ function watchInventoryProductMaster() {
   db.collection('productMaster').onSnapshot(snapshot => {
     const rows = snapshot.docs.map(doc => normalizeProductCostData({ _firestoreId:doc.id, ...doc.data() }));
     cacheProductMasterRows(rows);
+    invalidateInvSupplierMap();
+    // Re-resolve supplier on already-loaded rollup rows now that PM is available.
+    const movs = DB.get('inventory_movements') || [];
+    let changed = false;
+    movs.forEach((m) => {
+      if (m._fromRollup && !m.supplier) {
+        const s = inventorySupplierForCode(m.itemCode);
+        if (s) { m.supplier = s; changed = true; }
+      }
+    });
+    if (changed) DB.set('inventory_movements', movs);
     invTable.render();
   }, err => console.error('[Inventory] Product Master listener failed:', err));
 }

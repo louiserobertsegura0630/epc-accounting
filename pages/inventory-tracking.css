@@ -18,6 +18,17 @@
   border-bottom: 1px solid var(--border);
 }
 .vs-fetch-sentinel { height: 1px; pointer-events: none; }
+
+/* Keep movement rows single-line so the fixed virtual-scroll row height (38px)
+   stays accurate — prevents gaps/overlap and scroll jank on large result sets.
+   Full text remains available via the cell's title tooltip. */
+.table-scroll.vs-active #inv-tbody td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.table-scroll.vs-active #inv-tbody td.select-col { max-width: none; overflow: visible; }
 .vs-loading-row td { text-align: center; padding: 12px; color: var(--text-secondary); font-size: 13px; }
 
     .spinner {

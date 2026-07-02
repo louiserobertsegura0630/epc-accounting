@@ -1466,6 +1466,7 @@ class TrackingTable {
       (padTop > 0 ? `<tr class="v-spacer" style="height:${padTop}px"><td colspan="${colspan}"></td></tr>` : '') +
       slice +
       (padBot > 0 ? `<tr class="v-spacer" style="height:${padBot}px"><td colspan="${colspan}"></td></tr>` : '');
+    if (typeof this.cfg.onRender === 'function') this.cfg.onRender();
   }
 
   setPage(p) {
