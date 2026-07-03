@@ -203,23 +203,35 @@ async function fetchInventoryRollupRows() {
   return rows;
 }
 
-// Latest unit cost per item from the itemCost/{code} rollup (one doc per code)
-// instead of scanning raw inventoryData. Cached for the session.
+// Latest unit cost per item from the itemCost/{code} rollup. Only the codes that
+// actually appear in the loaded sales + inventory rows are fetched (batched
+// documentId() 'in' queries) — so a 4,700-code catalog costs only as many reads
+// as there are distinct items in the report window, not the whole collection.
 let _reportItemCostMap = null;
 async function loadReportItemCostMap() {
   if (_reportItemCostMap) return _reportItemCostMap;
   const db = getFirestoreDB();
   const map = {};
-  if (db) {
-    try {
-      const snap = await db.collection('itemCost').get();
+  if (!db) { _reportItemCostMap = map; return map; }
+
+  const codes = new Set();
+  (REPORT_DATA.inventory || []).forEach(r => { const c = String(r.itemCode || '').trim(); if (c) codes.add(c); });
+  (REPORT_DATA.sales || []).forEach(r => { const c = String(r.itemCode || '').trim(); if (c) codes.add(c); });
+  const codeList = [...codes];
+
+  try {
+    const idPath = firebase.firestore.FieldPath.documentId();
+    for (let i = 0; i < codeList.length; i += 30) {
+      const chunk = codeList.slice(i, i + 30);
+      const snap = await db.collection('itemCost').where(idPath, 'in', chunk).get();
       snap.forEach(doc => {
         const uc = Number((doc.data() || {}).unit_cost) || 0;
         map[doc.id] = uc;
         map[String(doc.id).toUpperCase()] = uc;
       });
-    } catch (e) { console.warn('[Reports] itemCost read failed:', e); }
-  }
+    }
+  } catch (e) { console.warn('[Reports] itemCost read failed:', e); }
+
   _reportItemCostMap = map;
   return map;
 }
