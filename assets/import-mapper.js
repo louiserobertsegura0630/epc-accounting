@@ -372,6 +372,103 @@
     return conflicts;
   }
 
+  // Does any prior upload of this type have exactly this fileName? Returns the
+  // first match's {fileName, date} (earliest covered date) or null.
+  async function findSameFilenameUpload(db, type, fileName) {
+    const name = String(fileName || '').trim();
+    if (!name) return null;
+    const snap = await db.collection('uploads').where('type', '==', type).get();
+    let match = null;
+    snap.forEach((doc) => {
+      const u = doc.data();
+      if (String(u.fileName || '').trim() === name && !match) {
+        const ds = (u.dates || []).slice().sort();
+        match = { fileName: name, date: ds[0] || (u.uploadedAt || '').slice(0, 10) };
+      }
+    });
+    return match;
+  }
+
+  // Consolidate incoming rows into per-date item maps, matching how the importer
+  // stores them. type 'sales' -> {units, revenue}; 'inventory' -> {qty, total_cost}.
+  function consolidateIncoming(rows, type) {
+    const byDate = new Map();   // date -> Map(code -> {a,b})
+    rows.forEach((r) => {
+      const code = String((type === 'sales' ? r.item_code : r.item_code) || '').trim();
+      const date = normDate(type === 'sales' ? r.date : r.date_delivered);
+      if (!code || !date) return;
+      if (!byDate.has(date)) byDate.set(date, new Map());
+      const day = byDate.get(date);
+      let it = day.get(code);
+      if (!it) { it = { a: 0, b: 0 }; day.set(code, it); }
+      if (type === 'sales') {
+        const units = num(r.units_sold) || 0;
+        const price = num(r.unit_selling_price) || 0;
+        it.a += units;
+        it.b = Math.round((it.b + units * price) * 100) / 100;   // revenue
+      } else {
+        const qty = num(r.qty) || 0;
+        const uc = num(r.unit_cost) || 0;
+        it.a += qty;
+        it.b = Math.round((it.b + qty * uc) * 100) / 100;        // total_cost
+      }
+    });
+    return byDate;
+  }
+
+  // Compare the incoming consolidated data for one date against the STORED rollup
+  // doc for that date. Returns { exact:boolean, diffCount:number }.
+  // type 'sales' reads salesDaily.products {units, revenue};
+  // 'inventory' reads inventoryDaily.items {qty, total_cost}.
+  async function compareDateToStored(db, type, date, incomingDayMap) {
+    const coll = type === 'sales' ? 'salesDaily' : 'inventoryDaily';
+    let stored = {};
+    try {
+      const doc = await db.collection(coll).doc(date).get();
+      if (doc.exists) {
+        const data = doc.data() || {};
+        stored = (type === 'sales' ? data.products : data.items) || {};
+      }
+    } catch (e) { return { exact: false, diffCount: null }; }
+
+    const eq = (x, y) => Math.abs((Number(x) || 0) - (Number(y) || 0)) < 0.005;
+    const codes = new Set([...Object.keys(stored), ...[...incomingDayMap.keys()]]);
+    let diffCount = 0;
+    codes.forEach((code) => {
+      const s = stored[code];
+      const inc = incomingDayMap.get(code);
+      if (!s || !inc) { diffCount++; return; }
+      const sa = type === 'sales' ? s.units : s.qty;
+      const sb = type === 'sales' ? s.revenue : s.total_cost;
+      if (!eq(sa, inc.a) || !eq(sb, inc.b)) diffCount++;
+    });
+    return { exact: diffCount === 0, diffCount };
+  }
+
+  // Build a smart, per-date message comparing incoming vs stored for conflicting
+  // dates. Returns an array of { date, fileName, exact, diffCount, text }.
+  async function smartConflictMessages(db, type, rows, conflicts) {
+    const incoming = consolidateIncoming(rows, type);
+    const byDate = {};
+    conflicts.forEach((c) => { if (!byDate[c.date]) byDate[c.date] = c.fileName; });
+    const out = [];
+    for (const date of Object.keys(byDate).sort()) {
+      const fileName = byDate[date];
+      const dayMap = incoming.get(date) || new Map();
+      const cmp = await compareDateToStored(db, type, date, dayMap);
+      let text;
+      if (cmp.diffCount == null) {
+        text = `${date} — already uploaded in ${fileName}.`;
+      } else if (cmp.exact) {
+        text = `${date} — exact duplicate of ${fileName}. No action needed.`;
+      } else {
+        text = `${date} — already has data from ${fileName}, but this file differs (${cmp.diffCount} item(s) different). If this is a correction: delete the existing upload for this date, then re-upload.`;
+      }
+      out.push({ date, fileName, exact: cmp.exact, diffCount: cmp.diffCount, text });
+    }
+    return out;
+  }
+
   function currentUserName() {
     try { if (typeof global.currentUserFullName === 'function') return global.currentUserFullName() || 'Unknown'; } catch (e) {}
     try { if (typeof global.getCurrentUser === 'function') return global.getCurrentUser().username || 'Unknown'; } catch (e) {}
@@ -593,21 +690,36 @@
         // --- DUPLICATE BLOCK: reject the WHOLE file if any date already uploaded (same type) ---
         const conflicts = skipDuplicateCheck ? [] : await findDateConflicts(db, fieldSetName, fileDates);
         if (conflicts.length) {
-          status.textContent = '';
-          const byDate = {};
-          conflicts.forEach((c) => { (byDate[c.date] = byDate[c.date] || new Set()).add(c.fileName); });
-          const lines = Object.keys(byDate).sort().map((d) => `${d} — already covered by ${[...byDate[d]].join(', ')}`);
+          status.textContent = 'Comparing against existing data…';
+          // Smart per-date comparison: exact duplicate vs differing correction.
+          const msgs = await smartConflictMessages(db, fieldSetName, rows, conflicts);
+          const allExact = msgs.length && msgs.every((m) => m.exact);
           body.innerHTML = '';
           body.append(
-            el('div', { class: 'imp-error' }, [
-              el('strong', { text: `Blocked — ${Object.keys(byDate).length} date(s) already have a ${fieldSetName} upload.` }),
+            el('div', { class: allExact ? 'imp-note' : 'imp-error' }, [
+              el('strong', { text: allExact
+                ? `This file's data is already uploaded — nothing to do.`
+                : `Blocked — ${msgs.length} date(s) already have a ${fieldSetName} upload.` }),
             ]),
-            el('p', { class: 'imp-note', text: 'Nothing was imported. Delete the conflicting upload(s) below to free these dates, or upload a file without them.' }),
-            el('ul', { class: 'imp-conflicts' }, lines.map((t) => el('li', { text: t }))),
+            el('p', { class: 'imp-note', text: allExact
+              ? 'Every conflicting date matches what is already stored. No import was performed.'
+              : 'Nothing was imported. Delete the conflicting upload(s) below to free these dates, or upload a file without them.' }),
+            el('ul', { class: 'imp-conflicts' }, msgs.map((m) => el('li', { text: m.text }))),
           );
           footer.innerHTML = '';
           footer.append(el('button', { class: 'btn', onclick: renderMapping }, ['Back']));
           return;
+        }
+
+        // --- FILENAME WARNING (soft): same-named file already uploaded (any dates)? ---
+        if (!skipDuplicateCheck) {
+          const fname = state.file && state.file.name;
+          const sameName = await findSameFilenameUpload(db, fieldSetName, fname);
+          if (sameName) {
+            const proceed = global.confirm(
+              `A file named "${sameName.fileName}" was already uploaded on ${sameName.date}.\n\nContinue anyway?`);
+            if (!proceed) { status.textContent = ''; renderMapping(); return; }
+          }
         }
 
         // --- No conflicts: import ---
@@ -630,10 +742,22 @@
         footer.append(el('button', { class: 'btn btn-primary', onclick: () => { close(); onDone(res); } }, ['Close']));
       } catch (e) {
         status.textContent = '';
-        body.append(
-          el('p', { class: 'imp-error', text: 'Import failed: ' + e.message }),
-          el('p', { class: 'imp-note', text: 'If some rows were written before the error, no upload record was saved. Use the uploaded-data list to Delete/Replace the affected date(s) before retrying.' })
-        );
+        if (e.isDuplicateBlock) {
+          // Custom importer (inventory) raised a duplicate-date block. Render the
+          // smart message as bullet lines — no "import failed", nothing was written.
+          const raw = String(e.message || '');
+          const parts = raw.split('\n• ');
+          const head = parts.shift();
+          const allExact = /already uploaded — nothing to do/.test(head);
+          body.innerHTML = '';
+          body.append(el('div', { class: allExact ? 'imp-note' : 'imp-error' }, [el('strong', { text: head })]));
+          if (parts.length) body.append(el('ul', { class: 'imp-conflicts' }, parts.map((t) => el('li', { text: t }))));
+        } else {
+          body.append(
+            el('p', { class: 'imp-error', text: 'Import failed: ' + e.message }),
+            el('p', { class: 'imp-note', text: 'If some rows were written before the error, no upload record was saved. Use the uploaded-data list to Delete/Replace the affected date(s) before retrying.' })
+          );
+        }
         footer.append(el('button', { class: 'btn', onclick: renderMapping }, ['Back']));
       }
     }
@@ -779,6 +903,8 @@
 
   global.EPCImport = {
     openImportDialog, renderUploadsList, FIELD_SETS,
+    // Shared duplicate-handling helpers (reused by the inventory page's own block).
+    findDateConflicts, findSameFilenameUpload, smartConflictMessages,
     _internals: { autoGuess, normDate, validateRow, deriveColumns, datesInRows },
   };
 })(window);

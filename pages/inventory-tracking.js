@@ -2937,19 +2937,49 @@ async function misImportMappedRows(mappedRows, onProgress) {
   const _nd = (v) => { const s = String(v == null ? '' : v).trim(); const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${('0'+m[2]).slice(-2)}-${('0'+m[3]).slice(-2)}`; const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10); };
   const fileDates = new Set();
   mappedRows.forEach((m) => { const d = _nd(m.date_delivered) || importDate; fileDates.add(d); });
+  const EI = (typeof EPCImport !== 'undefined') ? EPCImport : null;
   try {
-    const snap = await db.collection('uploads').where('type', '==', 'inventory').get();
-    const conflicts = [];
-    snap.forEach((doc) => { const u = doc.data(); (u.dates || []).forEach((d) => { if (fileDates.has(d)) conflicts.push({ date: d, fileName: u.fileName || '(unnamed)' }); }); });
+    const conflicts = EI && EI.findDateConflicts
+      ? await EI.findDateConflicts(db, 'inventory', fileDates)
+      : await (async () => {
+          const snap = await db.collection('uploads').where('type', '==', 'inventory').get();
+          const c = []; snap.forEach((doc) => { const u = doc.data(); (u.dates || []).forEach((d) => { if (fileDates.has(d)) c.push({ date: d, fileName: u.fileName || '(unnamed)' }); }); }); return c;
+        })();
     if (conflicts.length) {
-      const byDate = {};
-      conflicts.forEach((c) => { (byDate[c.date] = byDate[c.date] || new Set()).add(c.fileName); });
-      const lines = Object.keys(byDate).sort().map((d) => `${d} (already in ${[...byDate[d]].join(', ')})`);
-      const err = new Error(`Blocked — ${Object.keys(byDate).length} date(s) already have an inventory upload:\n• ${lines.join('\n• ')}\nDelete/replace those dates first, or upload a file without them.`);
-      err.isDuplicateBlock = true;
-      throw err;
+      // Smart per-date message: exact duplicate vs differing correction.
+      let lines;
+      if (EI && EI.smartConflictMessages) {
+        const msgs = await EI.smartConflictMessages(db, 'inventory', mappedRows, conflicts);
+        const allExact = msgs.length && msgs.every((m) => m.exact);
+        const head = allExact
+          ? `This file's inventory data is already uploaded — nothing to do.`
+          : `Blocked — ${msgs.length} date(s) already have an inventory upload.`;
+        const err = new Error(`${head}\n• ${msgs.map((m) => m.text).join('\n• ')}`);
+        err.isDuplicateBlock = true;
+        throw err;
+      } else {
+        const byDate = {};
+        conflicts.forEach((c) => { (byDate[c.date] = byDate[c.date] || new Set()).add(c.fileName); });
+        lines = Object.keys(byDate).sort().map((d) => `${d} (already in ${[...byDate[d]].join(', ')})`);
+        const err = new Error(`Blocked — ${Object.keys(byDate).length} date(s) already have an inventory upload:\n• ${lines.join('\n• ')}\nDelete/replace those dates first, or upload a file without them.`);
+        err.isDuplicateBlock = true;
+        throw err;
+      }
     }
   } catch (e) { if (e.isDuplicateBlock) throw e; /* read failure: proceed (idempotent replace still protects) */ }
+
+  // FILENAME WARNING (soft): same-named inventory file already uploaded?
+  if (EI && EI.findSameFilenameUpload) {
+    try {
+      const fname = (typeof MIS_SOURCE_FILE !== 'undefined' && MIS_SOURCE_FILE) || '';
+      const sameName = await EI.findSameFilenameUpload(db, 'inventory', fname);
+      if (sameName && !window.confirm(`A file named "${sameName.fileName}" was already uploaded on ${sameName.date}.\n\nContinue anyway?`)) {
+        const err = new Error('Upload cancelled — same filename already used.');
+        err.isDuplicateBlock = true;
+        throw err;
+      }
+    } catch (e) { if (e.isDuplicateBlock) throw e; }
+  }
   const toNum = (v) => { const n = Number(String(v == null ? '' : v).replace(/,/g, '').trim()); return Number.isFinite(n) ? n : 0; };
   const normDate = (v) => {
     const s = String(v == null ? '' : v).trim();
