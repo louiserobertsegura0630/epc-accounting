@@ -309,16 +309,46 @@
       } });
     });
 
-    // 3) Write salesDaily with set() (idempotent REPLACE), chunked 400/batch.
-    let written = 0;
-    for (let s = 0; s < writes.length; s += 400) {
-      const chunk = writes.slice(s, s + 400);
-      const batch = db.batch();
-      chunk.forEach((w) => batch.set(db.collection('salesDaily').doc(w.date), w.data));
-      await batch.commit();
-      written += chunk.length;
-      onProgress(written, writes.length, `Saving daily sales ${written}/${writes.length}…`);
+    writes.sort((a, b) => a.date.localeCompare(b.date));
+
+    // 3) SIZE GUARD: each salesDaily day-doc is ONE Firestore document, capped at
+    //    1 MiB. Fail fast (before any write) if a single day would exceed ~900 KB —
+    //    that day needs a design change (split), not a retry.
+    const DOC_SOFT_LIMIT = 900 * 1024;
+    for (const w of writes) {
+      const bytes = approxDocBytes(w.data);
+      if (bytes > DOC_SOFT_LIMIT) {
+        const count = Object.keys(w.data.products || {}).length;
+        throw new Error(
+          `Day ${w.date} is too large to store in one document (${count.toLocaleString()} products, ~${Math.round(bytes / 1024)} KB; limit ~900 KB). ` +
+          `Nothing was imported. Split this date's sales into a smaller file, or contact support to enable per-day sharding.`);
+      }
     }
+
+    // 4) Write each day-doc as its OWN commit (never several large docs in one
+    //    transaction). Sequential, with progress. Track which dates landed so a
+    //    mid-run failure can name exactly what to Delete/Replace.
+    const writtenDates = [];
+    for (let i = 0; i < writes.length; i++) {
+      const w = writes[i];
+      onProgress(i, writes.length, `Saving day ${i + 1} of ${writes.length} (${w.date})…`);
+      try {
+        await db.collection('salesDaily').doc(w.date).set(w.data);
+      } catch (e) {
+        const done = writtenDates.slice();
+        const remaining = writes.slice(i).map((x) => x.date);
+        const err = new Error(
+          `Saving stopped at ${w.date}: ${e.message}\n` +
+          `Written OK: ${done.length ? done.join(', ') : '(none)'}\n` +
+          `NOT written: ${remaining.join(', ')}\n` +
+          `No upload record was saved. Delete/Replace the written date(s) above if you want to retry the whole file cleanly.`);
+        err.partialWrite = true;
+        err.writtenDates = done;
+        throw err;
+      }
+      writtenDates.push(w.date);
+    }
+    onProgress(writes.length, writes.length, `Saved ${writes.length} day(s).`);
 
     const dates = [...byDate.keys()].sort();
     return {
@@ -326,6 +356,18 @@
       awaitingItems: awaitingItemsTotal, awaitingRevenue: Math.round(awaitingRevenueTotal * 100) / 100,
       summary: `${rows.length.toLocaleString()} rows → ${productDays.toLocaleString()} product-days across ${dates.length} date(s). ${awaitingItemsTotal.toLocaleString()} items (₱${Math.round(awaitingRevenueTotal).toLocaleString()} revenue) awaiting cost.`,
     };
+  }
+
+  // Rough byte size of a doc's JSON payload (server timestamps count ~0). Good
+  // enough to guard against the 1 MiB per-document limit before writing.
+  function approxDocBytes(data) {
+    try {
+      return new Blob([JSON.stringify(data, (k, v) => (v && v._methodName ? 0 : v))]).size;
+    } catch (e) {
+      // Fallback: estimate from product count if Blob/stringify unavailable.
+      const n = data && data.products ? Object.keys(data.products).length : 0;
+      return n * 140;
+    }
   }
 
   // Load inventory cost history: itemCode -> sorted [{d, cost}].
@@ -752,6 +794,12 @@
           body.innerHTML = '';
           body.append(el('div', { class: allExact ? 'imp-note' : 'imp-error' }, [el('strong', { text: head })]));
           if (parts.length) body.append(el('ul', { class: 'imp-conflicts' }, parts.map((t) => el('li', { text: t }))));
+        } else if (e.partialWrite || /\n/.test(String(e.message || ''))) {
+          // Multi-line failure (partial write / size guard): render each line clearly.
+          const lines = String(e.message).split('\n').filter(Boolean);
+          body.innerHTML = '';
+          body.append(el('div', { class: 'imp-error' }, [el('strong', { text: 'Import failed — ' + lines.shift() })]));
+          if (lines.length) body.append(el('ul', { class: 'imp-conflicts' }, lines.map((t) => el('li', { text: t }))));
         } else {
           body.append(
             el('p', { class: 'imp-error', text: 'Import failed: ' + e.message }),

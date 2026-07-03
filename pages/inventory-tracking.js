@@ -3120,15 +3120,40 @@ async function misImportMappedRows(mappedRows, onProgress) {
     purchaseWrites.push({ date, data: { total_cost: dCost, qty: dQty, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() } });
   });
 
-  // Idempotent REPLACE: set() (not merge) overwrites each date's rollup entirely.
-  for (let s = 0; s < dailyWrites.length; s += FS_BATCH) {
-    const chunk = dailyWrites.slice(s, s + FS_BATCH);
-    await commitFreshBatchWithRetry(() => {
-      const batch = db.batch();
-      chunk.forEach((w) => batch.set(db.collection('inventoryDaily').doc(w.date), w.data));
-      return batch;
-    }, Math.min(s + chunk.length, dailyWrites.length));
-    await sleep(150);
+  // SIZE GUARD: each inventoryDaily day-doc is ONE document (1 MiB cap). Fail fast
+  // before any write if a single day would exceed ~900 KB.
+  const INV_DOC_SOFT_LIMIT = 900 * 1024;
+  for (const w of dailyWrites) {
+    let bytes = 0;
+    try { bytes = new Blob([JSON.stringify(w.data, (k, v) => (v && v._methodName ? 0 : v))]).size; }
+    catch (e) { bytes = Object.keys(w.data.items || {}).length * 160; }
+    if (bytes > INV_DOC_SOFT_LIMIT) {
+      const count = Object.keys(w.data.items || {}).length;
+      const err = new Error(`Day ${w.date} is too large to store in one document (${count.toLocaleString()} items, ~${Math.round(bytes / 1024)} KB; limit ~900 KB). Nothing was imported. Split this date into a smaller file.`);
+      err.isDuplicateBlock = true;   // reuse the clean single-message render path
+      throw err;
+    }
+  }
+
+  // Idempotent REPLACE: write each inventoryDaily day-doc as its OWN commit — never
+  // several large day-docs in one transaction (avoids "Transaction too big").
+  const dailyWrittenDates = [];
+  for (let i = 0; i < dailyWrites.length; i++) {
+    const w = dailyWrites[i];
+    try {
+      await commitFreshBatchWithRetry(() => {
+        const batch = db.batch();
+        batch.set(db.collection('inventoryDaily').doc(w.date), w.data);
+        return batch;
+      }, i + 1);
+    } catch (e) {
+      const remaining = dailyWrites.slice(i).map((x) => x.date);
+      const err = new Error(`Saving inventory stopped at ${w.date}: ${e.message}\nWritten OK: ${dailyWrittenDates.join(', ') || '(none)'}\nNOT written: ${remaining.join(', ')}\nNo upload record was saved. Delete/Replace the written date(s) if you retry.`);
+      err.isDuplicateBlock = true;
+      throw err;
+    }
+    dailyWrittenDates.push(w.date);
+    await sleep(120);
   }
   for (let s = 0; s < purchaseWrites.length; s += FS_BATCH) {
     const chunk = purchaseWrites.slice(s, s + FS_BATCH);
