@@ -6,13 +6,13 @@
 const FIRESTORE_ONLY_KEYS = new Set([
   'productMaster', 'productmaster', 'product_master', 'products',
   'salesData', 'underReviewData', 'importHistory', 'inventoryData',
-  'inventory_movements', 'suppliers', 'purchaseSuppliers', 'eSalesRecords', 'auditLog'
+  'inventory_movements', 'suppliers', 'purchaseSuppliers', 'expenseAccounts', 'eSalesRecords', 'auditLog'
 ]);
 const _runtimeData = Object.create(null);
 [
   'productMaster', 'productmaster', 'product_master', 'products',
   'salesData', 'underReviewData', 'importHistory', 'inventoryData',
-  'inventory_movements', 'suppliers', 'purchaseSuppliers', 'eSalesRecords', 'auditLog'
+  'inventory_movements', 'suppliers', 'purchaseSuppliers', 'expenseAccounts', 'eSalesRecords', 'auditLog'
 ].forEach(key => localStorage.removeItem(key));
 
 const DB = {
@@ -974,6 +974,7 @@ const NAV = [
   { section:'MASTER DATA' },
   { href:'product-master.html', icon:'box',   label:'Product Master', key:'product-master' },
   { href:'suppliers.html',      icon:'truck',  label:'Suppliers',      key:'suppliers' },
+  { href:'chart-of-accounts.html', icon:'receipt', label:'Chart of Accounts', key:'chart-of-accounts' },
   { section:'REPORTS' },
   { href:'reports.html',        icon:'chart',  label:'Reports',        key:'reports' },
   { section:'SYSTEM' },

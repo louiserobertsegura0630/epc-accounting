@@ -1,7 +1,48 @@
 
 initSidebar('expenses');
 
+// Fallback account list, used only until the Chart of Accounts is loaded from
+// Firestore. The real, managed list lives in the `expenseAccounts` collection
+// (see the Chart of Accounts page).
 const EXP_CATS = ['Selling Expenses','Administrative Expenses','Utilities','Rent','Salaries & Wages','Depreciation','Miscellaneous'];
+
+// Load the shared Chart of Accounts (expense accounts) from Firestore into the
+// local mirror so the Account dropdown reflects what's managed on that page.
+async function loadExpenseAccounts() {
+  const db = getFirestoreDB();
+  if (!db) return DB.get('expenseAccounts');
+  try {
+    const snap = await db.collection('expenseAccounts').get();
+    const rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    DB.set('expenseAccounts', rows);
+    return rows;
+  } catch (err) {
+    console.warn('[Expenses] Chart of Accounts load failed:', err);
+    return DB.get('expenseAccounts');
+  }
+}
+
+// Names for the Account dropdown/filter: the managed Chart of Accounts, falling
+// back to the defaults if it hasn't loaded (or is empty).
+function expenseAccountNames() {
+  const managed = DB.get('expenseAccounts').map(a => a.name).filter(Boolean);
+  const names = managed.length ? managed : EXP_CATS.slice();
+  return [...new Set(names)].sort();
+}
+
+// Populate the Account <select> in the expense modal from the Chart of Accounts.
+// No inline "+ Add" — accounts are managed on the Chart of Accounts page.
+function populateExpenseAccountDropdown(selected) {
+  const sel = document.getElementById('f-exp-cat');
+  if (!sel) return;
+  const cur = selected !== undefined ? selected : sel.value;
+  const names = expenseAccountNames();
+  // Keep the current value visible even if it's an account no longer in the list.
+  if (cur && !names.includes(cur)) names.push(cur);
+  sel.innerHTML = '<option value="">Select account...</option>' +
+    names.map(n => `<option value="${expEsc(n)}"${n === cur ? ' selected' : ''}>${expEsc(n)}</option>`).join('');
+}
+
 const expTableState = {
   sortKey: 'date',
   sortDir: 'desc',
@@ -53,7 +94,7 @@ function resetForm() {
   document.getElementById('f-exp-desc').value = '';
   document.getElementById('r-business').checked = true;
   document.getElementById('r-deductible').checked = true;
-  initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS, { term: 'Account' });
+  populateExpenseAccountDropdown('');
 }
 
 function expenseGrossAmount(row) {
@@ -95,7 +136,7 @@ const EXPENSE_COLUMNS = [
   { key:'name', label:'Name', type:'text', className:'col-name',
     render: row => `<strong>${expEsc(row.name)}</strong>` },
   { key:'category', label:'Account', type:'dropdown', className:'col-category',
-    options: () => [...new Set([...EXP_CATS, ...DB.get('expenses').map(row => row.category).filter(Boolean)])].sort() },
+    options: () => [...new Set([...expenseAccountNames(), ...DB.get('expenses').map(row => row.category).filter(Boolean)])].sort() },
   { key:'description', label:'Description', type:'text', className:'col-description',
     render: row => expEsc(row.description || '—') },
   { key:'classification', label:'Class', type:'dropdown', className:'col-classification',
@@ -400,7 +441,7 @@ function editExp(id) {
   document.getElementById('f-exp-desc').value   = e.description||'';
   document.querySelector(`input[name="exp-class"][value="${e.classification}"]`).checked = true;
   document.querySelector(`input[name="exp-deductible"][value="${expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible'}"]`).checked = true;
-  initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS, { term: 'Account' });
+  populateExpenseAccountDropdown(e.category);
   document.getElementById('f-exp-cat').value    = e.category;
   openModal('modal-expense');
 }
@@ -437,3 +478,8 @@ loadExpensesFromFirestore().then(() => {
   renderExpenseHeader();
   renderTable();
 }).catch(error => console.error('Failed to load expenses from database:', error));
+// Load the shared Chart of Accounts so the Account dropdown/filter reflect it.
+loadExpenseAccounts().then(() => {
+  populateExpenseAccountDropdown();
+  renderTable();
+}).catch(error => console.error('Failed to load chart of accounts:', error));

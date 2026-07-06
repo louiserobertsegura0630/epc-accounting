@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chart of Accounts - EPC Commercial Corporation</title>
+  <link rel="stylesheet" href="../assets/style.css?v=20260703-vscroll-shared">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<div class="main-content">
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <h1>Chart of Accounts</h1>
+      <p>Manage the expense accounts used across the Expenses page.</p>
+    </div>
+  </header>
+
+  <div class="page-body">
+
+    <div class="page-title-row">
+      <div class="title-area">
+        <span class="section-title">Chart of Accounts</span>
+        <span class="section-subtitle">Expense accounts. The Expenses page picks from this list.</span>
+      </div>
+      <div class="page-title-actions">
+        <button class="btn btn-primary" id="btn-add-account">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Account
+        </button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title">Accounts</span>
+        <input type="text" class="search-input" id="search-account" placeholder="Search account name…">
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Account Name</th>
+              <th style="width:160px;text-align:right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="account-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="modal-account">
+  <div class="modal-card" style="max-width:440px">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-account-title">Add Account</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="account-edit-id">
+      <div class="form-group">
+        <label class="form-label">Account Name <span class="req">*</span></label>
+        <input type="text" class="form-input" id="f-account-name" placeholder="e.g. Utilities" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-account">Save Account</button>
+    </div>
+  </div>
+</div>
+
+<script src="../assets/app.js?v=20260706-chart-of-accounts"></script>
+<script src="chart-of-accounts.js?v=20260706-chart-of-accounts"></script>
+</body>
+</html>

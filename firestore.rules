@@ -41,6 +41,12 @@ service cloud.firestore {
       allow write: if request.auth != null
                    && (userRole() == 'accountant' || userRole() == 'limited');
     }
+    // Chart of Accounts (expense accounts), managed on its own page.
+    match /expenseAccounts/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
     match /inventoryData/{doc} {
       allow read:  if request.auth != null;
       allow write: if request.auth != null
