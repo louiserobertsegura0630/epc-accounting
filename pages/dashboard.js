@@ -1,11 +1,14 @@
 initSidebar('dashboard');
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const today = (() => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-})();
-let SNAP_DATE = today;
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const today = isoDate(new Date());
+// The dashboard defaults to YESTERDAY: a day's operations (sales, purchases/COGS,
+// supplies, expenses, tax, inventory) are reviewed the next day, so "today's"
+// snapshot shows the prior day's data. Picking any date still shows that exact
+// date's data, and the "Today" button jumps to the real current day.
+const defaultSnapDate = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDate(d); })();
+let SNAP_DATE = defaultSnapDate;
 
 // ─── Data cache (filled by loadDashData from Firestore, fallback localStorage)
 const DASH_DATA = {
@@ -513,7 +516,7 @@ function setProdCustomRange() {
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
-document.getElementById('snap-date').value = today;
+document.getElementById('snap-date').value = defaultSnapDate;
 loadDashData()
   .then(() => {
     buildDailyOperationsSummary();
