@@ -752,12 +752,16 @@ function refreshCatDropdown(sel, storageKey, defaults, selected) {
   const extras = DB.get(storageKey + '_cats');
   const all = [...defaults, ...extras.filter(e => !defaults.includes(e))];
   const cur = selected !== undefined ? selected : sel.value;
-  sel.innerHTML = '<option value="">Select category...</option>' +
+  // The user-facing term ("Category" or, for Expenses, "Account") is set via
+  // initCatDropdown opts.term and stashed on the <select>. Data is unchanged.
+  const term = sel._catTerm || 'Category';
+  sel.innerHTML = `<option value="">Select ${term.toLowerCase()}...</option>` +
     all.map(c => `<option value="${c}"${c===cur?' selected':''}>${c}</option>`).join('') +
-    '<option value="__add">+ Add Category</option>';
+    `<option value="__add">+ Add ${term}</option>`;
 }
-function initCatDropdown(sel, storageKey, defaults) {
+function initCatDropdown(sel, storageKey, defaults, opts = {}) {
   if (!sel) return;
+  sel._catTerm = opts.term || 'Category';
   refreshCatDropdown(sel, storageKey, defaults);
   // Pull categories added on other computers, then re-render (preserving the
   // current selection). Non-blocking so the dropdown is usable immediately.
@@ -770,12 +774,13 @@ function initCatDropdown(sel, storageKey, defaults) {
   });
 }
 function showAddCatModal(sel, storageKey, defaults) {
+  const term = sel._catTerm || 'Category';
   const el = document.createElement('div');
   el.className = 'mini-modal';
   el.innerHTML = `<div class="mini-modal-card">
-    <h3>Add New Category</h3>
+    <h3>Add New ${term}</h3>
     <div class="form-group">
-      <label class="form-label">Category Name</label>
+      <label class="form-label">${term} Name</label>
       <input type="text" class="form-input" id="_catinput" placeholder="e.g. Beverages">
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">

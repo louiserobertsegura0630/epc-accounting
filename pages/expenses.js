@@ -53,7 +53,7 @@ function resetForm() {
   document.getElementById('f-exp-desc').value = '';
   document.getElementById('r-business').checked = true;
   document.getElementById('r-deductible').checked = true;
-  initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS);
+  initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS, { term: 'Account' });
 }
 
 function expenseGrossAmount(row) {
@@ -94,7 +94,7 @@ const EXPENSE_COLUMNS = [
     render: row => formatDate(row.date) },
   { key:'name', label:'Name', type:'text', className:'col-name',
     render: row => `<strong>${expEsc(row.name)}</strong>` },
-  { key:'category', label:'Category', type:'dropdown', className:'col-category',
+  { key:'category', label:'Account', type:'dropdown', className:'col-category',
     options: () => [...new Set([...EXP_CATS, ...DB.get('expenses').map(row => row.category).filter(Boolean)])].sort() },
   { key:'description', label:'Description', type:'text', className:'col-description',
     render: row => expEsc(row.description || '—') },
@@ -318,7 +318,7 @@ function exportExpensesCSV() {
   exportRowsToCSV(`expenses-${todayISO()}.csv`, [
     { label:'Date', value: row => csvDate(row.date) },
     { label:'Name', value:'name' },
-    { label:'Category', value:'category' },
+    { label:'Account', value:'category' },
     { label:'Description', value:'description' },
     { label:'Classification', value:'classification' },
     { label:'Tax Treatment', value: row => expenseIsDeductible(row) ? 'Deductible' : 'Non-deductible' },
@@ -344,7 +344,7 @@ async function saveExpense() {
   if (!netAmount && grossAmount) netAmount = Math.max(0, grossAmount - vatAmount);
   if (!vatAmount && grossAmount && netAmount && grossAmount >= netAmount) vatAmount = grossAmount - netAmount;
 
-  if (!name||!date||!cat||!grossAmount) { alert('Name, date, category, and gross amount are required.'); return; }
+  if (!name||!date||!cat||!grossAmount) { alert('Name, date, account, and gross amount are required.'); return; }
 
   const record = {
     name,
@@ -400,7 +400,7 @@ function editExp(id) {
   document.getElementById('f-exp-desc').value   = e.description||'';
   document.querySelector(`input[name="exp-class"][value="${e.classification}"]`).checked = true;
   document.querySelector(`input[name="exp-deductible"][value="${expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible'}"]`).checked = true;
-  initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS);
+  initCatDropdown(document.getElementById('f-exp-cat'), 'exp', EXP_CATS, { term: 'Account' });
   document.getElementById('f-exp-cat').value    = e.category;
   openModal('modal-expense');
 }
