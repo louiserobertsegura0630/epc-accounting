@@ -11,18 +11,50 @@ function coaEsc(str) {
 }
 
 // ─── Firestore persistence (collection: 'expenseAccounts') ───────────────────
+// Gather every expense account name that exists across the app's older stores,
+// so the Chart of Accounts starts out holding all of them:
+//   1) the built-in defaults
+//   2) custom categories added via the old "+ Add Category" (categories/exp)
+//   3) account names already saved on expense records
+async function collectExistingAccountNames(db) {
+  const names = new Set();
+  COA_DEFAULTS.forEach(n => names.add(n));
+
+  // Custom "+ Add Category" list for expenses (Firestore: categories/exp).
+  try {
+    const catDoc = await db.collection('categories').doc('exp').get();
+    if (catDoc.exists && Array.isArray(catDoc.data().names)) {
+      catDoc.data().names.forEach(n => { const c = String(n || '').trim(); if (c) names.add(c); });
+    }
+  } catch (err) { console.warn('[Chart of Accounts] category merge skipped:', err); }
+
+  // Account names used on saved expense records.
+  try {
+    const expSnap = await db.collection('expenses').get();
+    expSnap.docs.forEach(d => { const c = String(d.data().category || '').trim(); if (c) names.add(c); });
+  } catch (err) { console.warn('[Chart of Accounts] expense-record merge skipped:', err); }
+
+  return [...names];
+}
+
 async function loadAccountsFromFirestore() {
   const db = getFirestoreDB();
   if (!db) return DB.get('expenseAccounts');
   const snap = await db.collection('expenseAccounts').get();
   let rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  // Seed the defaults once, on an empty collection.
+
+  // First-time population: seed from ALL existing expense categories (defaults +
+  // custom "+ Add Category" list + names used on expense records). This runs
+  // only while the collection is empty; afterwards this page is authoritative,
+  // so accounts you delete here stay deleted.
   if (!rows.length) {
-    rows = COA_DEFAULTS.map(name => ({ id: genId(), name }));
+    const seedNames = await collectExistingAccountNames(db);
+    rows = seedNames.map(name => ({ id: genId(), name }));
     for (const acc of rows) {
       await db.collection('expenseAccounts').doc(acc.id).set(acc, { merge: true });
     }
   }
+
   rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   DB.set('expenseAccounts', rows);
   return rows;
