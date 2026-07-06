@@ -950,7 +950,6 @@ const NAV = [
   { href:'reports.html',        icon:'chart',  label:'Reports',        key:'reports' },
   { section:'SYSTEM' },
   { href:'settings.html',       icon:'users',  label:'Settings',       key:'settings' },
-  { href:'audit-log.html',      icon:'receipt', label:'Audit Log',     key:'audit-log' },
 ];
 
 const AUDIT_LOG_KEY = 'auditLog';
