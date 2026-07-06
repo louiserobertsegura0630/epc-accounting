@@ -703,6 +703,51 @@ function initModals() {
 }
 
 // ─── Category Dropdown ──────────────────────────────────────────────────────
+// ─── Shared custom categories (Firestore-backed so every computer sees them) ──
+// Custom categories added via the "+ Add Category" dialog are stored in the
+// Firestore `categories` collection, one doc per storageKey (exp/inv/prod/sup)
+// holding a `names` array. localStorage keeps a synchronous mirror under
+// `<storageKey>_cats` because the dropdowns render synchronously.
+function categoriesFirestoreDocId(storageKey) {
+  return String(storageKey || '').trim() || 'default';
+}
+
+// Load a page's custom categories from Firestore into the localStorage mirror.
+// Call this before initializing category dropdowns so newly-synced categories
+// added on other computers appear here too. Safe to await; falls back to the
+// local mirror when Firestore is unavailable.
+async function loadCategoriesFromFirestore(storageKey) {
+  const db = getFirestoreDB();
+  if (!db) return DB.get(storageKey + '_cats');
+  try {
+    const snap = await db.collection('categories').doc(categoriesFirestoreDocId(storageKey)).get();
+    const names = (snap.exists && Array.isArray(snap.data().names)) ? snap.data().names : [];
+    DB.set(storageKey + '_cats', names);
+    return names;
+  } catch (err) {
+    console.warn('[categories] load failed for', storageKey, err);
+    return DB.get(storageKey + '_cats');
+  }
+}
+
+// Persist a newly-added custom category to Firestore (merged into the names
+// array) and the localStorage mirror. Returns the updated list.
+async function addSharedCategory(storageKey, name) {
+  const clean = String(name || '').trim();
+  const cats = DB.get(storageKey + '_cats');
+  if (clean && !cats.includes(clean)) { cats.push(clean); DB.set(storageKey + '_cats', cats); }
+  const db = getFirestoreDB();
+  if (db && clean) {
+    try {
+      await db.collection('categories').doc(categoriesFirestoreDocId(storageKey))
+        .set({ names: cats }, { merge: true });
+    } catch (err) {
+      console.warn('[categories] save failed for', storageKey, err);
+    }
+  }
+  return cats;
+}
+
 function refreshCatDropdown(sel, storageKey, defaults, selected) {
   const extras = DB.get(storageKey + '_cats');
   const all = [...defaults, ...extras.filter(e => !defaults.includes(e))];
@@ -714,6 +759,11 @@ function refreshCatDropdown(sel, storageKey, defaults, selected) {
 function initCatDropdown(sel, storageKey, defaults) {
   if (!sel) return;
   refreshCatDropdown(sel, storageKey, defaults);
+  // Pull categories added on other computers, then re-render (preserving the
+  // current selection). Non-blocking so the dropdown is usable immediately.
+  loadCategoriesFromFirestore(storageKey)
+    .then(() => refreshCatDropdown(sel, storageKey, defaults, sel.value))
+    .catch(() => {});
   sel.addEventListener('focus', function() { this._prev = this.value; });
   sel.addEventListener('change', function() {
     if (this.value === '__add') showAddCatModal(this, storageKey, defaults);
@@ -736,11 +786,12 @@ function showAddCatModal(sel, storageKey, defaults) {
   const inp = el.querySelector('#_catinput');
   inp.focus();
   el.querySelector('#_catcancel').onclick = () => { sel.value = sel._prev||''; el.remove(); };
-  el.querySelector('#_catsave').onclick = () => {
+  el.querySelector('#_catsave').onclick = async () => {
     const name = inp.value.trim();
     if (!name) { inp.focus(); return; }
-    const cats = DB.get(storageKey + '_cats');
-    if (!cats.includes(name)) { cats.push(name); DB.set(storageKey + '_cats', cats); }
+    const saveBtn = el.querySelector('#_catsave');
+    saveBtn.disabled = true;
+    await addSharedCategory(storageKey, name);
     refreshCatDropdown(sel, storageKey, defaults, name);
     el.remove();
   };
