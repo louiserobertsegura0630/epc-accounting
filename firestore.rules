@@ -35,6 +35,12 @@ service cloud.firestore {
       allow write: if request.auth != null
                    && (userRole() == 'accountant' || userRole() == 'limited');
     }
+    // Purchases keeps its own separate supplier list, independent of /suppliers.
+    match /purchaseSuppliers/{doc} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && (userRole() == 'accountant' || userRole() == 'limited');
+    }
     match /inventoryData/{doc} {
       allow read:  if request.auth != null;
       allow write: if request.auth != null

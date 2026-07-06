@@ -2823,9 +2823,55 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
     };
   }
 
-  // Suppliers are intentionally NOT auto-recorded during inventory import.
-  // Supplier names still appear on inventory rows / Product Master, but
-  // supplier records in the Suppliers page are filled out manually.
+  async function upsertSuppliersFromImport(rows) {
+    const db = getFirestoreDB();
+    if (!db) throw new Error('Database unavailable.');
+    const localSuppliers = DB.get('suppliers');
+    const localByName = new Map(localSuppliers
+      .map(supplier => [String(supplier.name || '').trim().toLowerCase(), supplier])
+      .filter(([name]) => name));
+    const importedByName = new Map();
+
+    rows.forEach(row => {
+      const name = String(row.supplier || '').trim();
+      const key = name.toLowerCase();
+      if (!key || importedByName.has(key)) return;
+      importedByName.set(key, localByName.get(key) || {
+        id: supplierFirestoreDocId(name),
+        name,
+        category: '',
+        address: '',
+        contactPerson: '',
+        phone: '',
+        email: '',
+        notes: '',
+        status: 'Active'
+      });
+    });
+
+    const importedSuppliers = [...importedByName.values()];
+    for (let start = 0; start < importedSuppliers.length; start += FIRESTORE_BATCH) {
+      const chunk = importedSuppliers.slice(start, start + FIRESTORE_BATCH);
+      await commitFreshBatchWithRetry(() => {
+        const batch = db.batch();
+        chunk.forEach(supplier => {
+          batch.set(
+            db.collection('suppliers').doc(supplierFirestoreDocId(supplier.name)),
+            supplier,
+            { merge: true }
+          );
+        });
+        return batch;
+      }, Math.min(start + chunk.length, importedSuppliers.length));
+      await sleep(300);
+    }
+
+    const newSuppliers = importedSuppliers.filter(supplier =>
+      !localByName.has(String(supplier.name || '').trim().toLowerCase())
+    );
+    if (newSuppliers.length) DB.set('suppliers', [...localSuppliers, ...newSuppliers]);
+    return newSuppliers;
+  }
 
   importBatch(0, () => {
     setTimeout(async () => {
@@ -2833,12 +2879,14 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
         inventorySaved = await saveInventoryRowsToFirestore(savedInventoryRows);
         const review = await syncProductMasterFromImport(toImport);
 
+        const allImportedRows = toImport.map(item => item.row);
+        const newSuppliers = await upsertSuppliersFromImport(allImportedRows);
         logAudit('Import', 'MIS Inventory',
           `Imported '${MIS_SOURCE_FILE || 'MIS file'}' - ${inventorySaved.toLocaleString()} inventory records, ${review.updated.toLocaleString()} products updated`);
 
         const zeroCostCount = MIS_ZERO_COST_COUNT;
         closeModal('modal-mis'); resetMISModal(); invTable.render(); renderSummary();
-        let msg = `✓ Done! ${inventorySaved.toLocaleString()} inventory rows saved, ${review.updated.toLocaleString()} products updated in Product Master.`;
+        let msg = `✓ Done! ${inventorySaved.toLocaleString()} inventory rows saved, ${review.updated.toLocaleString()} products updated in Product Master.<br>${newSuppliers.length.toLocaleString()} new suppliers registered.`;
         if (zeroCostCount > 0) msg += `<br>${zeroCostCount.toLocaleString()} zero-cost rows skipped.`;
         if (review.skippedHistoryEntries > 0) msg += `<br>${review.skippedHistoryEntries.toLocaleString()} existing cost history entries skipped.`;
         if (review.duplicates > 0) {
@@ -2994,10 +3042,20 @@ async function misImportMappedRows(mappedRows, onProgress) {
     await sleep(200);
   }
 
-  // 3) Suppliers: intentionally NOT recorded during inventory import.
-  // Product list and supplier NAMES still flow onto inventory rows / Product Master,
-  // but supplier records are no longer auto-created in the Suppliers page — they
-  // are filled out manually.
+  // 3) Suppliers upsert (distinct names).
+  const supByName = new Map();
+  rawForPM.forEach((r) => { const n = r.supplier; const k = n.toLowerCase(); if (n && !supByName.has(k)) supByName.set(k, n); });
+  const supList = [...supByName.values()];
+  for (let s = 0; s < supList.length; s += FS_BATCH) {
+    const chunk = supList.slice(s, s + FS_BATCH);
+    await commitFreshBatchWithRetry(() => {
+      const batch = db.batch();
+      chunk.forEach((name) => batch.set(db.collection('suppliers').doc(supplierFirestoreDocId(name)),
+        { id: supplierFirestoreDocId(name), name, category: '', address: '', contactPerson: '', phone: '', email: '', notes: '', status: 'Active' }, { merge: true }));
+      return batch;
+    }, Math.min(s + chunk.length, supList.length));
+    await sleep(200);
+  }
 
   // 4) Product Master sync (adds new item codes, appends cost history).
   let productsUpdated = 0;
@@ -3189,11 +3247,11 @@ async function misImportMappedRows(mappedRows, onProgress) {
     });
   } catch (e) { console.warn('uploads record failed:', e); }
 
-  try { logAudit('Import', 'MIS Inventory', `Imported ${inserted} raw rows, ${itemDays} item-days across ${importDates.length} dates, ${productsUpdated} products`); } catch (e) {}
+  try { logAudit('Import', 'MIS Inventory', `Imported ${inserted} raw rows, ${itemDays} item-days across ${importDates.length} dates, ${productsUpdated} products, ${supList.length} suppliers`); } catch (e) {}
   invTable.render(); renderSummary(); refreshInventoryAggregates();
   try { rematchUnderReview().then(({ moved }) => { if (moved > 0) showToast(`✅ ${moved} Under Review item(s) matched and moved to Sales Data!`, 'success'); }); } catch (e) {}
 
-  return { inserted, summary: `${mappedRows.length.toLocaleString()} file rows → ${itemDays.toLocaleString()} item-days across ${importDates.length} date(s).${zeroCost ? ` (${zeroCost} zero-cost skipped)` : ''}` };
+  return { inserted, summary: `${mappedRows.length.toLocaleString()} file rows → ${itemDays.toLocaleString()} item-days across ${importDates.length} date(s); ${supList.length.toLocaleString()} new suppliers.${zeroCost ? ` (${zeroCost} zero-cost skipped)` : ''}` };
 }
 
 document.getElementById('btn-import-mis').addEventListener('click', () => {

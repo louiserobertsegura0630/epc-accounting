@@ -510,7 +510,7 @@ function populatePurchasesFilterSuppliers() {
   const sel  = document.getElementById('filter-supplier-purchases');
   const prev = sel.value;
   const names = new Set([
-    ...DB.get('suppliers').map(s => s.name).filter(Boolean),
+    ...DB.get('purchaseSuppliers').map(s => s.name).filter(Boolean),
     ...DB.get('purchases').map(p => p.supplier).filter(Boolean)
   ]);
   sel.innerHTML = '<option value="">All Suppliers</option>' +
@@ -843,7 +843,7 @@ async function savePurchase() {
   const supplierInput = document.getElementById('f-supplier-search')?.value.trim() || '';
   let supplier  = document.getElementById('f-supplier').value;
   if (!supplier && supplierInput) {
-    const match = DB.get('suppliers').find(item =>
+    const match = DB.get('purchaseSuppliers').find(item =>
       String(item.name || '').trim().toLowerCase() === supplierInput.toLowerCase());
     if (match) {
       supplier = match.name;
@@ -969,7 +969,7 @@ document.getElementById('btn-add-purchase').addEventListener('click', () => { re
 document.getElementById('btn-export-purchases')?.addEventListener('click', exportPurchasesCSV);
 document.getElementById('btn-export-filtered-purchases')?.addEventListener('click', exportPurchasesCSV);
 document.getElementById('btn-save-purchase').addEventListener('click', savePurchase);
-initSupplierPicker('f-supplier', 'f-supplier-search', 'f-supplier-results');
+initSupplierPicker('f-supplier', 'f-supplier-search', 'f-supplier-results', { storeKey: 'purchaseSuppliers' });
 document.getElementById('btn-search-purchase-supplier').addEventListener('click', () => {
   const input = document.getElementById('f-supplier-search');
   input.focus();
@@ -1051,7 +1051,7 @@ renderTable();
 renderSummary();
 Promise.all([
   loadPurchasesBatch({ append: false }),
-  loadSuppliersFromFirestore()
+  loadSupplierListFromFirestore('purchaseSuppliers')
 ])
   .then(() => {
     populatePurchasesFilterSuppliers();

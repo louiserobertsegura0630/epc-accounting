@@ -6,13 +6,13 @@
 const FIRESTORE_ONLY_KEYS = new Set([
   'productMaster', 'productmaster', 'product_master', 'products',
   'salesData', 'underReviewData', 'importHistory', 'inventoryData',
-  'inventory_movements', 'suppliers', 'eSalesRecords', 'auditLog'
+  'inventory_movements', 'suppliers', 'purchaseSuppliers', 'eSalesRecords', 'auditLog'
 ]);
 const _runtimeData = Object.create(null);
 [
   'productMaster', 'productmaster', 'product_master', 'products',
   'salesData', 'underReviewData', 'importHistory', 'inventoryData',
-  'inventory_movements', 'suppliers', 'eSalesRecords', 'auditLog'
+  'inventory_movements', 'suppliers', 'purchaseSuppliers', 'eSalesRecords', 'auditLog'
 ].forEach(key => localStorage.removeItem(key));
 
 const DB = {
@@ -816,23 +816,46 @@ function supplierPickerEsc(value) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-async function ensureSharedSupplier(name) {
+// storeKey is BOTH the localStorage DB key and the Firestore collection name.
+// Default 'suppliers' = the shared Suppliers page list. Purchases passes
+// 'purchaseSuppliers' so it keeps its own separate list, untouched by (and not
+// touching) the Suppliers page.
+async function ensureSharedSupplier(name, storeKey = 'suppliers') {
   const cleanName = String(name || '').trim();
   if (!cleanName) return null;
   const key = cleanName.toLowerCase();
-  const existing = DB.get('suppliers')
+  const existing = DB.get(storeKey)
     .find(supplier => String(supplier.name || '').trim().toLowerCase() === key);
   if (existing) return existing;
 
   const supplier = { id:genId(), name:cleanName, category:'', status:'Active' };
   const db = getFirestoreDB();
-  if (db) await db.collection('suppliers').doc(supplier.id).set(supplier, { merge:true });
-  DB.push('suppliers', supplier);
-  logAudit('Create', 'Supplier', `Added supplier ${cleanName}`);
+  if (db) await db.collection(storeKey).doc(supplier.id).set(supplier, { merge:true });
+  DB.push(storeKey, supplier);
+  logAudit('Create', storeKey === 'suppliers' ? 'Supplier' : 'Purchase Supplier', `Added supplier ${cleanName}`);
   return supplier;
 }
 
-function initSupplierPicker(valueId, searchId, resultsId) {
+// Load a supplier list (default the shared 'suppliers' collection) from Firestore
+// into its localStorage mirror. Pass 'purchaseSuppliers' for the Purchases list.
+async function loadSupplierListFromFirestore(storeKey = 'suppliers') {
+  const db = getFirestoreDB();
+  if (!db) return DB.get(storeKey);
+  try {
+    const snap = await db.collection(storeKey).get();
+    const rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    DB.set(storeKey, rows);
+    return rows;
+  } catch (err) {
+    console.warn('[Suppliers] load failed for', storeKey, err);
+    return DB.get(storeKey);
+  }
+}
+
+// opts.storeKey (default 'suppliers'): which list this picker reads from and adds
+// to. Purchases passes { storeKey: 'purchaseSuppliers' } for its separate list.
+function initSupplierPicker(valueId, searchId, resultsId, opts = {}) {
+  const storeKey = opts.storeKey || 'suppliers';
   const valueEl = document.getElementById(valueId);
   const searchEl = document.getElementById(searchId);
   const resultsEl = document.getElementById(resultsId);
@@ -844,13 +867,13 @@ function initSupplierPicker(valueId, searchId, resultsId) {
     searchEl.value = value;
     resultsEl.innerHTML = '';
     const emptyMessage = document.getElementById(`${valueId}-empty`);
-    if (emptyMessage) emptyMessage.style.display = DB.get('suppliers').length ? 'none' : '';
+    if (emptyMessage) emptyMessage.style.display = DB.get(storeKey).length ? 'none' : '';
   }
 
   function render() {
     const typed = searchEl.value.trim();
     const query = typed.toLowerCase();
-    const matches = DB.get('suppliers')
+    const matches = DB.get(storeKey)
       .filter(supplier => String(supplier.name || '').toLowerCase().includes(query))
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
       .slice(0, 8);
@@ -872,7 +895,7 @@ function initSupplierPicker(valueId, searchId, resultsId) {
     if (!option) return;
     if (option.dataset.addSupplier) {
       try {
-        const supplier = await ensureSharedSupplier(decodeURIComponent(option.dataset.addSupplier));
+        const supplier = await ensureSharedSupplier(decodeURIComponent(option.dataset.addSupplier), storeKey);
         if (supplier) setValue(supplier.name);
       } catch (err) {
         console.error('[Suppliers] Inline add failed:', err);
