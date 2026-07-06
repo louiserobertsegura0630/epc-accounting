@@ -341,6 +341,7 @@ async function setSnapDate(date) {
   buildDailyOperationsSummary();
 }
 function setSnapToday() { setSnapDate(today); }
+function setSnapYesterday() { setSnapDate(defaultSnapDate); }
 
 document.getElementById('snap-date').addEventListener('change', function() {
   setSnapDate(this.value);
