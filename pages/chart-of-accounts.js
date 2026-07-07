@@ -90,29 +90,73 @@ async function deleteAllAccountsFromFirestore() {
   await batch.commit();
 }
 
+async function deleteAccountsByIdFromFirestore(ids) {
+  const db = getFirestoreDB();
+  if (!db || !ids.length) return;
+  // Firestore batches cap at 500 writes; chunk to stay safely under.
+  for (let i = 0; i < ids.length; i += 400) {
+    const batch = db.batch();
+    ids.slice(i, i + 400).forEach(id =>
+      batch.delete(db.collection('expenseAccounts').doc(id)));
+    await batch.commit();
+  }
+}
+
 // ─── Rendering ───────────────────────────────────────────────────────────────
 let coaSearch = '';
+const coaSelected = new Set(); // ids of checked accounts
+
+// The set of accounts currently shown (after the search filter), sorted.
+function visibleAccounts() {
+  const q = coaSearch.trim().toLowerCase();
+  return DB.get('expenseAccounts')
+    .filter(a => !q || String(a.name || '').toLowerCase().includes(q))
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+}
 
 function renderAccounts() {
   const tbody = document.getElementById('account-tbody');
-  const q = coaSearch.trim().toLowerCase();
-  const rows = DB.get('expenseAccounts')
-    .filter(a => !q || String(a.name || '').toLowerCase().includes(q))
-    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  const rows = visibleAccounts();
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;padding:24px;color:var(--text-muted)">${q ? 'No matching accounts.' : 'No accounts yet. Click "Add Account" to create one.'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--text-muted)">${coaSearch.trim() ? 'No matching accounts.' : 'No accounts yet. Click "Add Account" to create one.'}</td></tr>`;
+    syncSelectionUI();
     return;
   }
 
   tbody.innerHTML = rows.map(a => `
     <tr>
+      <td style="text-align:center"><input type="checkbox" class="coa-row-check" data-select="${coaEsc(a.id)}" ${coaSelected.has(String(a.id)) ? 'checked' : ''}></td>
       <td>${coaEsc(a.name)}</td>
       <td style="text-align:right">
         <button class="btn btn-outline-gray btn-xs" data-edit="${coaEsc(a.id)}">Edit</button>
         <button class="btn btn-danger btn-xs" data-delete="${coaEsc(a.id)}">Delete</button>
       </td>
     </tr>`).join('');
+  syncSelectionUI();
+}
+
+// Show/hide the bulk buttons and keep the select-all checkbox in sync with the
+// rows currently visible.
+function syncSelectionUI() {
+  const rows = visibleAccounts();
+  const total = DB.get('expenseAccounts').length;
+  const selCount = rows.filter(a => coaSelected.has(String(a.id))).length;
+
+  const countEl = document.getElementById('coa-selected-count');
+  if (countEl) countEl.textContent = selCount;
+
+  const delSel = document.getElementById('btn-delete-selected-accounts');
+  if (delSel) delSel.style.display = selCount ? '' : 'none';
+
+  const delAll = document.getElementById('btn-delete-all-accounts');
+  if (delAll) delAll.style.display = total ? '' : 'none';
+
+  const selectAll = document.getElementById('coa-select-all');
+  if (selectAll) {
+    selectAll.checked = rows.length > 0 && selCount === rows.length;
+    selectAll.indeterminate = selCount > 0 && selCount < rows.length;
+  }
 }
 
 // ─── Add / Edit ──────────────────────────────────────────────────────────────
@@ -178,6 +222,7 @@ async function deleteAccount(id) {
   try {
     await deleteAccountFromFirestore(id);
     DB.set('expenseAccounts', DB.get('expenseAccounts').filter(a => String(a.id) !== String(id)));
+    coaSelected.delete(String(id));
     logAudit('Delete', 'Chart of Accounts', `Deleted account ${acc.name}`);
     renderAccounts();
   } catch (err) {
@@ -196,6 +241,7 @@ async function deleteAllAccounts() {
   try {
     await deleteAllAccountsFromFirestore();
     DB.set('expenseAccounts', []);
+    coaSelected.clear();
     logAudit('Delete', 'Chart of Accounts', `Deleted all ${accounts.length} accounts`);
     renderAccounts();
   } catch (err) {
@@ -206,10 +252,43 @@ async function deleteAllAccounts() {
   }
 }
 
+async function deleteSelectedAccounts() {
+  const ids = DB.get('expenseAccounts')
+    .map(a => String(a.id))
+    .filter(id => coaSelected.has(id));
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} selected account${ids.length === 1 ? '' : 's'}? Existing expenses keep their account name; they just won't appear in the dropdown anymore. This cannot be undone.`)) return;
+
+  const btn = document.getElementById('btn-delete-selected-accounts');
+  btn.disabled = true;
+  try {
+    await deleteAccountsByIdFromFirestore(ids);
+    const idSet = new Set(ids);
+    DB.set('expenseAccounts', DB.get('expenseAccounts').filter(a => !idSet.has(String(a.id))));
+    ids.forEach(id => coaSelected.delete(id));
+    logAudit('Delete', 'Chart of Accounts', `Deleted ${ids.length} selected accounts`);
+    renderAccounts();
+  } catch (err) {
+    console.error('[Chart of Accounts] Delete selected failed:', err);
+    alert('Could not delete the selected accounts. Please try again.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ─── Wiring ──────────────────────────────────────────────────────────────────
 document.getElementById('btn-add-account').addEventListener('click', openAddAccount);
 document.getElementById('btn-delete-all-accounts').addEventListener('click', deleteAllAccounts);
+document.getElementById('btn-delete-selected-accounts').addEventListener('click', deleteSelectedAccounts);
 document.getElementById('btn-save-account').addEventListener('click', saveAccount);
+
+// Select-all toggles every currently-visible (filtered) row.
+document.getElementById('coa-select-all').addEventListener('change', (e) => {
+  const ids = visibleAccounts().map(a => String(a.id));
+  if (e.target.checked) ids.forEach(id => coaSelected.add(id));
+  else ids.forEach(id => coaSelected.delete(id));
+  renderAccounts();
+});
 document.getElementById('search-account').addEventListener('input', (e) => {
   coaSearch = e.target.value;
   renderAccounts();
@@ -219,6 +298,13 @@ document.getElementById('account-tbody').addEventListener('click', (e) => {
   const delId  = e.target.closest('[data-delete]')?.dataset.delete;
   if (editId) openEditAccount(editId);
   else if (delId) deleteAccount(delId);
+});
+document.getElementById('account-tbody').addEventListener('change', (e) => {
+  const selId = e.target.closest('[data-select]')?.dataset.select;
+  if (!selId) return;
+  if (e.target.checked) coaSelected.add(String(selId));
+  else coaSelected.delete(String(selId));
+  syncSelectionUI();
 });
 
 renderAccounts();
