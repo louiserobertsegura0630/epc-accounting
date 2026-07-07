@@ -30,17 +30,48 @@ function expenseAccountNames() {
   return [...new Set(names)].sort();
 }
 
+// Sentinel value for the inline "+ Add new account…" dropdown option.
+const EXP_ADD_ACCOUNT = '__add_new_account__';
+
 // Populate the Account <select> in the expense modal from the Chart of Accounts.
-// No inline "+ Add" — accounts are managed on the Chart of Accounts page.
+// Includes an inline "+ Add new account…" option that creates the account in
+// the shared Chart of Accounts (Firestore `expenseAccounts`).
 function populateExpenseAccountDropdown(selected) {
   const sel = document.getElementById('f-exp-cat');
   if (!sel) return;
   const cur = selected !== undefined ? selected : sel.value;
   const names = expenseAccountNames();
   // Keep the current value visible even if it's an account no longer in the list.
-  if (cur && !names.includes(cur)) names.push(cur);
+  if (cur && cur !== EXP_ADD_ACCOUNT && !names.includes(cur)) names.push(cur);
   sel.innerHTML = '<option value="">Select account...</option>' +
-    names.map(n => `<option value="${expEsc(n)}"${n === cur ? ' selected' : ''}>${expEsc(n)}</option>`).join('');
+    names.map(n => `<option value="${expEsc(n)}"${n === cur ? ' selected' : ''}>${expEsc(n)}</option>`).join('') +
+    `<option value="${EXP_ADD_ACCOUNT}">+ Add new account…</option>`;
+}
+
+// Create a new expense account in the shared Chart of Accounts (Firestore
+// `expenseAccounts`), so it also shows up on the Chart of Accounts page.
+// Returns the account name on success, or null if cancelled/failed.
+async function createExpenseAccount() {
+  const raw = prompt('New account name:');
+  const name = String(raw ?? '').trim();
+  if (!name) return null;
+
+  const existing = DB.get('expenseAccounts').find(a =>
+    String(a.name || '').trim().toLowerCase() === name.toLowerCase());
+  if (existing) { alert('An account with that name already exists.'); return existing.name; }
+
+  const acc = { id: genId(), name };
+  try {
+    const db = getFirestoreDB();
+    if (db) await db.collection('expenseAccounts').doc(acc.id).set(acc, { merge: true });
+    DB.push('expenseAccounts', acc);
+    logAudit('Create', 'Chart of Accounts', `Added account ${name} (from Expenses)`);
+    return name;
+  } catch (err) {
+    console.error('[Expenses] Create account failed:', err);
+    alert('Could not add the account. Please try again.');
+    return null;
+  }
 }
 
 const expTableState = {
@@ -385,7 +416,7 @@ async function saveExpense() {
   if (!netAmount && grossAmount) netAmount = Math.max(0, grossAmount - vatAmount);
   if (!vatAmount && grossAmount && netAmount && grossAmount >= netAmount) vatAmount = grossAmount - netAmount;
 
-  if (!name||!date||!cat||!grossAmount) { alert('Name, date, account, and gross amount are required.'); return; }
+  if (!name||!date||!grossAmount) { alert('Name, date, and gross amount are required.'); return; }
 
   const record = {
     name,
@@ -463,6 +494,16 @@ function deleteExp(id) {
 document.getElementById('btn-add-expense').addEventListener('click', () => { resetForm(); openModal('modal-expense'); });
 document.getElementById('btn-export-expenses').addEventListener('click', exportExpensesCSV);
 document.getElementById('btn-save-expense').addEventListener('click', saveExpense);
+
+// Track the last real selection so we can revert if the user cancels "+ Add new".
+let expLastAccount = '';
+document.getElementById('f-exp-cat').addEventListener('focus', (e) => { expLastAccount = e.target.value; });
+document.getElementById('f-exp-cat').addEventListener('change', async (e) => {
+  if (e.target.value !== EXP_ADD_ACCOUNT) { expLastAccount = e.target.value; return; }
+  const created = await createExpenseAccount();
+  populateExpenseAccountDropdown(created || expLastAccount);
+  expLastAccount = created || expLastAccount;
+});
 document.getElementById('filter-class').addEventListener('change', renderTable);
 document.getElementById('search-exp').addEventListener('input', renderTable);
 document.getElementById('btn-clear-exp-filters').addEventListener('click', clearExpenseFilters);
