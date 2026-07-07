@@ -8,7 +8,11 @@ const COA_DEFAULTS = ['Selling Expenses','Administrative Expenses','Utilities','
 
 // Reserved doc id used as a marker (not a real account) so that first-time
 // seeding runs only once. After "Delete All" this marker keeps the list empty.
-const COA_SEEDED_FLAG_ID = '__seeded__';
+// Firestore reserves any doc id wrapped in double underscores, so this marker
+// must NOT use that form. Older builds tried '__seeded__' (which errored).
+const COA_SEEDED_FLAG_ID = 'coa_seeded_flag';
+// Recognise the current marker id and the old (invalid) '__seeded__' attempt.
+function isSeededMarkerId(id) { return id === COA_SEEDED_FLAG_ID || id === '__seeded__'; }
 
 function coaEsc(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -46,8 +50,8 @@ async function loadAccountsFromFirestore() {
   if (!db) return DB.get('expenseAccounts');
   const snap = await db.collection('expenseAccounts').get();
   // The seeded-marker doc is bookkeeping, not an account — keep it out of the list.
-  const seeded = snap.docs.some(doc => doc.id === COA_SEEDED_FLAG_ID);
-  let rows = snap.docs.filter(doc => doc.id !== COA_SEEDED_FLAG_ID)
+  const seeded = snap.docs.some(doc => isSeededMarkerId(doc.id));
+  let rows = snap.docs.filter(doc => !isSeededMarkerId(doc.id))
     .map(doc => ({ id: doc.id, ...doc.data() }));
 
   // First-time population: seed from ALL existing expense categories (defaults +
@@ -92,7 +96,7 @@ async function deleteAllAccountsFromFirestore() {
   // Delete every real account doc (leave the marker out of the delete set),
   // chunked to stay under Firestore's 500-writes-per-batch cap.
   const refs = snap.docs
-    .filter(doc => doc.id !== COA_SEEDED_FLAG_ID)
+    .filter(doc => !isSeededMarkerId(doc.id))
     .map(doc => doc.ref);
   for (let i = 0; i < refs.length; i += 400) {
     const batch = db.batch();

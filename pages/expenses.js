@@ -8,7 +8,8 @@ const EXP_CATS = ['Selling Expenses','Administrative Expenses','Utilities','Rent
 
 // Reserved marker doc id used by the Chart of Accounts page to record that the
 // list has been seeded (so an intentionally-emptied list stays empty).
-const COA_SEEDED_FLAG_ID = '__seeded__';
+const COA_SEEDED_FLAG_ID = 'coa_seeded_flag';
+function isSeededMarkerId(id) { return id === COA_SEEDED_FLAG_ID || id === '__seeded__'; }
 // True once the Chart of Accounts has been loaded and found to be authoritative
 // (seeded). After that we never fall back to the hard-coded defaults — an empty
 // Chart of Accounts means the user really has zero accounts.
@@ -23,9 +24,9 @@ async function loadExpenseAccounts() {
     const snap = await db.collection('expenseAccounts').get();
     // The seeded marker is bookkeeping, not an account — keep it out of the list,
     // but note it so we stop showing the built-in defaults.
-    if (snap.docs.some(doc => doc.id === COA_SEEDED_FLAG_ID)) coaIsAuthoritative = true;
+    if (snap.docs.some(doc => isSeededMarkerId(doc.id))) coaIsAuthoritative = true;
     const rows = snap.docs
-      .filter(doc => doc.id !== COA_SEEDED_FLAG_ID)
+      .filter(doc => !isSeededMarkerId(doc.id))
       .map(doc => ({ id: doc.id, ...doc.data() }));
     if (rows.length) coaIsAuthoritative = true;
     DB.set('expenseAccounts', rows);
