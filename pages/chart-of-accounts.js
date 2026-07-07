@@ -6,6 +6,10 @@ initSidebar('chart-of-accounts');
 // the same list. The Expenses page reads its Account dropdown from here.
 const COA_DEFAULTS = ['Selling Expenses','Administrative Expenses','Utilities','Rent','Salaries & Wages','Depreciation','Miscellaneous'];
 
+// Reserved doc id used as a marker (not a real account) so that first-time
+// seeding runs only once. After "Delete All" this marker keeps the list empty.
+const COA_SEEDED_FLAG_ID = '__seeded__';
+
 function coaEsc(str) {
   return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -41,18 +45,22 @@ async function loadAccountsFromFirestore() {
   const db = getFirestoreDB();
   if (!db) return DB.get('expenseAccounts');
   const snap = await db.collection('expenseAccounts').get();
-  let rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  // The seeded-marker doc is bookkeeping, not an account — keep it out of the list.
+  const seeded = snap.docs.some(doc => doc.id === COA_SEEDED_FLAG_ID);
+  let rows = snap.docs.filter(doc => doc.id !== COA_SEEDED_FLAG_ID)
+    .map(doc => ({ id: doc.id, ...doc.data() }));
 
   // First-time population: seed from ALL existing expense categories (defaults +
   // custom "+ Add Category" list + names used on expense records). This runs
-  // only while the collection is empty; afterwards this page is authoritative,
-  // so accounts you delete here stay deleted.
-  if (!rows.length) {
+  // only while the collection has never been seeded; afterwards this page is
+  // authoritative, so accounts you delete (or "Delete All") stay deleted.
+  if (!rows.length && !seeded) {
     const seedNames = await collectExistingAccountNames(db);
     rows = seedNames.map(name => ({ id: genId(), name }));
     for (const acc of rows) {
       await db.collection('expenseAccounts').doc(acc.id).set(acc, { merge: true });
     }
+    await db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID).set({ seeded: true });
   }
 
   rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
@@ -68,6 +76,18 @@ async function saveAccountToFirestore(account) {
 async function deleteAccountFromFirestore(id) {
   const db = getFirestoreDB();
   if (db) await db.collection('expenseAccounts').doc(id).delete();
+}
+
+async function deleteAllAccountsFromFirestore() {
+  const db = getFirestoreDB();
+  if (!db) return;
+  const snap = await db.collection('expenseAccounts').get();
+  // Batch-delete every account, and drop a marker so first-time seeding never
+  // re-populates the list after an intentional "Delete All".
+  const batch = db.batch();
+  snap.docs.forEach(doc => batch.delete(doc.ref));
+  batch.set(db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID), { seeded: true });
+  await batch.commit();
 }
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
@@ -166,8 +186,29 @@ async function deleteAccount(id) {
   }
 }
 
+async function deleteAllAccounts() {
+  const accounts = DB.get('expenseAccounts');
+  if (!accounts.length) { alert('There are no accounts to delete.'); return; }
+  if (!confirm(`Delete ALL ${accounts.length} accounts? Existing expenses keep their account name; the accounts just won't appear in the dropdown anymore. This cannot be undone.`)) return;
+
+  const btn = document.getElementById('btn-delete-all-accounts');
+  btn.disabled = true;
+  try {
+    await deleteAllAccountsFromFirestore();
+    DB.set('expenseAccounts', []);
+    logAudit('Delete', 'Chart of Accounts', `Deleted all ${accounts.length} accounts`);
+    renderAccounts();
+  } catch (err) {
+    console.error('[Chart of Accounts] Delete all failed:', err);
+    alert('Could not delete all accounts. Please try again.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ─── Wiring ──────────────────────────────────────────────────────────────────
 document.getElementById('btn-add-account').addEventListener('click', openAddAccount);
+document.getElementById('btn-delete-all-accounts').addEventListener('click', deleteAllAccounts);
 document.getElementById('btn-save-account').addEventListener('click', saveAccount);
 document.getElementById('search-account').addEventListener('input', (e) => {
   coaSearch = e.target.value;
