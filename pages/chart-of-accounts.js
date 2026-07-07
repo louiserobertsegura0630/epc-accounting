@@ -89,12 +89,18 @@ async function deleteAllAccountsFromFirestore() {
   const db = getFirestoreDB();
   if (!db) return;
   const snap = await db.collection('expenseAccounts').get();
-  // Batch-delete every account, and drop a marker so first-time seeding never
-  // re-populates the list after an intentional "Delete All".
-  const batch = db.batch();
-  snap.docs.forEach(doc => batch.delete(doc.ref));
-  batch.set(db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID), { seeded: true });
-  await batch.commit();
+  // Delete every real account doc (leave the marker out of the delete set),
+  // chunked to stay under Firestore's 500-writes-per-batch cap.
+  const refs = snap.docs
+    .filter(doc => doc.id !== COA_SEEDED_FLAG_ID)
+    .map(doc => doc.ref);
+  for (let i = 0; i < refs.length; i += 400) {
+    const batch = db.batch();
+    refs.slice(i, i + 400).forEach(ref => batch.delete(ref));
+    await batch.commit();
+  }
+  // Drop the marker so first-time seeding never re-populates the defaults.
+  await ensureSeededMarker();
 }
 
 async function deleteAccountsByIdFromFirestore(ids) {
@@ -342,7 +348,7 @@ async function deleteAllAccounts() {
     renderAccounts();
   } catch (err) {
     console.error('[Chart of Accounts] Delete all failed:', err);
-    alert('Could not delete all accounts. Please try again.');
+    alert(`Could not delete all accounts: ${err?.message || err}`);
   } finally {
     btn.disabled = false;
   }
