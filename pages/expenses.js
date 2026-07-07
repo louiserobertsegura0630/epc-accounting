@@ -6,6 +6,14 @@ initSidebar('expenses');
 // (see the Chart of Accounts page).
 const EXP_CATS = ['Selling Expenses','Administrative Expenses','Utilities','Rent','Salaries & Wages','Depreciation','Miscellaneous'];
 
+// Reserved marker doc id used by the Chart of Accounts page to record that the
+// list has been seeded (so an intentionally-emptied list stays empty).
+const COA_SEEDED_FLAG_ID = '__seeded__';
+// True once the Chart of Accounts has been loaded and found to be authoritative
+// (seeded). After that we never fall back to the hard-coded defaults — an empty
+// Chart of Accounts means the user really has zero accounts.
+let coaIsAuthoritative = false;
+
 // Load the shared Chart of Accounts (expense accounts) from Firestore into the
 // local mirror so the Account dropdown reflects what's managed on that page.
 async function loadExpenseAccounts() {
@@ -13,7 +21,13 @@ async function loadExpenseAccounts() {
   if (!db) return DB.get('expenseAccounts');
   try {
     const snap = await db.collection('expenseAccounts').get();
-    const rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // The seeded marker is bookkeeping, not an account — keep it out of the list,
+    // but note it so we stop showing the built-in defaults.
+    if (snap.docs.some(doc => doc.id === COA_SEEDED_FLAG_ID)) coaIsAuthoritative = true;
+    const rows = snap.docs
+      .filter(doc => doc.id !== COA_SEEDED_FLAG_ID)
+      .map(doc => ({ id: doc.id, ...doc.data() }));
+    if (rows.length) coaIsAuthoritative = true;
     DB.set('expenseAccounts', rows);
     return rows;
   } catch (err) {
@@ -22,11 +36,12 @@ async function loadExpenseAccounts() {
   }
 }
 
-// Names for the Account dropdown/filter: the managed Chart of Accounts, falling
-// back to the defaults if it hasn't loaded (or is empty).
+// Names for the Account dropdown/filter: the managed Chart of Accounts. Falls
+// back to the built-in defaults ONLY before the Chart of Accounts has loaded —
+// once it's authoritative, an empty list stays empty (defaults were deleted).
 function expenseAccountNames() {
   const managed = DB.get('expenseAccounts').map(a => a.name).filter(Boolean);
-  const names = managed.length ? managed : EXP_CATS.slice();
+  const names = (managed.length || coaIsAuthoritative) ? managed : EXP_CATS.slice();
   return [...new Set(names)].sort();
 }
 

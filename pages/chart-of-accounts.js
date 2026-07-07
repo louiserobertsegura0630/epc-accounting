@@ -78,6 +78,13 @@ async function deleteAccountFromFirestore(id) {
   if (db) await db.collection('expenseAccounts').doc(id).delete();
 }
 
+// Ensure the seeded marker exists so the list is treated as authoritative and
+// never re-populated with the built-in defaults after accounts are removed.
+async function ensureSeededMarker() {
+  const db = getFirestoreDB();
+  if (db) await db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID).set({ seeded: true });
+}
+
 async function deleteAllAccountsFromFirestore() {
   const db = getFirestoreDB();
   if (!db) return;
@@ -308,6 +315,7 @@ async function deleteAccount(id) {
     // If expenses still use this account, let the user delete/reassign them first.
     if (!(await resolveExpenseUsage([acc.name]))) return;
     await deleteAccountFromFirestore(id);
+    await ensureSeededMarker();
     DB.set('expenseAccounts', DB.get('expenseAccounts').filter(a => String(a.id) !== String(id)));
     coaSelected.delete(String(id));
     logAudit('Delete', 'Chart of Accounts', `Deleted account ${acc.name}`);
@@ -354,6 +362,7 @@ async function deleteSelectedAccounts() {
     const names = DB.get('expenseAccounts').filter(a => idSetForNames.has(String(a.id))).map(a => a.name);
     if (!(await resolveExpenseUsage(names))) return;
     await deleteAccountsByIdFromFirestore(ids);
+    await ensureSeededMarker();
     const idSet = new Set(ids);
     DB.set('expenseAccounts', DB.get('expenseAccounts').filter(a => !idSet.has(String(a.id))));
     ids.forEach(id => coaSelected.delete(id));
