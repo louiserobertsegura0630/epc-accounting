@@ -102,6 +102,91 @@ async function deleteAccountsByIdFromFirestore(ids) {
   }
 }
 
+// ─── Expense-usage guard ─────────────────────────────────────────────────────
+// The Chart of Accounts must not orphan expense records. Before deleting an
+// account we check whether any expense still uses its name (stored on the
+// expense's `category` field) and, if so, make the user choose what to do.
+async function loadExpensesForCoa() {
+  const db = getFirestoreDB();
+  if (!db) return DB.get('expenses');
+  try {
+    const snap = await db.collection('expenses').get();
+    const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+    DB.set('expenses', rows);
+    return rows;
+  } catch (err) {
+    console.warn('[Chart of Accounts] expenses load failed:', err);
+    return DB.get('expenses');
+  }
+}
+
+// Expense rows whose category matches any of the given account names.
+function expensesUsingAccounts(names) {
+  const wanted = new Set(names.map(n => String(n || '').trim().toLowerCase()).filter(Boolean));
+  return DB.get('expenses').filter(e => wanted.has(String(e.category || '').trim().toLowerCase()));
+}
+
+async function reassignExpenseCategory(rows, newCategory) {
+  const db = getFirestoreDB();
+  if (db) {
+    for (let i = 0; i < rows.length; i += 400) {
+      const batch = db.batch();
+      rows.slice(i, i + 400).forEach(r =>
+        batch.set(db.collection('expenses').doc(r._firestoreId || r.id),
+          { category: newCategory }, { merge: true }));
+      await batch.commit();
+    }
+  }
+  const idSet = new Set(rows.map(r => String(r.id)));
+  DB.set('expenses', DB.get('expenses').map(e =>
+    idSet.has(String(e.id)) ? { ...e, category: newCategory } : e));
+}
+
+async function deleteExpenseRows(rows) {
+  const db = getFirestoreDB();
+  if (db) {
+    for (let i = 0; i < rows.length; i += 400) {
+      const batch = db.batch();
+      rows.slice(i, i + 400).forEach(r =>
+        batch.delete(db.collection('expenses').doc(r._firestoreId || r.id)));
+      await batch.commit();
+    }
+  }
+  const idSet = new Set(rows.map(r => String(r.id)));
+  DB.set('expenses', DB.get('expenses').filter(e => !idSet.has(String(e.id))));
+}
+
+// If any of the accounts about to be deleted are still used by expenses, ask the
+// user whether to delete those expenses or move them to another account.
+// Returns true to proceed with the account deletion, false to cancel.
+async function resolveExpenseUsage(names) {
+  const used = expensesUsingAccounts(names);
+  if (!used.length) return true;
+
+  const label = names.length === 1 ? `account "${names[0]}"` : `${names.length} accounts`;
+  const choice = prompt(
+    `${used.length} expense record${used.length === 1 ? '' : 's'} still use the ${label}.\n\n` +
+    `Type:\n` +
+    `  • the name of another account to MOVE those expenses to (blank = clear their account), or\n` +
+    `  • DELETE to remove those expense records,\n` +
+    `  • or press Cancel to keep everything.`,
+    ''
+  );
+  if (choice === null) return false; // cancelled
+
+  if (choice.trim().toUpperCase() === 'DELETE') {
+    if (!confirm(`Permanently delete ${used.length} expense record${used.length === 1 ? '' : 's'}? This cannot be undone.`)) return false;
+    await deleteExpenseRows(used);
+    logAudit('Delete', 'Expense', `Deleted ${used.length} expenses tied to removed ${label}`);
+    return true;
+  }
+
+  const target = choice.trim();
+  await reassignExpenseCategory(used, target);
+  logAudit('Edit', 'Expense', `Reassigned ${used.length} expenses from ${label} to "${target || '(none)'}"`);
+  return true;
+}
+
 // ─── Rendering ───────────────────────────────────────────────────────────────
 let coaSearch = '';
 const coaSelected = new Set(); // ids of checked accounts
@@ -218,8 +303,10 @@ async function saveAccount() {
 async function deleteAccount(id) {
   const acc = DB.get('expenseAccounts').find(a => String(a.id) === String(id));
   if (!acc) return;
-  if (!confirm(`Delete account "${acc.name}"? Existing expenses keep their account name; it just won't appear in the dropdown anymore.`)) return;
+  if (!confirm(`Delete account "${acc.name}"?`)) return;
   try {
+    // If expenses still use this account, let the user delete/reassign them first.
+    if (!(await resolveExpenseUsage([acc.name]))) return;
     await deleteAccountFromFirestore(id);
     DB.set('expenseAccounts', DB.get('expenseAccounts').filter(a => String(a.id) !== String(id)));
     coaSelected.delete(String(id));
@@ -239,6 +326,7 @@ async function deleteAllAccounts() {
   const btn = document.getElementById('btn-delete-all-accounts');
   btn.disabled = true;
   try {
+    if (!(await resolveExpenseUsage(accounts.map(a => a.name)))) return;
     await deleteAllAccountsFromFirestore();
     DB.set('expenseAccounts', []);
     coaSelected.clear();
@@ -262,6 +350,9 @@ async function deleteSelectedAccounts() {
   const btn = document.getElementById('btn-delete-selected-accounts');
   btn.disabled = true;
   try {
+    const idSetForNames = new Set(ids);
+    const names = DB.get('expenseAccounts').filter(a => idSetForNames.has(String(a.id))).map(a => a.name);
+    if (!(await resolveExpenseUsage(names))) return;
     await deleteAccountsByIdFromFirestore(ids);
     const idSet = new Set(ids);
     DB.set('expenseAccounts', DB.get('expenseAccounts').filter(a => !idSet.has(String(a.id))));
@@ -311,3 +402,7 @@ renderAccounts();
 loadAccountsFromFirestore()
   .then(renderAccounts)
   .catch(err => console.error('[Chart of Accounts] Firestore load failed:', err));
+// Load expense records too, so account deletion can detect (and resolve) any
+// expenses still tied to an account being removed.
+loadExpensesForCoa()
+  .catch(err => console.error('[Chart of Accounts] Expenses load failed:', err));
