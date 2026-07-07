@@ -116,9 +116,11 @@ service cloud.firestore {
       allow read:  if request.auth != null;
       allow write: if request.auth != null && (userRole() == 'accountant' || userRole() == 'limited');
     }
+    // Append-only: any signed-in user can read and add entries, but NO ONE can
+    // edit or delete them — the audit trail is immutable.
     match /auditLog/{doc} {
       allow read, create: if request.auth != null;
-      allow update, delete: if request.auth != null && userRole() == 'accountant';
+      allow update, delete: if false;
     }
 
     // ── Shared custom categories (expenses/inventory/products/suppliers) ───────
