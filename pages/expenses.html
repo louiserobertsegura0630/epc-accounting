@@ -52,6 +52,9 @@
           <option value="Personal">Personal</option>
         </select>
         <button class="btn btn-outline-gray btn-sm" id="btn-clear-exp-filters" type="button">Clear Filters</button>
+        <button class="btn btn-danger btn-sm" id="btn-delete-selected-exp" type="button" style="display:none">
+          Delete Selected (<span id="exp-selected-count">0</span>)
+        </button>
       </div>
       <div class="table-scroll">
       <table class="expenses-table">
@@ -152,6 +155,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260706-coa"></script>
-<script src="expenses.js?v=20260707-exp-account-optional"></script>
+<script src="expenses.js?v=20260707-exp-bulkselect"></script>
 </body>
 </html>

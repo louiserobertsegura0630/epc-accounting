@@ -80,6 +80,8 @@ const expTableState = {
   filters: {}
 };
 
+const expSelected = new Set(); // ids of checked expense rows
+
 function expEsc(value) {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -272,6 +274,7 @@ function renderExpenseHeader() {
   const thead = document.getElementById('exp-thead');
   thead.innerHTML = `
     <tr>
+      <th class="col-select" style="width:34px;text-align:center"><input type="checkbox" id="exp-select-all" title="Select all"></th>
       ${EXPENSE_COLUMNS.map(column => {
         const active = expTableState.sortKey === column.key;
         const arrow = active ? (expTableState.sortDir === 'asc' ? '↑' : '↓') : '↕';
@@ -282,9 +285,13 @@ function renderExpenseHeader() {
       <th class="col-actions">Actions</th>
     </tr>
     <tr class="filter-row">
+      <th class="filter-cell-empty"></th>
       ${EXPENSE_COLUMNS.map(column => `<th class="${column.className || ''}">${expenseFilterInput(column)}</th>`).join('')}
       <th class="filter-cell-empty"></th>
     </tr>`;
+  const selectAll = document.getElementById('exp-select-all');
+  if (selectAll) selectAll.addEventListener('change', toggleSelectAllExpenses);
+  syncExpenseSelectionUI();
 }
 
 function expensePassesColumnFilters(row) {
@@ -338,11 +345,13 @@ function renderTable() {
   const rows = getFilteredExpenseRows();
   const tbody = document.getElementById('exp-tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">💳</div><p>No expenses recorded yet.</p></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">💳</div><p>No expenses recorded yet.</p></div></td></tr>';
+    syncExpenseSelectionUI();
     return;
   }
   tbody.innerHTML = rows.map(e => {
     return `<tr>
+      <td class="col-select" style="text-align:center"><input type="checkbox" class="exp-row-check" data-select="${expEsc(e.id)}" ${expSelected.has(String(e.id)) ? 'checked' : ''}></td>
       ${EXPENSE_COLUMNS.map(column => `<td class="${column.className || ''}">${column.render ? column.render(e) : expEsc(expenseColumnValue(e, column.key))}</td>`).join('')}
       <td class="col-actions">
         <div class="action-btns">
@@ -352,6 +361,56 @@ function renderTable() {
       </td>
     </tr>`;
   }).join('');
+  syncExpenseSelectionUI();
+}
+
+// Show/hide "Delete Selected" and keep the select-all checkbox synced with the
+// rows currently visible (after filters).
+function syncExpenseSelectionUI() {
+  const rows = getFilteredExpenseRows();
+  const selCount = rows.filter(e => expSelected.has(String(e.id))).length;
+
+  const countEl = document.getElementById('exp-selected-count');
+  if (countEl) countEl.textContent = selCount;
+
+  const delBtn = document.getElementById('btn-delete-selected-exp');
+  if (delBtn) delBtn.style.display = selCount ? '' : 'none';
+
+  const selectAll = document.getElementById('exp-select-all');
+  if (selectAll) {
+    selectAll.checked = rows.length > 0 && selCount === rows.length;
+    selectAll.indeterminate = selCount > 0 && selCount < rows.length;
+  }
+}
+
+function toggleSelectAllExpenses(e) {
+  const ids = getFilteredExpenseRows().map(r => String(r.id));
+  if (e.target.checked) ids.forEach(id => expSelected.add(id));
+  else ids.forEach(id => expSelected.delete(id));
+  renderTable();
+}
+
+async function deleteSelectedExpenses() {
+  const idSet = new Set(getFilteredExpenseRows().map(r => String(r.id)).filter(id => expSelected.has(id)));
+  const ids = [...idSet];
+  if (!ids.length) return;
+  confirmDelete(`Delete <strong>${ids.length}</strong> selected expense${ids.length === 1 ? '' : 's'}? This cannot be undone.`, async () => {
+    const btn = document.getElementById('btn-delete-selected-exp');
+    if (btn) btn.disabled = true;
+    try {
+      const rows = DB.get('expenses').filter(e => idSet.has(String(e.id)));
+      for (const row of rows) await deleteExpenseFromFirestore(row);
+      DB.set('expenses', DB.get('expenses').filter(e => !idSet.has(String(e.id))));
+      ids.forEach(id => expSelected.delete(id));
+      renderExpenseHeader(); renderTable(); renderSummary();
+      logAudit('Delete', 'Expense', `Deleted ${ids.length} selected expenses`);
+    } catch (error) {
+      console.error('Failed to delete selected expenses:', error);
+      alert('Could not delete the selected expenses. Please try again.');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
 }
 
 function setExpenseSort(key) {
@@ -482,7 +541,7 @@ function deleteExp(id) {
   confirmDelete(`Delete expense <strong>${e?.name}</strong>?`, async () => {
     try {
       await deleteExpenseFromFirestore(e);
-      DB.remove('expenses', id); renderExpenseHeader(); renderTable(); renderSummary();
+      DB.remove('expenses', id); expSelected.delete(String(id)); renderExpenseHeader(); renderTable(); renderSummary();
       logAudit('Delete', 'Expense', `Deleted expense ${e?.name || id}`);
     } catch (error) {
       console.error('Failed to delete expense from database:', error);
@@ -507,6 +566,14 @@ document.getElementById('f-exp-cat').addEventListener('change', async (e) => {
 document.getElementById('filter-class').addEventListener('change', renderTable);
 document.getElementById('search-exp').addEventListener('input', renderTable);
 document.getElementById('btn-clear-exp-filters').addEventListener('click', clearExpenseFilters);
+document.getElementById('btn-delete-selected-exp').addEventListener('click', deleteSelectedExpenses);
+document.getElementById('exp-tbody').addEventListener('change', (e) => {
+  const selId = e.target.closest('[data-select]')?.dataset.select;
+  if (!selId) return;
+  if (e.target.checked) expSelected.add(String(selId));
+  else expSelected.delete(String(selId));
+  syncExpenseSelectionUI();
+});
 document.getElementById('f-exp-amount').addEventListener('input', () => syncExpenseAmountFields('gross'));
 document.getElementById('f-exp-net-amount').addEventListener('input', () => syncExpenseAmountFields('net'));
 document.getElementById('f-exp-vat').addEventListener('input', () => syncExpenseAmountFields('vat'));
