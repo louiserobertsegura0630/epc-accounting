@@ -30,6 +30,41 @@ const loadedReportCollections = new Set();
 // been loaded. Until then, renderActiveReport() must NOT paint the report (it
 // would show ₱0 from the empty cache) — it shows the "Generate Report" prompt.
 let reportHasGenerated = false;
+// Set when a report load FAILS (Firestore quota reached, network, etc.). When set,
+// renderActiveReport() shows a visible error notice instead of a silent all-₱0
+// report — so a blocked read never looks like real zero figures.
+let reportLoadError = null;
+
+// Classify a Firestore load failure into a clear, user-facing message.
+function reportLoadErrorMessage(err) {
+  const code = String(err && (err.code ?? '')).toLowerCase();
+  const msg = String((err && err.message) || err || '').toLowerCase();
+  if (code.includes('resource-exhausted') || code === '8' || msg.includes('quota') || msg.includes('resource_exhausted')) {
+    return 'Daily Firestore read limit reached — reports can’t load right now. ' +
+      'This resets at midnight (US Pacific). Figures are not really ₱0; the data just couldn’t be read.';
+  }
+  if (code.includes('permission-denied') || msg.includes('permission')) {
+    return 'You don’t have permission to read the report data. Please sign in again or contact an administrator.';
+  }
+  if (code.includes('unavailable') || msg.includes('offline') || msg.includes('network')) {
+    return 'Could not reach the database (network/offline). Check your connection and try Generate again.';
+  }
+  return 'Could not load report data. Please try Generate again.';
+}
+
+// Run a report load, capturing any failure into reportLoadError so the render
+// layer can show a notice instead of zeros. Returns true on success.
+async function runReportLoad(loadFn) {
+  reportLoadError = null;
+  try {
+    await loadFn();
+    return true;
+  } catch (err) {
+    console.error('[Reports] load failed:', err);
+    reportLoadError = reportLoadErrorMessage(err);
+    return false;
+  }
+}
 let productMasterReportListenerStarted = false;
 // Sales revenue for all days BEFORE the current report-start (for cash flow opening
 // balance). Populated whenever sales is loaded, since REPORT_DATA.sales is now
@@ -362,16 +397,12 @@ async function setReportTab(tab) {
   const needsLoad = (REPORT_TAB_COLLECTIONS[activeReportTab] || [])
     .some(key => !loadedReportCollections.has(key));
   if (!needsLoad) {
+    reportLoadError = null;   // this tab's data is already loaded — clear any stale error
     renderActiveReport();
     return;
   }
   await withReportProgress('Loading report data...', async () => {
-    try {
-      await ensureActiveReportData();
-    } catch (err) {
-      console.error('[Reports] Firestore tab load failed:', err);
-      alert('Could not load report data. Please check your connection and try again.');
-    }
+    await runReportLoad(() => ensureActiveReportData());
     setReportProgress(86, 'Rendering report...');
     await waitReportFrame();
     renderActiveReport();
@@ -2060,11 +2091,25 @@ const REPORT_META = {
 
 function renderActiveReport() {
   // Never paint the report from an empty cache — that silently shows ₱0 figures.
-  // Until data has been generated, show the empty-state prompt and hide the output.
   const emptyState = document.getElementById('rep-empty-state');
   const output = document.getElementById('report-output');
+  // A failed load (quota/network/permission) shows a clear notice, not zeros.
+  if (reportLoadError) {
+    if (emptyState) {
+      emptyState.style.display = '';
+      emptyState.classList.add('report-load-error');
+      emptyState.innerHTML = `<strong>⚠️ Report data could not be loaded</strong><br>${escReport(reportLoadError)}`;
+    }
+    if (output) output.style.display = 'none';
+    return;
+  }
+  if (emptyState) emptyState.classList.remove('report-load-error');
+  // Until data has been generated, show the empty-state prompt and hide the output.
   if (!reportHasGenerated) {
-    if (emptyState) emptyState.style.display = '';
+    if (emptyState) {
+      emptyState.style.display = '';
+      emptyState.innerHTML = 'Click <strong>Generate Report</strong> to load data.';
+    }
     if (output) output.style.display = 'none';
     return;
   }
@@ -2123,12 +2168,7 @@ function exportCustomCSV() {
 
 async function refreshReportData() {
   await withReportProgress('Loading report data...', async () => {
-    try {
-      await ensureActiveReportData({ force: true });
-    } catch (err) {
-      console.error('[Reports] Firestore refresh failed:', err);
-      alert('Could not refresh report data. Please check your connection and try again.');
-    }
+    await runReportLoad(() => ensureActiveReportData({ force: true }));
     setReportProgress(86, 'Rendering report...');
     await waitReportFrame();
     renderActiveReport();
@@ -2160,14 +2200,9 @@ EPCReportGate.wire({
   button: 'rep-generate-btn',
   status: 'rep-gen-status',
   load: async () => {
-    try {
-      await ensureActiveReportData();
-    } catch (err) {
-      console.error('[Reports] Firestore load failed:', err);
-      alert('Could not load report data. Please check your connection and refresh.');
-    }
+    // renderActiveReport() owns the empty-state / error-notice / report visibility
+    // based on whether the load succeeded — don't force-hide the prompt here.
+    await runReportLoad(() => ensureActiveReportData());
     renderActiveReport();
-    const empty = document.getElementById('rep-empty-state');
-    if (empty) empty.style.display = 'none';
   }
 });
