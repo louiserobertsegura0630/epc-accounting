@@ -163,8 +163,10 @@ function buildDailyOperationsSummary() {
   // ── Block 1: Income Summary ────────────────────────────────────────────────
   const tots     = getPOSTotals(pos);
   const sales    = tots.revenue;
-  const purchaseNet = purchases.reduce((s, p) => s + (Number(p.netAmount ?? p.total ?? p.amount ?? 0) || 0), 0);
-  const cogs     = purchaseNet;
+  // COGS = cost of the goods actually SOLD that day (from the salesDaily rollup's
+  // per-item cost), matched to revenue — NOT the day's purchases spend. Purchases
+  // are a cash outflow shown in the Cash Flow block below, not cost of goods sold.
+  const cogs     = tots.cogs;
   const gross    = sales - cogs;
   const expTotal = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const netInc   = gross - expTotal;

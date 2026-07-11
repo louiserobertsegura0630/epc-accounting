@@ -26,6 +26,10 @@ const REPORT_TAB_COLLECTIONS = {
   custom: ['sales', 'esales', 'purchases', 'expenses', 'inventory', 'productMaster'],
 };
 const loadedReportCollections = new Set();
+// True once the user has clicked Generate / Apply / a tab and data has actually
+// been loaded. Until then, renderActiveReport() must NOT paint the report (it
+// would show ₱0 from the empty cache) — it shows the "Generate Report" prompt.
+let reportHasGenerated = false;
 let productMasterReportListenerStarted = false;
 // Sales revenue for all days BEFORE the current report-start (for cash flow opening
 // balance). Populated whenever sales is loaded, since REPORT_DATA.sales is now
@@ -308,6 +312,7 @@ function backfillSalesCategories() {
 
 async function ensureActiveReportData({ force = false } = {}) {
   await loadReportCollections(REPORT_TAB_COLLECTIONS[activeReportTab] || [], { force });
+  reportHasGenerated = true;   // data is now loaded — renderActiveReport may paint
 }
 
 // Product Master is loaded on demand via loadReportCollections (a one-time .get()).
@@ -2054,6 +2059,18 @@ const REPORT_META = {
 };
 
 function renderActiveReport() {
+  // Never paint the report from an empty cache — that silently shows ₱0 figures.
+  // Until data has been generated, show the empty-state prompt and hide the output.
+  const emptyState = document.getElementById('rep-empty-state');
+  const output = document.getElementById('report-output');
+  if (!reportHasGenerated) {
+    if (emptyState) emptyState.style.display = '';
+    if (output) output.style.display = 'none';
+    return;
+  }
+  if (emptyState) emptyState.style.display = 'none';
+  if (output) output.style.display = '';
+
   const rankedBarContainer = document.getElementById('sales-bar-container') ||
     document.getElementById('purchases-bar-container');
   rankedBarContainer.id = activeReportTab === 'purchases' ? 'purchases-bar-container' : 'sales-bar-container';
