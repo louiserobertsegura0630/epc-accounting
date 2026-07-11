@@ -1,5 +1,59 @@
 /* ─── EPC Accounting Portal — Shared App JS ─────────────────────────────── */
 
+// ─── Report gating ────────────────────────────────────────────────────────────
+// Defer paid Firestore reads until the user clicks a "Generate Report" button.
+// Pages call EPCReportGate.wire({ button, status, load }) where `load` is the
+// existing async loader. On first click it runs the loader (button disabled +
+// "Loading…"), then relabels the button to "Refresh" for manual reloads. Each
+// click = paid reads, so the button stays disabled for the duration of the fetch.
+window.EPCReportGate = window.EPCReportGate || (() => {
+  function wire(opts) {
+    const btn = typeof opts.button === 'string'
+      ? document.getElementById(opts.button) : opts.button;
+    if (!btn) {
+      console.warn('[EPCReportGate] button not found:', opts.button);
+      return { run: async () => {}, hasLoaded: () => false };
+    }
+    const status = opts.status
+      ? (typeof opts.status === 'string' ? document.getElementById(opts.status) : opts.status)
+      : null;
+    const load = opts.load;
+    const idleLabel = opts.idleLabel || 'Generate Report';
+    const loadingLabel = opts.loadingLabel || 'Loading…';
+    const refreshLabel = opts.refreshLabel || 'Refresh';
+    let loaded = false;
+    let running = false;
+
+    if (btn.textContent.trim() === '') btn.textContent = idleLabel;
+
+    async function run() {
+      if (running) return;              // guard against double-clicks (paid reads)
+      running = true;
+      const prevLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = loadingLabel;
+      if (status) status.textContent = 'Loading data…';
+      try {
+        await load();
+        loaded = true;
+        btn.textContent = refreshLabel;
+        if (status) status.textContent = '';
+      } catch (err) {
+        console.error('[EPCReportGate] load failed:', err);
+        btn.textContent = loaded ? refreshLabel : (prevLabel || idleLabel);
+        if (status) status.textContent = 'Could not load data. Try again.';
+      } finally {
+        btn.disabled = false;
+        running = false;
+      }
+    }
+
+    btn.addEventListener('click', run);
+    return { run, hasLoaded: () => loaded };
+  }
+  return { wire };
+})();
+
 // ─── Storage Helpers ────────────────────────────────────────────────────────
 // Large shared collections live in Firestore. Keep only an in-memory view for
 // synchronous rendering; never serialize these datasets into localStorage.

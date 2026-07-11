@@ -134,4 +134,15 @@ function renderIS() {
   }
 }
 
-loadISData().then(renderIS);
+// Data is not loaded on page open — the user must click "Generate Report".
+// Each click = paid Firestore reads, so the button guards against double-clicks.
+EPCReportGate.wire({
+  button: 'is-generate-btn',
+  status: 'is-gen-status',
+  load: async () => {
+    await loadISData();
+    renderIS();
+    const e = document.getElementById('is-empty-state');
+    if (e) e.style.display = 'none';
+  }
+});

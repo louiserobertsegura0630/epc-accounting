@@ -597,13 +597,24 @@ document.getElementById('f-exp-vat').addEventListener('input', () => syncExpense
 renderSummary();
 renderExpenseHeader();
 renderTable();
-loadExpensesFromFirestore().then(() => {
-  renderSummary();
-  renderExpenseHeader();
-  renderTable();
-}).catch(error => console.error('Failed to load expenses from database:', error));
-// Load the shared Chart of Accounts so the Account dropdown/filter reflect it.
+// Load the shared Chart of Accounts on page open so the Account dropdown/filter
+// (form-critical) reflect it. This is NOT gated — the Add Expense form needs it.
 loadExpenseAccounts().then(() => {
   populateExpenseAccountDropdown();
   renderTable();
 }).catch(error => console.error('Failed to load chart of accounts:', error));
+
+// The full expenses collection read (table + summary) is deferred until the user
+// clicks "Generate Report" — each click = paid Firestore reads.
+EPCReportGate.wire({
+  button: 'exp-generate-btn',
+  status: 'exp-gen-status',
+  load: async () => {
+    await loadExpensesFromFirestore();
+    renderSummary();
+    renderExpenseHeader();
+    renderTable();
+    const e = document.getElementById('exp-empty-state');
+    if (e) e.style.display = 'none';
+  }
+});

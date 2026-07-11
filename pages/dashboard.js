@@ -518,13 +518,21 @@ function setProdCustomRange() {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 document.getElementById('snap-date').value = defaultSnapDate;
-loadDashData()
-  .then(() => {
+
+// Data is not loaded on page open — the user must click "Generate Report".
+// Each click = paid Firestore reads, so the button guards against double-clicks.
+EPCReportGate.wire({
+  button: 'dash-generate-btn',
+  status: 'dash-gen-status',
+  load: async () => {
+    try {
+      await loadDashData();
+    } catch (err) {
+      console.error('[Dashboard] Data load error:', err);
+    }
     buildDailyOperationsSummary();
     buildProductPerformance();
-  })
-  .catch(err => {
-    console.error('[Dashboard] Data load error:', err);
-    buildDailyOperationsSummary();
-    buildProductPerformance();
-  });
+    const empty = document.getElementById('dash-empty-state');
+    if (empty) empty.style.display = 'none';
+  }
+});

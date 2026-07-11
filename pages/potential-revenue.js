@@ -126,26 +126,22 @@ function applySalesOutgoing(sales) {
   renderPotentialRevenueTable();
 }
 
-function watchSalesOutgoing() {
+// One-time reads (button-triggered). Formerly onSnapshot listeners that stayed
+// open and re-billed reads on every write — now fetched once per Generate click.
+async function watchSalesOutgoing() {
   const db = getFirestoreDB();
   if (!db) return;
-  db.collection('salesData').get()
-    .then(snap => applySalesOutgoing(snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }))))
-    .catch(err => console.error('[Potential Revenue] salesData get() failed:', err));
-  db.collection('salesData').onSnapshot(
-    snap => applySalesOutgoing(snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }))),
-    err => console.error('[Potential Revenue] salesData listener failed:', err)
-  );
+  const snap = await db.collection('salesData').get();
+  applySalesOutgoing(snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() })));
 }
 
-function watchPotentialProductMaster() {
+async function watchPotentialProductMaster() {
   const db = getFirestoreDB();
   if (!db) return;
-  db.collection('productMaster').onSnapshot(snapshot => {
-    cacheProductMasterRows(snapshot.docs.map(doc => normalizeProductCostData({ _firestoreId: doc.id, ...doc.data() })));
-    renderSummary();
-    renderPotentialRevenueTable();
-  }, err => console.error('[Potential Revenue] Product Master listener failed:', err));
+  const snapshot = await db.collection('productMaster').get();
+  cacheProductMasterRows(snapshot.docs.map(doc => normalizeProductCostData({ _firestoreId: doc.id, ...doc.data() })));
+  renderSummary();
+  renderPotentialRevenueTable();
 }
 
 function getPotentialMarkupSettings() {
@@ -781,14 +777,21 @@ document.getElementById('potential-category-select').addEventListener('change', 
     settings.categoryMarkup?.[document.getElementById('potential-category-select').value] || '';
 });
 
-Promise.all([
-  loadInventoryFromFirestore(),
-  loadProductMasterFromFirestore()
-])
-  .then(() => {
+// Data is not loaded on page open — the user must click "Generate Report".
+// Each click = paid Firestore reads, so the button guards against double-clicks.
+EPCReportGate.wire({
+  button: 'potential-generate-btn',
+  status: 'potential-gen-status',
+  load: async () => {
+    await Promise.all([
+      loadInventoryFromFirestore(),
+      loadProductMasterFromFirestore()
+    ]);
     renderSummary();
     renderPotentialRevenueTable();
-    watchPotentialProductMaster();
-    watchSalesOutgoing();
-  })
-  .catch(err => console.error('[Potential Revenue] Firestore load failed:', err));
+    await watchPotentialProductMaster();
+    await watchSalesOutgoing();
+    const empty = document.getElementById('potential-empty-state');
+    if (empty) empty.style.display = 'none';
+  }
+});

@@ -2132,13 +2132,25 @@ async function initReports() {
       btn.remove();
     }
   }
-  try {
-    await ensureActiveReportData();
-  } catch (err) {
-    console.error('[Reports] Firestore load failed:', err);
-    alert('Could not load report data. Please check your connection and refresh.');
-  }
   renderActiveReport();
 }
 
 initReports();
+
+// Data is not loaded on page open — the user must click "Generate Report".
+// Each click = paid Firestore reads, so the button guards against double-clicks.
+EPCReportGate.wire({
+  button: 'rep-generate-btn',
+  status: 'rep-gen-status',
+  load: async () => {
+    try {
+      await ensureActiveReportData();
+    } catch (err) {
+      console.error('[Reports] Firestore load failed:', err);
+      alert('Could not load report data. Please check your connection and refresh.');
+    }
+    renderActiveReport();
+    const empty = document.getElementById('rep-empty-state');
+    if (empty) empty.style.display = 'none';
+  }
+});

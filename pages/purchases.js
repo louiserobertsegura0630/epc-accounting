@@ -1049,14 +1049,24 @@ document.getElementById('btn-clear-filters-purchases').addEventListener('click',
 
 renderTable();
 renderSummary();
-Promise.all([
-  loadPurchasesBatch({ append: false }),
-  loadSupplierListFromFirestore('purchaseSuppliers')
-])
-  .then(() => {
+// Load the supplier list on page open (form-critical) — the Add-purchase supplier
+// picker needs it. This is NOT gated.
+loadSupplierListFromFirestore('purchaseSuppliers')
+  .then(() => populatePurchasesFilterSuppliers())
+  .catch(err => console.error('[Purchases] Supplier list load failed:', err));
+
+// The purchases table + KPI reads are deferred until the user clicks
+// "Generate Report" — each click = paid Firestore reads.
+EPCReportGate.wire({
+  button: 'pur-generate-btn',
+  status: 'pur-gen-status',
+  load: async () => {
+    await loadPurchasesBatch({ append: false });
     populatePurchasesFilterSuppliers();
     renderTable();
     renderSummary();
-    refreshPurchaseAggregates();
-  })
-  .catch(err => console.error('[Purchases] Firestore load failed:', err));
+    await refreshPurchaseAggregates();
+    const e = document.getElementById('pur-empty-state');
+    if (e) e.style.display = 'none';
+  }
+});

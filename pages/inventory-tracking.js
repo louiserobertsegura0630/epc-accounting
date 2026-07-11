@@ -772,6 +772,9 @@ async function generateInventory() {
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (status) status.textContent = 'Loading…';
   try {
+    // Lazily load reference data (suppliers + product master) on the first
+    // Generate click, so opening the page costs no Firestore reads.
+    await ensureInventoryReferenceData();
     const { rows, days } = await loadInventoryDailyRange(from, to);
     // Replace movements with the queried window (keep locally-derived Outgoing rows).
     const derived = (DB.get('inventory_movements') || []).filter((m) => m.type === 'Outgoing');
@@ -3265,10 +3268,13 @@ document.getElementById('btn-import-mis').addEventListener('click', () => {
   });
 });
 vsInit();
-function watchInventoryProductMaster() {
+// One-time read (button-triggered). Formerly a productMaster onSnapshot that
+// stayed open and re-billed reads on every catalog write — now fetched once.
+async function watchInventoryProductMaster() {
   const db = getFirestoreDB();
   if (!db) return;
-  db.collection('productMaster').onSnapshot(snapshot => {
+  try {
+    const snapshot = await db.collection('productMaster').get();
     const rows = snapshot.docs.map(doc => normalizeProductCostData({ _firestoreId:doc.id, ...doc.data() }));
     cacheProductMasterRows(rows);
     invalidateInvSupplierMap();
@@ -3283,7 +3289,9 @@ function watchInventoryProductMaster() {
     });
     if (changed) DB.set('inventory_movements', movs);
     invTable.render();
-  }, err => console.error('[Inventory] Product Master listener failed:', err));
+  } catch (err) {
+    console.error('[Inventory] Product Master load failed:', err);
+  }
 }
 
 // Load-on-demand: the movements table + KPIs start EMPTY and are filled only when
@@ -3303,18 +3311,36 @@ function seedInventoryDateFilter() {
   }
 }
 
+// Reference data (suppliers + product master) is fetched once, on demand, the
+// first time the user clicks Generate — not on page open. This keeps opening the
+// page free of Firestore reads.
+let _invReferenceLoaded = false;
+let _invReferencePromise = null;
+async function ensureInventoryReferenceData() {
+  if (_invReferenceLoaded) return;
+  if (!_invReferencePromise) {
+    _invReferencePromise = Promise.all([
+      loadSuppliersFromFirestore(),
+      loadProductMasterFromFirestore()
+    ])
+      .then(async () => {
+        await watchInventoryProductMaster();   // one-time productMaster get
+        _invReferenceLoaded = true;
+      })
+      .catch(err => {
+        _invReferencePromise = null;           // allow retry on next click
+        console.error('[Inventory] Reference data load failed:', err);
+        throw err;
+      });
+  }
+  return _invReferencePromise;
+}
+
+// Page opens with an empty table shell and blank KPIs — no Firestore reads.
+// The user sets the Date window and clicks Generate to load data.
 DB.set('inventory_movements', []);   // start empty; Generate fills it
-Promise.all([
-  loadSuppliersFromFirestore(),
-  loadProductMasterFromFirestore()
-])
-  .then(() => {
-    invTable.render();          // builds header + filter row + Generate button
-    seedInventoryDateFilter();  // default the Date window to the current month
-    renderSummary();            // shows blank KPIs until Generate
-    watchInventoryProductMaster();
-    generateInventory();        // auto-run once for the default month
-  })
-  .catch(err => console.error('[Inventory] Firestore load failed:', err));
+invTable.render();          // builds header + filter row + Generate button
+seedInventoryDateFilter();  // default the Date window to the current month
+renderSummary();            // shows blank KPIs until Generate
 
 // (end of MIS import section)

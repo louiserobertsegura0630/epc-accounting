@@ -31,7 +31,13 @@
         <input type="date" id="snap-date" class="filter-date-input snap-date-input">
         <button class="dash-preset" onclick="setSnapToday()">Today</button>
         <button class="btn btn-primary btn-sm" onclick="setSnapYesterday()">Yesterday</button>
+        <span id="dash-gen-status" class="gen-status"></span>
+        <button class="btn btn-primary" id="dash-generate-btn" type="button">Generate Report</button>
       </div>
+    </div>
+
+    <div class="report-empty-state" id="dash-empty-state">
+      Click <strong>Generate Report</strong> to load data.
     </div>
 
     <div class="snap-blocks">

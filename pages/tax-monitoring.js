@@ -534,13 +534,20 @@ document.getElementById('tax-custom-to').addEventListener('change', function() {
   updatePeriodHeader();
 });
 
-document.getElementById('tax-generate-btn').addEventListener('click', generateTaxPeriod);
 document.getElementById('cit-tax-rate').addEventListener('change', renderCIT);
 populateFiscalControls();
 
-async function initTaxMonitoring() {
-  await loadTaxESalesRecords();
-  generateTaxPeriod();
-}
-
-initTaxMonitoring();
+// Non-read setup (tab wiring, fiscal control defaults) runs on load above.
+// eSalesRecords (the paid Firestore read) is deferred until the user clicks
+// the existing Generate button, now wired through EPCReportGate.
+EPCReportGate.wire({
+  button: 'tax-generate-btn',
+  status: 'tax-gen-status',
+  idleLabel: 'Generate Report',
+  load: async () => {
+    await loadTaxESalesRecords();
+    generateTaxPeriod();
+    const e = document.getElementById('tax-empty-state');
+    if (e) e.style.display = 'none';
+  }
+});

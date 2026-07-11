@@ -341,4 +341,15 @@ async function initESalesPage() {
   try { await loadESRows(); renderAll(); }
   catch (err) { console.error('[E-Sales] Load failed:',err); alert('Could not load E-Sales records. Please refresh the page.'); }
 }
-initESalesPage();
+
+// Data is not loaded on page open — the user must click "Generate Report".
+// Each click = paid Firestore reads, so the button guards against double-clicks.
+EPCReportGate.wire({
+  button: 'es-generate-btn',
+  status: 'es-gen-status',
+  load: async () => {
+    await initESalesPage();
+    const empty = document.getElementById('es-empty-state');
+    if (empty) empty.style.display = 'none';
+  }
+});

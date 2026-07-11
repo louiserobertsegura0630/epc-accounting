@@ -49,11 +49,14 @@
           <input class="form-input" type="date" id="tax-custom-to">
         </div>
 
+        <span id="tax-gen-status" class="gen-status"></span>
         <button class="btn btn-primary btn-sm" type="button" id="tax-generate-btn">Generate</button>
       </div>
       <div class="tax-period-label" id="tax-period-label"></div>
       <div class="tax-period-note" id="tax-excluded-note"></div>
     </div>
+
+    <div class="report-empty-state" id="tax-empty-state">Click <strong>Generate Report</strong> to load data.</div>
 
     <div class="tabs tax-tabs">
       <button class="tab-btn active" type="button" data-tax-tab="vat" onclick="switchTaxTab('vat')">VAT</button>

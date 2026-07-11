@@ -24,6 +24,10 @@
         <span class="section-title">E-Sales Records</span>
         <span class="section-subtitle">Import and manage daily E-Sales reports from the POS system</span>
       </div>
+      <div class="page-title-actions">
+        <span id="es-gen-status" class="gen-status"></span>
+        <button class="btn btn-primary" id="es-generate-btn" type="button">Generate Report</button>
+      </div>
     </div>
 
     <div class="card mb-24">
@@ -38,6 +42,10 @@
         <div class="esales-progress-label" id="esales-import-label">Processing...</div>
         <div class="esales-progress-wrap"><div class="esales-progress-fill" id="esales-import-fill"></div></div>
       </div>
+    </div>
+
+    <div class="report-empty-state" id="es-empty-state">
+      Click <strong>Generate Report</strong> to load data.
     </div>
 
     <div class="summary-row esales-summary-grid" id="esales-summary"></div>

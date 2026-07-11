@@ -25,8 +25,14 @@
         <span class="section-subtitle">Computed from incoming inventory less outgoing sales and releases.</span>
       </div>
       <div class="page-title-actions">
+        <span id="potential-gen-status" class="gen-status"></span>
+        <button class="btn btn-primary" id="potential-generate-btn" type="button">Generate Report</button>
         <button class="btn btn-outline-gray" id="btn-export-potential" type="button">Export as CSV</button>
       </div>
+    </div>
+
+    <div class="report-empty-state" id="potential-empty-state">
+      Click <strong>Generate Report</strong> to load potential revenue data.
     </div>
 
     <div class="summary-row" id="potential-summary"></div>

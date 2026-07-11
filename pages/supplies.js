@@ -517,6 +517,18 @@ document.getElementById('btn-load-more-sup')?.addEventListener('click', async ()
 });
 document.getElementById('sup-load-limit')?.addEventListener('change', () => clampRecordsLoadLimit('sup-load-limit'));
 document.getElementById('sup-load-limit')?.addEventListener('blur', () => clampRecordsLoadLimit('sup-load-limit'));
-loadSuppliesBatch({ append: false })
-  .then(() => { supTable.render(); renderSummary(); refreshSuppliesAggregates(); })
-  .catch(err => console.error('[Supplies] Firestore load failed:', err));
+// The supplies batch + KPI aggregates are deferred until the user clicks
+// "Generate Report" — each click = paid Firestore reads. The empty table shell
+// (supTable.render above) already renders the layout on page open.
+EPCReportGate.wire({
+  button: 'sup-generate-btn',
+  status: 'sup-gen-status',
+  load: async () => {
+    await loadSuppliesBatch({ append: false });
+    supTable.render();
+    renderSummary();
+    await refreshSuppliesAggregates();
+    const e = document.getElementById('sup-empty-state');
+    if (e) e.style.display = 'none';
+  }
+});
