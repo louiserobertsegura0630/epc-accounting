@@ -2,6 +2,7 @@
 initSidebar('purchases');
 
 let purchaseImportPreviewRows = [];
+let purchaseImportSourceFile = '';
 
 // ─── Firestore persistence (collection: 'purchases') ─────────────────────────
 async function upsertPurchaseInFirestore(row) {
@@ -210,6 +211,8 @@ async function parsePurchaseLedgerFile(file) {
 
 function renderPurchaseImportPreview(rows, fileName) {
   purchaseImportPreviewRows = rows;
+  // Keep the originating file on each row so imported records carry provenance.
+  purchaseImportSourceFile = fileName || '';
   document.getElementById('purchase-import-summary').textContent =
     `${rows.length.toLocaleString()} rows parsed from ${fileName}. ${rows.length.toLocaleString()} ready to import.`;
   const preview = rows.slice(0, 50);
@@ -247,6 +250,13 @@ async function handlePurchaseImportFile(file) {
 async function confirmPurchaseImport() {
   if (!purchaseImportPreviewRows.length) return;
   const rows = purchaseImportPreviewRows;
+  // Stamp upload provenance so imports can be audited (and duplicate uploads
+  // distinguished) after the fact.
+  const uploadedAt = new Date().toISOString();
+  rows.forEach(row => {
+    row.uploadedAt = uploadedAt;
+    row.sourceFile = purchaseImportSourceFile;
+  });
   try {
     await batchWritePurchasesToFirestore(rows);
   } catch (err) {
@@ -373,7 +383,20 @@ function purchaseLoadLimit() {
   return clampRecordsLoadLimit('purchases-load-limit');
 }
 
-async function loadPurchasesBatch({ append = false } = {}) {
+let _purchaseFetchInFlight = null;
+
+async function loadPurchasesBatch(opts = {}) {
+  // The scroll sentinel keeps intersecting while a fetch is awaiting, and every
+  // concurrent call would read the same purchaseLastDocSnapshot and re-append
+  // the same page. Serialize so each batch advances the cursor exactly once.
+  if (_purchaseFetchInFlight) return _purchaseFetchInFlight;
+  _purchaseFetchInFlight = _loadPurchasesBatch(opts).finally(() => {
+    _purchaseFetchInFlight = null;
+  });
+  return _purchaseFetchInFlight;
+}
+
+async function _loadPurchasesBatch({ append = false } = {}) {
   const db = getFirestoreDB();
   if (!db) return DB.get('purchases');
   if (!append) purchaseLastDocSnapshot = null;
@@ -387,7 +410,14 @@ async function loadPurchasesBatch({ append = false } = {}) {
   const snap = await query.get();
   purchaseLastDocSnapshot = snap.docs[snap.docs.length - 1] || purchaseLastDocSnapshot;
   const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
-  DB.set('purchases', append ? [...DB.get('purchases'), ...rows] : rows);
+  // Dedup by document id: overlapping appends would otherwise repeat rows.
+  if (append) {
+    const existing = DB.get('purchases');
+    const seen = new Set(existing.map(r => r._firestoreId));
+    DB.set('purchases', [...existing, ...rows.filter(r => !seen.has(r._firestoreId))]);
+  } else {
+    DB.set('purchases', rows);
+  }
   const total = purchaseAggregateScope === purchaseDateScopeKey() ? purchaseAggregateTotals?.count : null;
   purchaseHasMoreRecords = total == null
     ? snap.docs.length === limit
@@ -428,9 +458,27 @@ async function refreshPurchaseAggregates() {
   renderTable();
 }
 
+// A column date filter set before the top range narrowed can fall outside the
+// new window, silently showing nothing. Drop those so the two stay consistent.
+function dropOutOfRangePurchaseDateFilters() {
+  const { from: rangeFrom, to: rangeTo } = purchaseDateRange();
+  if (!rangeFrom && !rangeTo) return;
+  PURCHASE_LEDGER_COLUMNS.filter(c => c.type === 'date').forEach(column => {
+    const filter = purchaseColumnFilters[column.key];
+    if (!filter) return;
+    ['from', 'to'].forEach(part => {
+      const value = filter[part];
+      if (!value) return;
+      if ((rangeFrom && value < rangeFrom) || (rangeTo && value > rangeTo)) delete filter[part];
+    });
+    if (!filter.from && !filter.to) delete purchaseColumnFilters[column.key];
+  });
+}
+
 async function reloadPurchasesForDateRange() {
   purchaseCurrentPage = 1;
   selectedPurchaseIds.clear();
+  dropOutOfRangePurchaseDateFilters();
   _purVsScrollTop = 0;
   const scroll = document.getElementById('purchases-tbody')?.closest('.table-scroll');
   if (scroll) scroll.scrollTop = 0;
@@ -460,6 +508,24 @@ let purchaseHasMoreRecords = false;
 const selectedPurchaseIds = new Set();
 const purchaseColumnFilters = {};
 const PURCHASE_ROWS_PER_PAGE = 100;
+// Records imported before upload provenance was tracked have no uploadedAt
+// field, but their generated ids are base36 millisecond timestamps, so the
+// upload time can still be recovered for those.
+function purchaseUploadedAt(p) {
+  if (p.uploadedAt) return p.uploadedAt;
+  const ms = parseInt(String(p.id || p._firestoreId || '').slice(0, 8), 36);
+  if (!isFinite(ms) || ms < 1600000000000 || ms > 1900000000000) return '';
+  return new Date(ms).toISOString();
+}
+
+function formatPurchaseUploadedAt(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 const PURCHASE_LEDGER_COLUMNS = [
   { key:'date', label:'Check Voucher Date', type:'date', value:p => p.date || '' },
   { key:'supplier', label:'Supplier', type:'text', value:p => p.supplier || '' },
@@ -480,6 +546,8 @@ const PURCHASE_LEDGER_COLUMNS = [
   { key:'runningBalance', label:'Running Balance', type:'money', value:p => Number(p.runningBalance || 0) || 0 },
   { key:'otherIncome', label:'Other Income', type:'money', value:p => Number(p.otherIncome || p.totalAdditions || 0) || 0 },
   { key:'otherDeduction', label:'Other Deductions', type:'money', value:p => Number(p.otherDeduction ?? p.otherDeductions ?? 0) || 0 },
+  { key:'uploadedAt', label:'Uploaded At', type:'text', value:p => formatPurchaseUploadedAt(purchaseUploadedAt(p)) },
+  { key:'sourceFile', label:'Source File', type:'text', value:p => p.sourceFile || '' },
 ];
 
 function escPurchase(value) {
@@ -552,13 +620,23 @@ function getPurchaseRows() {
   return rows;
 }
 
+function purchaseUsableDateFilter(value) {
+  if (!value) return '';
+  const year = Number(String(value).slice(0, 4));
+  return year >= 1900 && year <= 2999 ? value : '';
+}
+
 function purchaseFilterMatches(row, column) {
   const filter = purchaseColumnFilters[column.key];
   if (!filter) return true;
   const value = purchaseColumnValue(row, column.key);
   if (column.type === 'date') {
-    return (!filter.from || String(value || '') >= filter.from) &&
-      (!filter.to || String(value || '') <= filter.to);
+    // Ignore partially-typed years (e.g. "0002-02-02") so the table doesn't
+    // filter itself empty while the user is still entering the date.
+    const from = purchaseUsableDateFilter(filter.from);
+    const to = purchaseUsableDateFilter(filter.to);
+    return (!from || String(value || '') >= from) &&
+      (!to || String(value || '') <= to);
   }
   if (column.type === 'money') {
     const num = Number(value) || 0;
@@ -572,7 +650,22 @@ function setPurchaseColumnFilter(key, value, part = 'text') {
   purchaseColumnFilters[key] = purchaseColumnFilters[key] || {};
   purchaseColumnFilters[key][part] = value;
   purchaseCurrentPage = 1;
+  // renderTable() rebuilds the filter row, so the input being typed in is
+  // destroyed mid-edit. Date inputs fire change as soon as the value parses
+  // (e.g. year "0002"), so without this the year segment can never be typed.
+  const active = document.activeElement;
+  const focusKey = active?.dataset?.filterKey;
+  const selStart = focusKey ? active.selectionStart : null;
+  const selEnd = focusKey ? active.selectionEnd : null;
   renderTable();
+  if (!focusKey) return;
+  const restored = document.querySelector(`[data-filter-key="${focusKey}"]`);
+  if (!restored) return;
+  restored.focus();
+  // Date/number inputs don't expose selection ranges; guard before restoring.
+  if (selStart != null) {
+    try { restored.setSelectionRange(selStart, selEnd); } catch {}
+  }
 }
 
 function setPurchaseSort(col) {
@@ -584,18 +677,22 @@ function setPurchaseSort(col) {
 function purchaseFilterInput(column) {
   const filter = purchaseColumnFilters[column.key] || {};
   if (column.type === 'date') {
+    // Column filters only narrow rows already fetched by the top date range,
+    // so bound the pickers to that range — dates outside it can't match.
+    const { from: rangeFrom, to: rangeTo } = purchaseDateRange();
+    const bounds = `${rangeFrom ? ` min="${rangeFrom}"` : ''}${rangeTo ? ` max="${rangeTo}"` : ''}`;
     return `<div class="purchase-filter-range">
-      <input type="date" class="purchase-filter-input" value="${filter.from || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'from')">
-      <input type="date" class="purchase-filter-input" value="${filter.to || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'to')">
+      <input type="date" class="purchase-filter-input" data-filter-key="${column.key}:from"${bounds} value="${filter.from || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'from')">
+      <input type="date" class="purchase-filter-input" data-filter-key="${column.key}:to"${bounds} value="${filter.to || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'to')">
     </div>`;
   }
   if (column.type === 'money') {
     return `<div class="purchase-filter-range">
-      <input type="number" class="purchase-filter-input" placeholder="Min" value="${filter.min || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'min')">
-      <input type="number" class="purchase-filter-input" placeholder="Max" value="${filter.max || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'max')">
+      <input type="number" class="purchase-filter-input" data-filter-key="${column.key}:min" placeholder="Min" value="${filter.min || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'min')">
+      <input type="number" class="purchase-filter-input" data-filter-key="${column.key}:max" placeholder="Max" value="${filter.max || ''}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'max')">
     </div>`;
   }
-  return `<input type="text" class="purchase-filter-input" placeholder="Filter..." value="${escPurchase(filter.text || '')}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'text')">`;
+  return `<input type="text" class="purchase-filter-input" data-filter-key="${column.key}:text" placeholder="Filter..." value="${escPurchase(filter.text || '')}" onchange="setPurchaseColumnFilter('${column.key}',this.value,'text')">`;
 }
 
 function renderPurchaseHeader(pageRows) {
@@ -752,6 +849,7 @@ function _purchaseRowHTML(p) {
         <div class="action-btns">
           <button class="btn btn-outline btn-xs" onclick="editPurchase('${p.id}')">Edit</button>
           <button class="btn btn-danger btn-xs" onclick="deletePurchase('${p.id}')">Delete</button>
+          <button class="btn btn-danger btn-xs" onclick="deletePurchaseUpload('${p.id}')" title="Delete every row imported in the same upload as this one">Delete Upload</button>
         </div>
       </td>
     </tr>`;
@@ -965,11 +1063,138 @@ function deletePurchase(id) {
   });
 }
 
+// Delete every purchase row that came from the SAME upload as `id`.
+// An upload is identified by (sourceFile + uploadedAt): re-uploading the same
+// file produces a different uploadedAt, so this deletes only one upload — not
+// every import of that filename. Older rows lack these fields; in that case we
+// fall back to matching on sourceFile alone so they can still be cleaned up.
+function deletePurchaseUpload(id) {
+  const all = DB.get('purchases');
+  const p = all.find(x => x.id === id);
+  if (!p) return;
+
+  const rows = all.filter(x => {
+    if (p.uploadedAt) return x.sourceFile === p.sourceFile && x.uploadedAt === p.uploadedAt;
+    // Legacy rows without provenance: match the source file only.
+    return !!p.sourceFile && x.sourceFile === p.sourceFile && !x.uploadedAt;
+  });
+
+  const label = p.sourceFile
+    ? `<strong>${p.sourceFile}</strong>${p.uploadedAt ? ` (uploaded ${new Date(p.uploadedAt).toLocaleString()})` : ''}`
+    : 'this upload';
+
+  confirmDelete(
+    `Delete all <strong>${rows.length.toLocaleString()}</strong> rows from ${label}? This cannot be undone.`,
+    async () => {
+      try {
+        await batchDeletePurchasesFromFirestore(rows);
+      } catch (err) {
+        console.error('[Purchases] Upload delete failed:', err);
+        alert('Could not delete the upload. Please try again.');
+        return;
+      }
+      rows.forEach(r => {
+        DB.remove('purchases', r.id);
+        selectedPurchaseIds.delete(r.id);
+      });
+      renderTable();
+      renderSummary();
+      refreshPurchaseAggregates();
+      logAudit('Delete', 'Purchases',
+        `Deleted upload ${p.sourceFile || id} (${rows.length} rows)`);
+    });
+}
+
+// ─── Edit supplier (from the Add/Edit Purchase supplier picker) ──────────────
+// Holds the picker callbacks so the modal's Save can refresh the open picker.
+let editSupplierContext = null;
+
+function openEditSupplierModal(supplier, context) {
+  editSupplierContext = context;
+  document.getElementById('edit-supplier-id').value       = String(supplier.id);
+  document.getElementById('edit-supplier-name').value     = supplier.name || '';
+  document.getElementById('edit-supplier-category').value = supplier.category || '';
+  openModal('modal-edit-supplier');
+}
+
+async function saveEditedSupplier() {
+  const id      = document.getElementById('edit-supplier-id').value;
+  const name    = document.getElementById('edit-supplier-name').value.trim();
+  const category = document.getElementById('edit-supplier-category').value.trim();
+  if (!name) { alert('Supplier name is required.'); return; }
+
+  const existing = DB.get('purchaseSuppliers').find(s => String(s.id) === String(id));
+  if (!existing) { closeModal('modal-edit-supplier'); return; }
+
+  const oldName = String(existing.name || '').trim();
+  const key     = name.toLowerCase();
+  const clash   = DB.get('purchaseSuppliers').some(s =>
+    String(s.id) !== String(id) && String(s.name || '').trim().toLowerCase() === key);
+  if (clash) { alert('Another supplier already uses that name.'); return; }
+
+  // Purchase rows reference the supplier by name, so a rename must cascade.
+  const renamed = oldName !== name;
+  const affected = renamed
+    ? DB.get('purchases').filter(p => String(p.supplier || '').trim() === oldName)
+    : [];
+
+  try {
+    const db = getFirestoreDB();
+    if (db) {
+      await db.collection('purchaseSuppliers').doc(String(existing._firestoreId || existing.id))
+        .set({ name, category }, { merge: true });
+    }
+    // Update in place by each row's real doc id (which may differ from row.id
+    // on imported rows), so the rename never forks a duplicate document.
+    if (db && renamed && affected.length) {
+      for (let start = 0; start < affected.length; start += 400) {
+        const batch = db.batch();
+        affected.slice(start, start + 400).forEach(p => {
+          batch.set(db.collection('purchases').doc(String(p._firestoreId || p.id)),
+            { supplier: name }, { merge: true });
+        });
+        await batch.commit();
+      }
+    }
+  } catch (err) {
+    console.error('[Purchases] Supplier edit failed:', err);
+    alert('Could not save the supplier. Please check your connection and try again.');
+    return;
+  }
+
+  DB.update('purchaseSuppliers', existing.id, { name, category });
+  if (renamed) {
+    DB.set('purchases', DB.get('purchases').map(p =>
+      String(p.supplier || '').trim() === oldName ? { ...p, supplier: name } : p));
+    // Keep the in-form selection pointing at the supplier the user just renamed.
+    if (document.getElementById('f-supplier').value === oldName) {
+      setSupplierPickerValue('f-supplier', name);
+    }
+    const filter = document.getElementById('filter-supplier-purchases');
+    if (filter && filter.value === oldName) filter.value = name;
+  }
+
+  closeModal('modal-edit-supplier');
+  editSupplierContext?.refresh?.();
+  editSupplierContext = null;
+  populatePurchasesFilterSuppliers();
+  renderTable();
+  renderSummary();
+  refreshPurchaseAggregates();
+  logAudit('Edit', 'Purchase Supplier', renamed
+    ? `Renamed supplier ${oldName} to ${name} (${affected.length} purchase${affected.length === 1 ? '' : 's'} updated)`
+    : `Edited supplier ${name}`);
+}
+
 document.getElementById('btn-add-purchase').addEventListener('click', () => { resetForm(); openModal('modal-purchase'); });
 document.getElementById('btn-export-purchases')?.addEventListener('click', exportPurchasesCSV);
 document.getElementById('btn-export-filtered-purchases')?.addEventListener('click', exportPurchasesCSV);
 document.getElementById('btn-save-purchase').addEventListener('click', savePurchase);
-initSupplierPicker('f-supplier', 'f-supplier-search', 'f-supplier-results', { storeKey: 'purchaseSuppliers' });
+initSupplierPicker('f-supplier', 'f-supplier-search', 'f-supplier-results', {
+  storeKey: 'purchaseSuppliers',
+  onEdit: openEditSupplierModal,
+});
+document.getElementById('btn-save-edit-supplier').addEventListener('click', saveEditedSupplier);
 document.getElementById('btn-search-purchase-supplier').addEventListener('click', () => {
   const input = document.getElementById('f-supplier-search');
   input.focus();

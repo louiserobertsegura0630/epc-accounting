@@ -514,6 +514,24 @@ tbody tr:hover td { background: #fafbff; }
   color: var(--primary);
   font-weight: 700;
 }
+/* Name + Edit share one row; only the name button stretches. */
+.supplier-picker-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--card-border);
+}
+.supplier-picker-results .supplier-picker-row:last-child { border-bottom: 0; }
+.supplier-picker-row > button[data-supplier] { flex: 1; border-bottom: 0; }
+.supplier-picker-results .supplier-picker-edit {
+  flex: 0 0 auto;
+  border-bottom: 0;
+  border-left: 1px solid var(--card-border);
+  padding: 9px 12px;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.supplier-picker-results .supplier-picker-edit:hover { background: #dbeafe; }
 
 /* ─── Drag-Drop Zone ─────────────────────────────────────────────────────── */
 .drop-zone {

@@ -289,12 +289,40 @@
   </div>
 </div>
 
+<!-- Edit Supplier Modal (from the Add/Edit Purchase supplier picker) -->
+<div class="modal-overlay" id="modal-edit-supplier">
+  <div class="modal-card" style="max-width:420px">
+    <div class="modal-header">
+      <span class="modal-title">Edit Supplier</span>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-supplier-id">
+      <div class="form-group">
+        <label class="form-label">Supplier Name <span class="req">*</span></label>
+        <input type="text" class="form-input" id="edit-supplier-name" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <input type="text" class="form-input" id="edit-supplier-category" autocomplete="off">
+      </div>
+      <div style="font-size:12px;color:#64748b">
+        Renaming updates this supplier on all existing purchase records.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="btn-save-edit-supplier">Save Supplier</button>
+    </div>
+  </div>
+</div>
+
 <script src="../assets/vendor/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260707-audit-restore"></script>
-<script src="purchases.js?v=20260622-supplier-search"></script>
+<script src="purchases.js?v=20260720-upload-audit"></script>
 </body>
 </html>

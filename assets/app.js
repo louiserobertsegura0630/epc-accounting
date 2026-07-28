@@ -937,9 +937,15 @@ function initSupplierPicker(valueId, searchId, resultsId, opts = {}) {
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
       .slice(0, 8);
     const hasExact = matches.some(supplier => String(supplier.name || '').toLowerCase() === query);
-    resultsEl.innerHTML = matches.map(supplier =>
-      `<button type="button" data-supplier="${encodeURIComponent(supplier.name)}">${supplierPickerEsc(supplier.name)}</button>`
-    ).join('') + (typed && !hasExact
+    resultsEl.innerHTML = matches.map(supplier => {
+      const encoded = encodeURIComponent(supplier.name);
+      const pick = `<button type="button" data-supplier="${encoded}">${supplierPickerEsc(supplier.name)}</button>`;
+      // opts.onEdit opts this picker into an inline "Edit" action per supplier.
+      if (!opts.onEdit) return pick;
+      return `<div class="supplier-picker-row">${pick}` +
+        `<button type="button" class="supplier-picker-edit" data-edit-supplier="${encoded}" ` +
+        `title="Edit ${supplierPickerEsc(supplier.name)}">Edit</button></div>`;
+    }).join('') + (typed && !hasExact
       ? `<button type="button" class="supplier-picker-add" data-add-supplier="${encodeURIComponent(typed)}">+ Add "${supplierPickerEsc(typed)}" as new supplier</button>`
       : '');
   }
@@ -950,9 +956,14 @@ function initSupplierPicker(valueId, searchId, resultsId, opts = {}) {
   });
   searchEl.addEventListener('focus', render);
   resultsEl.addEventListener('click', async event => {
-    const option = event.target.closest('[data-supplier],[data-add-supplier]');
+    const option = event.target.closest('[data-supplier],[data-add-supplier],[data-edit-supplier]');
     if (!option) return;
-    if (option.dataset.addSupplier) {
+    if (option.dataset.editSupplier) {
+      const name = decodeURIComponent(option.dataset.editSupplier);
+      const supplier = DB.get(storeKey)
+        .find(item => String(item.name || '').trim().toLowerCase() === name.trim().toLowerCase());
+      if (supplier) opts.onEdit(supplier, { storeKey, setValue, refresh: render });
+    } else if (option.dataset.addSupplier) {
       try {
         const supplier = await ensureSharedSupplier(decodeURIComponent(option.dataset.addSupplier), storeKey);
         if (supplier) setValue(supplier.name);
