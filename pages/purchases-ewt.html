@@ -43,6 +43,13 @@
       </div>
     </div>
 
+    <div class="tabs purchase-tabs">
+      <button class="tab-btn active" type="button" data-purchase-tab="purchases">Purchases</button>
+      <button class="tab-btn" type="button" data-purchase-tab="suppliers">Suppliers</button>
+    </div>
+
+    <div id="purchase-purchases-panel" class="purchase-tab-panel">
+
     <div class="card purchase-import-card" id="purchase-import-dropzone">
       <div>
         <strong>Import supplier/purchase ledger</strong>
@@ -97,6 +104,35 @@
       </table>
       </div>
       <div class="purchase-pagination" id="purchase-pagination"></div>
+    </div>
+
+    </div><!-- /purchase-purchases-panel -->
+
+    <div id="purchase-suppliers-panel" class="purchase-tab-panel" style="display:none">
+      <div class="table-container">
+        <div class="table-toolbar">
+          <span class="table-toolbar-title">Purchase Suppliers</span>
+          <button class="btn btn-primary btn-sm" type="button" id="btn-add-purchase-supplier">+ Add Supplier</button>
+          <input type="text" class="search-input" id="search-purchase-suppliers" placeholder="Search supplier name…">
+        </div>
+        <div class="table-toolbar filter-toolbar">
+          <span class="filter-label">These are the suppliers offered in the Add Purchase dropdown.</span>
+          <span id="purchase-suppliers-count" class="records-badge"></span>
+        </div>
+        <div class="table-scroll">
+          <table id="purchase-suppliers-table">
+            <thead>
+              <tr class="header-row">
+                <th>Supplier Name</th>
+                <th>Category</th>
+                <th style="text-align:right" title="Counts only the purchase rows currently loaded. Click Generate Report on the Purchases tab to load them.">Purchases (loaded)</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="purchase-suppliers-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -293,7 +329,7 @@
 <div class="modal-overlay" id="modal-edit-supplier">
   <div class="modal-card" style="max-width:420px">
     <div class="modal-header">
-      <span class="modal-title">Edit Supplier</span>
+      <span class="modal-title" id="modal-edit-supplier-title">Edit Supplier</span>
       <button class="modal-close" data-close-modal>✕</button>
     </div>
     <div class="modal-body">
@@ -322,7 +358,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20260707-audit-restore"></script>
-<script src="purchases.js?v=20260720-upload-audit"></script>
+<script src="../assets/app.js?v=20260728-supplier-tab"></script>
+<script src="purchases.js?v=20260728-supplier-tab"></script>
 </body>
 </html>

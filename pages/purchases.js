@@ -1110,10 +1110,12 @@ function deletePurchaseUpload(id) {
 let editSupplierContext = null;
 
 function openEditSupplierModal(supplier, context) {
-  editSupplierContext = context;
-  document.getElementById('edit-supplier-id').value       = String(supplier.id);
-  document.getElementById('edit-supplier-name').value     = supplier.name || '';
-  document.getElementById('edit-supplier-category').value = supplier.category || '';
+  editSupplierContext = context || null;
+  document.getElementById('modal-edit-supplier-title').textContent =
+    supplier ? 'Edit Supplier' : 'Add Supplier';
+  document.getElementById('edit-supplier-id').value       = supplier ? String(supplier.id) : '';
+  document.getElementById('edit-supplier-name').value     = supplier?.name || '';
+  document.getElementById('edit-supplier-category').value = supplier?.category || '';
   openModal('modal-edit-supplier');
 }
 
@@ -1122,6 +1124,30 @@ async function saveEditedSupplier() {
   const name    = document.getElementById('edit-supplier-name').value.trim();
   const category = document.getElementById('edit-supplier-category').value.trim();
   if (!name) { alert('Supplier name is required.'); return; }
+
+  // No id → adding a brand-new supplier rather than editing an existing one.
+  if (!id) {
+    const taken = DB.get('purchaseSuppliers').some(s =>
+      String(s.name || '').trim().toLowerCase() === name.toLowerCase());
+    if (taken) { alert('A supplier with that name already exists.'); return; }
+    const supplier = { id: genId(), name, category, status: 'Active' };
+    try {
+      const db = getFirestoreDB();
+      if (db) await db.collection('purchaseSuppliers').doc(supplier.id).set(supplier, { merge: true });
+    } catch (err) {
+      console.error('[Purchases] Supplier add failed:', err);
+      alert('Could not add the supplier. Please check your connection and try again.');
+      return;
+    }
+    DB.push('purchaseSuppliers', supplier);
+    closeModal('modal-edit-supplier');
+    editSupplierContext?.refresh?.();
+    editSupplierContext = null;
+    renderPurchaseSuppliers();
+    populatePurchasesFilterSuppliers();
+    logAudit('Create', 'Purchase Supplier', `Added supplier ${name}`);
+    return;
+  }
 
   const existing = DB.get('purchaseSuppliers').find(s => String(s.id) === String(id));
   if (!existing) { closeModal('modal-edit-supplier'); return; }
@@ -1177,6 +1203,7 @@ async function saveEditedSupplier() {
   closeModal('modal-edit-supplier');
   editSupplierContext?.refresh?.();
   editSupplierContext = null;
+  renderPurchaseSuppliers();
   populatePurchasesFilterSuppliers();
   renderTable();
   renderSummary();
@@ -1184,6 +1211,94 @@ async function saveEditedSupplier() {
   logAudit('Edit', 'Purchase Supplier', renamed
     ? `Renamed supplier ${oldName} to ${name} (${affected.length} purchase${affected.length === 1 ? '' : 's'} updated)`
     : `Edited supplier ${name}`);
+}
+
+// ─── Suppliers sub-tab ───────────────────────────────────────────────────────
+// Manages the same 'purchaseSuppliers' list the Add Purchase picker reads from,
+// so edits here change what the supplier dropdown offers.
+function switchPurchaseTab(tab) {
+  document.querySelectorAll('[data-purchase-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.purchaseTab === tab);
+  });
+  document.getElementById('purchase-purchases-panel').style.display = tab === 'purchases' ? '' : 'none';
+  document.getElementById('purchase-suppliers-panel').style.display = tab === 'suppliers' ? '' : 'none';
+  // The page-level actions belong to the Purchases view only.
+  document.querySelector('.page-title-actions').style.display = tab === 'purchases' ? '' : 'none';
+  if (tab === 'suppliers') renderPurchaseSuppliers();
+}
+
+function purchaseCountsBySupplier() {
+  const counts = new Map();
+  DB.get('purchases').forEach(p => {
+    const name = String(p.supplier || '').trim();
+    if (name) counts.set(name, (counts.get(name) || 0) + 1);
+  });
+  return counts;
+}
+
+function renderPurchaseSuppliers() {
+  const tbody = document.getElementById('purchase-suppliers-tbody');
+  if (!tbody) return;
+  const query  = (document.getElementById('search-purchase-suppliers')?.value || '').trim().toLowerCase();
+  const counts = purchaseCountsBySupplier();
+  // Purchase rows load only after "Generate Report", and only a batch at a
+  // time — so a count is meaningful only for what is currently loaded.
+  const loaded = DB.get('purchases').length > 0;
+  const rows = DB.get('purchaseSuppliers')
+    .filter(s => String(s.name || '').toLowerCase().includes(query))
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+  document.getElementById('purchase-suppliers-count').textContent =
+    `${rows.length.toLocaleString()} supplier${rows.length === 1 ? '' : 's'}`;
+
+  tbody.innerHTML = rows.length ? rows.map(s => {
+    const name = String(s.name || '');
+    const used = counts.get(name.trim()) || 0;
+    return `<tr>
+      <td>${supplierPickerEsc(name)}</td>
+      <td>${supplierPickerEsc(s.category || '—')}</td>
+      <td class="mono" style="text-align:right">${loaded ? used.toLocaleString() : '—'}</td>
+      <td style="text-align:right">
+        <div class="action-btns" style="justify-content:flex-end">
+          <button class="btn btn-outline-gray btn-sm" data-edit-purchase-supplier="${supplierPickerEsc(s.id)}">Edit</button>
+          <button class="btn btn-danger btn-sm" data-delete-purchase-supplier="${supplierPickerEsc(s.id)}">Delete</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);padding:18px">${
+    query ? 'No suppliers match your search.' : 'No suppliers yet.'}</td></tr>`;
+}
+
+async function deletePurchaseSupplier(id) {
+  const supplier = DB.get('purchaseSuppliers').find(s => String(s.id) === String(id));
+  if (!supplier) return;
+  const name = String(supplier.name || '').trim();
+  const used = purchaseCountsBySupplier().get(name) || 0;
+  // Deleting only removes the dropdown entry; purchase rows keep their name text.
+  const loaded = DB.get('purchases').length > 0;
+  const warning = used
+    ? `<strong>${supplierPickerEsc(name)}</strong> is used by ${used.toLocaleString()} loaded purchase record${used === 1 ? '' : 's'}.` +
+      ' Those records keep their supplier name, but it will no longer appear in the dropdown.'
+    : `Delete <strong>${supplierPickerEsc(name)}</strong> from the supplier list?` +
+      (loaded ? '' : ' Purchase records are not loaded, so any existing use is not counted here.') +
+      ' Existing purchase records keep their supplier name.';
+
+  confirmDelete(warning, async () => {
+    try {
+      const db = getFirestoreDB();
+      if (db) {
+        await db.collection('purchaseSuppliers').doc(String(supplier._firestoreId || supplier.id)).delete();
+      }
+    } catch (err) {
+      console.error('[Purchases] Supplier delete failed:', err);
+      alert('Could not delete the supplier. Please check your connection and try again.');
+      return;
+    }
+    DB.remove('purchaseSuppliers', supplier.id);
+    renderPurchaseSuppliers();
+    populatePurchasesFilterSuppliers();
+    logAudit('Delete', 'Purchase Supplier', `Deleted supplier ${name}`);
+  });
 }
 
 document.getElementById('btn-add-purchase').addEventListener('click', () => { resetForm(); openModal('modal-purchase'); });
@@ -1195,6 +1310,22 @@ initSupplierPicker('f-supplier', 'f-supplier-search', 'f-supplier-results', {
   onEdit: openEditSupplierModal,
 });
 document.getElementById('btn-save-edit-supplier').addEventListener('click', saveEditedSupplier);
+document.querySelectorAll('[data-purchase-tab]').forEach(btn => {
+  btn.addEventListener('click', () => switchPurchaseTab(btn.dataset.purchaseTab));
+});
+document.getElementById('btn-add-purchase-supplier').addEventListener('click', () => openEditSupplierModal(null));
+document.getElementById('search-purchase-suppliers').addEventListener('input', renderPurchaseSuppliers);
+document.getElementById('purchase-suppliers-tbody').addEventListener('click', event => {
+  const editBtn = event.target.closest('[data-edit-purchase-supplier]');
+  if (editBtn) {
+    const supplier = DB.get('purchaseSuppliers')
+      .find(s => String(s.id) === editBtn.dataset.editPurchaseSupplier);
+    if (supplier) openEditSupplierModal(supplier);
+    return;
+  }
+  const delBtn = event.target.closest('[data-delete-purchase-supplier]');
+  if (delBtn) deletePurchaseSupplier(delBtn.dataset.deletePurchaseSupplier);
+});
 document.getElementById('btn-search-purchase-supplier').addEventListener('click', () => {
   const input = document.getElementById('f-supplier-search');
   input.focus();
@@ -1277,7 +1408,7 @@ renderSummary();
 // Load the supplier list on page open (form-critical) — the Add-purchase supplier
 // picker needs it. This is NOT gated.
 loadSupplierListFromFirestore('purchaseSuppliers')
-  .then(() => populatePurchasesFilterSuppliers())
+  .then(() => { populatePurchasesFilterSuppliers(); renderPurchaseSuppliers(); })
   .catch(err => console.error('[Purchases] Supplier list load failed:', err));
 
 // The purchases table + KPI reads are deferred until the user clicks
