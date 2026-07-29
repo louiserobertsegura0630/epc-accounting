@@ -533,6 +533,17 @@ tbody tr:hover td { background: #fafbff; }
 }
 .supplier-picker-results .supplier-picker-edit:hover { background: #dbeafe; }
 
+/* Item-code suggestions overlay the form instead of shifting it down. */
+#s-item-code-results {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.14);
+}
+#s-item-code-results button { line-height: 1.35; }
+
 /* ─── Drag-Drop Zone ─────────────────────────────────────────────────────── */
 .drop-zone {
   border: 2px dashed var(--card-border); border-radius: 12px;

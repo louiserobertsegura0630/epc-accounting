@@ -173,6 +173,10 @@ function resetForm() {
   document.getElementById('s-date').value = todayISO();
   document.getElementById('rs-incoming').checked = true;
   if (supTable.activeTab === 'outgoing') document.getElementById('rs-outgoing').checked = true;
+  const results = document.getElementById('s-item-code-results');
+  if (results) results.innerHTML = '';
+  const hint = document.getElementById('s-item-code-hint');
+  if (hint) hint.style.display = 'none';
 }
 
 function renderSummary() {
@@ -225,6 +229,107 @@ async function refreshSuppliesAggregates() {
     : DB.get('supplies_movements').length < suppliesAggregateTotals.count;
   updateSuppliesLoadMoreControl();
   renderSummary();
+}
+
+// ─── Item code autocomplete ──────────────────────────────────────────────────
+// Suggestions come from Firestore rather than DB.get('supplies_movements'),
+// because that list is empty until "Generate Report" and then holds only one
+// batch — suggesting from it would silently omit most recorded item codes.
+let supplyItemCodeIndex = null;   // Map<lowercased code, {code, name, description, unitCost, onHand}>
+let supplyItemCodeLoad  = null;   // in-flight promise, so concurrent calls share one read
+
+function buildSupplyItemCodeIndex(rows) {
+  const index = new Map();
+  rows.forEach(row => {
+    const code = String(row.itemCode || '').trim();
+    if (!code) return;
+    const key = code.toLowerCase();
+    const entry = index.get(key) || { code, name: '', description: '', unitCost: 0, onHand: 0 };
+    // Incoming adds stock; outgoing rows record issued units against a code.
+    if (row.type === 'Incoming') entry.onHand += supplyOnHand(row);
+    else entry.onHand -= Number(row.qty || 0);
+    // Keep the most descriptive name/cost seen for this code.
+    if (!entry.name && row.name) entry.name = String(row.name);
+    if (!entry.description && row.description) entry.description = String(row.description);
+    if (!entry.unitCost && row.unitCost) entry.unitCost = Number(row.unitCost) || 0;
+    index.set(key, entry);
+  });
+  return index;
+}
+
+async function loadSupplyItemCodes({ force = false } = {}) {
+  if (supplyItemCodeIndex && !force) return supplyItemCodeIndex;
+  if (supplyItemCodeLoad) return supplyItemCodeLoad;
+  const db = getFirestoreDB();
+  if (!db) {
+    supplyItemCodeIndex = buildSupplyItemCodeIndex(DB.get('supplies_movements'));
+    return supplyItemCodeIndex;
+  }
+  supplyItemCodeLoad = db.collection('suppliesData').get()
+    .then(snapshot => {
+      supplyItemCodeIndex = buildSupplyItemCodeIndex(snapshot.docs.map(doc => doc.data()));
+      return supplyItemCodeIndex;
+    })
+    .catch(err => {
+      console.error('[Supplies] Item code lookup failed:', err);
+      // Fall back to whatever is loaded locally so the field still suggests something.
+      supplyItemCodeIndex = buildSupplyItemCodeIndex(DB.get('supplies_movements'));
+      return supplyItemCodeIndex;
+    })
+    .finally(() => { supplyItemCodeLoad = null; });
+  return supplyItemCodeLoad;
+}
+
+function supplyItemCodeEsc(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderSupplyItemCodeResults() {
+  const input   = document.getElementById('s-item-code');
+  const results = document.getElementById('s-item-code-results');
+  const hint    = document.getElementById('s-item-code-hint');
+  if (!input || !results) return;
+
+  const query = input.value.trim().toLowerCase();
+  const all   = [...(supplyItemCodeIndex?.values() || [])];
+  const matches = (query
+      ? all.filter(e => e.code.toLowerCase().includes(query) || e.name.toLowerCase().includes(query))
+      : all)
+    .sort((a, b) => a.code.localeCompare(b.code))
+    .slice(0, 8);
+
+  results.innerHTML = matches.map(entry => {
+    const detail = [entry.name, `on hand: ${entry.onHand.toLocaleString()}`].filter(Boolean).join(' · ');
+    return `<button type="button" data-item-code="${encodeURIComponent(entry.code)}">` +
+      `<strong>${supplyItemCodeEsc(entry.code)}</strong>` +
+      `<span style="display:block;font-size:12px;color:var(--text-secondary)">${supplyItemCodeEsc(detail)}</span>` +
+      `</button>`;
+  }).join('');
+
+  if (hint) {
+    const unknown = query && !all.some(e => e.code.toLowerCase() === query);
+    hint.style.display = unknown ? '' : 'none';
+    hint.textContent   = unknown ? 'No recorded supply uses this item code yet.' : '';
+  }
+}
+
+function applySupplyItemCode(code) {
+  const entry = supplyItemCodeIndex?.get(String(code).toLowerCase());
+  document.getElementById('s-item-code').value = entry ? entry.code : code;
+  document.getElementById('s-item-code-results').innerHTML = '';
+  document.getElementById('s-item-code-hint').style.display = 'none';
+  if (!entry) return;
+  // Prefill the descriptive fields, but never clobber what the user already typed.
+  const name = document.getElementById('s-name');
+  const desc = document.getElementById('s-desc');
+  const cost = document.getElementById('s-unit-cost');
+  if (name && !name.value.trim() && entry.name) name.value = entry.name;
+  if (desc && !desc.value.trim() && entry.description) desc.value = entry.description;
+  if (cost && !parsePeso(cost.value) && entry.unitCost) {
+    cost.value = formatNum(entry.unitCost);
+    calcSupTotal();
+  }
 }
 
 async function saveSupply() {
@@ -281,6 +386,8 @@ async function saveSupply() {
   renderSummary();
   try {
     await upsertSupplyInFirestore(record);
+    // A new/renamed code (or changed stock) must show in the next lookup.
+    supplyItemCodeIndex = null;
     refreshSuppliesAggregates();
     logAudit(editId ? 'Edit' : 'Create', 'Supplies',
       `${editId ? 'Edited' : 'Added'} ${type.toLowerCase()} supply - ${qty} units of ${name} on ${formatDate(date)}`);
@@ -307,6 +414,10 @@ function editSup(id) {
   document.getElementById('s-who').value        = m.whoReceived;
   document.getElementById('s-date').value       = m.datePurchased;
   document.getElementById('s-notes').value      = m.notes||'';
+  const codeResults = document.getElementById('s-item-code-results');
+  if (codeResults) codeResults.innerHTML = '';
+  const codeHint = document.getElementById('s-item-code-hint');
+  if (codeHint) codeHint.style.display = 'none';
   calcSupTotal();
   openModal('modal-supply');
 }
@@ -414,7 +525,29 @@ function exportSuppliesCSV() {
   alert(`${rows.length.toLocaleString()} supply records exported to CSV.`);
 }
 
-document.getElementById('btn-add-supply').addEventListener('click', () => { resetForm(); openModal('modal-supply'); });
+document.getElementById('btn-add-supply').addEventListener('click', () => {
+  resetForm();
+  openModal('modal-supply');
+  // Warm the index so the first keystroke can suggest immediately.
+  loadSupplyItemCodes().then(renderSupplyItemCodeResults);
+});
+document.getElementById('s-item-code').addEventListener('input', () => {
+  loadSupplyItemCodes().then(renderSupplyItemCodeResults);
+});
+document.getElementById('s-item-code').addEventListener('focus', () => {
+  loadSupplyItemCodes().then(renderSupplyItemCodeResults);
+});
+document.getElementById('s-item-code-results').addEventListener('click', event => {
+  const option = event.target.closest('[data-item-code]');
+  if (option) applySupplyItemCode(decodeURIComponent(option.dataset.itemCode));
+});
+// Clicking outside the field dismisses the suggestion list.
+document.addEventListener('click', event => {
+  if (!event.target.closest('#s-item-code') && !event.target.closest('#s-item-code-results')) {
+    const results = document.getElementById('s-item-code-results');
+    if (results) results.innerHTML = '';
+  }
+});
 document.getElementById('btn-export-supplies').addEventListener('click', exportSuppliesCSV);
 document.getElementById('btn-save-supply').addEventListener('click', saveSupply);
 document.getElementById('btn-save-supply-usage').addEventListener('click', saveSupplyUsage);

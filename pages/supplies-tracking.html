@@ -5,7 +5,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Supplies Tracking - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20260703-vscroll-shared">
+  <link rel="stylesheet" href="../assets/style.css?v=20260729-itemcode">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -100,9 +100,11 @@
       </div>
 
       <div class="form-row form-row-2">
-        <div class="form-group">
+        <div class="form-group" style="position:relative">
           <label class="form-label">Item Code</label>
-          <input type="text" class="form-input" id="s-item-code" placeholder="e.g. SUP-001">
+          <input type="text" class="form-input" id="s-item-code" placeholder="e.g. SUP-001" autocomplete="off">
+          <div class="supplier-picker-results" id="s-item-code-results"></div>
+          <span class="form-hint" id="s-item-code-hint" style="display:none"></span>
         </div>
         <div class="form-group">
           <label class="form-label">Supply Name <span class="req">*</span></label>
@@ -207,6 +209,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260728-supplier-tab"></script>
-<script src="supplies.js?v=20260703-vscroll"></script>
+<script src="supplies.js?v=20260729-itemcode"></script>
 </body>
 </html>
