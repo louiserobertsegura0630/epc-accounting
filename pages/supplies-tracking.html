@@ -5,7 +5,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Supplies Tracking - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20260729-outgoing-source">
+  <link rel="stylesheet" href="../assets/style.css?v=20260729-source-modal">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -99,13 +99,12 @@
         </div>
       </div>
 
-      <!-- Outgoing draws from a recorded incoming item, so that comes first. -->
-      <div class="form-group" id="s-source-group" style="position:relative;display:none">
+      <!-- Outgoing draws from a recorded incoming item, picked up front via
+           the source-picker modal; this shows what was chosen. -->
+      <div class="form-group" id="s-source-group" style="display:none">
         <label class="form-label">Item taken from <span class="req">*</span></label>
         <input type="hidden" id="s-source-id">
-        <input type="text" class="form-input" id="s-source-search" placeholder="Search incoming item by code or name…" autocomplete="off">
-        <div class="supplier-picker-results" id="s-source-results"></div>
-        <div id="s-source-summary" style="display:none"></div>
+        <div id="s-source-summary"></div>
       </div>
 
       <div class="form-row form-row-2">
@@ -181,6 +180,41 @@
   </div>
 </div>
 
+<!-- Pick Source Item Modal — shown before the Outgoing form is filled out -->
+<div class="modal-overlay" id="modal-supply-source">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">Which item is being released?</span>
+      <button class="modal-close" id="btn-close-supply-source" type="button">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+        Pick the incoming supply these units are taken from. Its remaining quantity will be reduced.
+      </p>
+      <div class="form-group">
+        <input type="text" class="form-input" id="s-source-modal-search" placeholder="Search by item code or name…" autocomplete="off">
+      </div>
+      <div class="table-scroll" style="max-height:320px">
+        <table>
+          <thead>
+            <tr class="header-row">
+              <th>Item Code</th>
+              <th>Supply Name</th>
+              <th style="text-align:right">On Hand</th>
+              <th style="text-align:right">Unit Cost</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="s-source-modal-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-gray" id="btn-cancel-supply-source" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Record Usage Modal -->
 <div class="modal-overlay" id="modal-supply-usage">
   <div class="modal-card">
@@ -218,6 +252,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260728-supplier-tab"></script>
-<script src="supplies.js?v=20260729-outgoing-source"></script>
+<script src="supplies.js?v=20260729-source-modal"></script>
 </body>
 </html>

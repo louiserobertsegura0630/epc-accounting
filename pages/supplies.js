@@ -351,77 +351,90 @@ function findIncomingSource(id) {
   return supplyIncomingRows.find(row => String(row.id) === String(id)) || null;
 }
 
-function renderSupplySourceResults() {
-  const results = document.getElementById('s-source-results');
-  if (!results) return;
-  const query = (document.getElementById('s-source-search')?.value || '').trim().toLowerCase();
+// Lists every incoming item in the source-picker modal.
+function renderSupplySourceModal() {
+  const tbody = document.getElementById('s-source-modal-tbody');
+  if (!tbody) return;
+  const query = (document.getElementById('s-source-modal-search')?.value || '').trim().toLowerCase();
   const matches = supplyIncomingRows
-    .filter(row => supplyOnHand(row) > 0)
     .filter(row => !query
       || String(row.itemCode || '').toLowerCase().includes(query)
-      || String(row.name || '').toLowerCase().includes(query))
-    .slice(0, 8);
+      || String(row.name || '').toLowerCase().includes(query));
 
-  results.innerHTML = matches.length ? matches.map(row => {
+  tbody.innerHTML = matches.length ? matches.map(row => {
     const onHand = supplyOnHand(row);
-    const detail = `${row.itemCode || 'No item code'} · on hand: ${onHand.toLocaleString()} · ${formatPeso(row.unitCost)}`;
-    return `<button type="button" data-source-id="${supplyItemCodeEsc(row.id)}">` +
-      `<strong>${supplyItemCodeEsc(row.name || 'Supply')}</strong>` +
-      `<span style="display:block;font-size:12px;color:var(--text-secondary)">${supplyItemCodeEsc(detail)}</span>` +
-      `</button>`;
+    const depleted = onHand <= 0;
+    return `<tr${depleted ? ' style="opacity:.55"' : ''}>
+      <td class="mono">${supplyItemCodeEsc(row.itemCode || '—')}</td>
+      <td>${supplyItemCodeEsc(row.name || 'Supply')}</td>
+      <td class="mono" style="text-align:right">${onHand.toLocaleString()}</td>
+      <td class="mono" style="text-align:right">${formatPeso(row.unitCost)}</td>
+      <td style="text-align:right">${depleted
+        ? '<span style="font-size:12px;color:var(--text-secondary)">Out of stock</span>'
+        : `<button type="button" class="btn btn-primary btn-xs" data-source-id="${supplyItemCodeEsc(row.id)}">Select</button>`}</td>
+    </tr>`;
   }).join('')
-    : `<button type="button" disabled style="color:var(--text-secondary);cursor:default">${
-        query ? 'No incoming item matches.' : 'No incoming items with stock on hand.'}</button>`;
+    : `<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:18px">${
+        query ? 'No incoming item matches.' : 'No incoming supplies recorded yet.'}</td></tr>`;
+}
+
+function openSupplySourcePicker() {
+  document.getElementById('s-source-modal-search').value = '';
+  const tbody = document.getElementById('s-source-modal-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:18px;color:var(--text-secondary)">Loading…</td></tr>';
+  openModal('modal-supply-source');
+  loadSupplyItemCodes().then(renderSupplySourceModal);
 }
 
 function renderSupplySourceSummary() {
   const box = document.getElementById('s-source-summary');
   if (!box) return;
   const row = findIncomingSource(document.getElementById('s-source-id').value);
-  if (!row) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  if (!row) {
+    box.innerHTML = `<button type="button" class="btn btn-outline-gray btn-sm" id="btn-pick-supply-source">Choose an item…</button>`;
+    return;
+  }
   const onHand = supplyOnHand(row);
-  box.style.display = '';
   box.innerHTML = `
-    <div style="margin-top:8px;padding:12px;border:1px solid var(--card-border);border-radius:8px;background:#f8fafc">
-      <div style="font-weight:800;margin-bottom:4px">${supplyItemCodeEsc(row.name || 'Supply')}</div>
-      <div class="mono" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${
-        supplyItemCodeEsc(row.itemCode || 'No item code')}</div>
-      <div>Available on hand: <strong>${onHand.toLocaleString()}</strong></div>
-      <div>Total used so far: <strong>${supplyUsedTotal(row).toLocaleString()}</strong></div>
+    <div style="padding:12px;border:1px solid var(--card-border);border-radius:8px;background:#f8fafc">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          <div style="font-weight:800;margin-bottom:4px">${supplyItemCodeEsc(row.name || 'Supply')}</div>
+          <div class="mono" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${
+            supplyItemCodeEsc(row.itemCode || 'No item code')}</div>
+          <div>Available on hand: <strong>${onHand.toLocaleString()}</strong></div>
+          <div>Total used so far: <strong>${supplyUsedTotal(row).toLocaleString()}</strong></div>
+        </div>
+        <button type="button" class="btn btn-outline-gray btn-sm" id="btn-pick-supply-source">Change</button>
+      </div>
     </div>`;
 }
 
 function selectSupplySource(id) {
   const row = findIncomingSource(id);
   if (!row) return;
-  document.getElementById('s-source-id').value     = row.id;
-  document.getElementById('s-source-search').value = `${row.itemCode ? row.itemCode + ' — ' : ''}${row.name || ''}`;
-  document.getElementById('s-source-results').innerHTML = '';
+  document.getElementById('s-source-id').value = row.id;
   // The outgoing entry inherits its identity and cost from the source item.
   document.getElementById('s-item-code').value  = row.itemCode || '';
   document.getElementById('s-name').value       = row.name || '';
   document.getElementById('s-desc').value       = row.description || '';
   document.getElementById('s-unit-cost').value  = formatNum(row.unitCost);
   document.getElementById('s-qty').max          = supplyOnHand(row);
+  closeModal('modal-supply-source');
   renderSupplySourceSummary();
   calcSupTotal();
 }
 
 function clearSupplySource() {
   const id = document.getElementById('s-source-id');
-  const search = document.getElementById('s-source-search');
-  const results = document.getElementById('s-source-results');
-  const summary = document.getElementById('s-source-summary');
   if (id) id.value = '';
-  if (search) search.value = '';
-  if (results) results.innerHTML = '';
-  if (summary) { summary.style.display = 'none'; summary.innerHTML = ''; }
   document.getElementById('s-qty')?.removeAttribute('max');
+  renderSupplySourceSummary();
 }
 
 // Outgoing is driven by the source item, so those fields become read-only
 // rather than free text — they must match the stock being drawn down.
-function applySupplyTypeMode() {
+function applySupplyTypeMode({ promptForSource = false } = {}) {
   const outgoing = currentSupplyType() === 'Outgoing';
   const group = document.getElementById('s-source-group');
   if (group) group.style.display = outgoing ? '' : 'none';
@@ -431,10 +444,15 @@ function applySupplyTypeMode() {
     el.readOnly = outgoing;
     el.classList.toggle('computed', outgoing);
   });
-  if (outgoing) {
-    loadSupplyItemCodes().then(() => { renderSupplySourceResults(); renderSupplySourceSummary(); });
-  } else {
+  if (!outgoing) {
     clearSupplySource();
+    return;
+  }
+  renderSupplySourceSummary();
+  // Switching to Outgoing asks which item first — the rest of the form
+  // depends on that choice.
+  if (promptForSource && !document.getElementById('s-source-id').value) {
+    openSupplySourcePicker();
   }
 }
 
@@ -581,14 +599,43 @@ function editSup(id) {
   openModal('modal-supply');
 }
 
-function deleteSup(id) {
+// Outgoing entries record stock drawn from a specific incoming row, so they
+// cannot outlive it — deleting the incoming item deletes that history with it.
+async function findLinkedOutgoingRows(sourceId) {
+  const db = getFirestoreDB();
+  if (!db) {
+    return DB.get('supplies_movements').filter(row => String(row.sourceSupplyId || '') === String(sourceId));
+  }
+  try {
+    const snapshot = await db.collection('suppliesData').where('sourceSupplyId', '==', String(sourceId)).get();
+    return snapshot.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  } catch (err) {
+    console.error('[Supplies] Linked outgoing lookup failed:', err);
+    // Fall back to the loaded rows rather than deleting with an unknown blast radius.
+    return DB.get('supplies_movements').filter(row => String(row.sourceSupplyId || '') === String(sourceId));
+  }
+}
+
+async function deleteSup(id) {
   const m = DB.get('supplies_movements').find(x=>x.id===id);
-  confirmDelete(`Delete supply entry for <strong>${m?.name}</strong>?`, async () => {
+  const linked = m?.type === 'Incoming' ? await findLinkedOutgoingRows(id) : [];
+  const linkedNote = linked.length
+    ? ` This will also delete <strong>${linked.length.toLocaleString()} outgoing entr${linked.length === 1 ? 'y' : 'ies'}</strong> recorded against it.`
+    : '';
+
+  confirmDelete(`Delete supply entry for <strong>${m?.name}</strong>?${linkedNote}`, async () => {
     try {
+      for (const row of linked) {
+        await deleteSupplyFromFirestore(row);
+        DB.remove('supplies_movements', row.id);
+      }
       await deleteSupplyFromFirestore(m);
-      DB.remove('supplies_movements', id); supTable.render(); renderSummary();
+      DB.remove('supplies_movements', id);
+      supplyItemCodeIndex = null;
+      supTable.render(); renderSummary();
       refreshSuppliesAggregates();
-      logAudit('Delete', 'Supplies', `Deleted supply entry ${m?.name || id}`);
+      logAudit('Delete', 'Supplies', `Deleted supply entry ${m?.name || id}` +
+        (linked.length ? ` and ${linked.length} linked outgoing entr${linked.length === 1 ? 'y' : 'ies'}` : ''));
     } catch (err) {
       console.error('[Supplies] Firestore delete failed:', err);
       alert('Could not delete the supply entry. Please try again.');
@@ -689,30 +736,32 @@ document.getElementById('btn-add-supply').addEventListener('click', () => {
   openModal('modal-supply');
   // Warm the index so the first keystroke can suggest immediately.
   loadSupplyItemCodes().then(renderSupplyItemCodeResults);
+  // Opening from the Outgoing tab preselects Outgoing, so ask for the source now.
+  if (currentSupplyType() === 'Outgoing') openSupplySourcePicker();
 });
 document.querySelectorAll('input[name="sup-type"]').forEach(radio => {
-  radio.addEventListener('change', applySupplyTypeMode);
+  radio.addEventListener('change', () => applySupplyTypeMode({ promptForSource: true }));
 });
-document.getElementById('s-source-search').addEventListener('input', () => {
-  // Typing again means the previous pick no longer applies.
-  document.getElementById('s-source-id').value = '';
-  const summary = document.getElementById('s-source-summary');
-  if (summary) { summary.style.display = 'none'; summary.innerHTML = ''; }
-  loadSupplyItemCodes().then(renderSupplySourceResults);
-});
-document.getElementById('s-source-search').addEventListener('focus', () => {
-  loadSupplyItemCodes().then(renderSupplySourceResults);
-});
-document.getElementById('s-source-results').addEventListener('click', event => {
+document.getElementById('s-source-modal-search').addEventListener('input', renderSupplySourceModal);
+document.getElementById('s-source-modal-tbody').addEventListener('click', event => {
   const option = event.target.closest('[data-source-id]');
-  if (option && !option.disabled) selectSupplySource(option.dataset.sourceId);
+  if (option) selectSupplySource(option.dataset.sourceId);
 });
-document.addEventListener('click', event => {
-  if (!event.target.closest('#s-source-search') && !event.target.closest('#s-source-results')) {
-    const results = document.getElementById('s-source-results');
-    if (results) results.innerHTML = '';
+// The summary area holds either "Choose an item…" or "Change", both re-open the picker.
+document.getElementById('s-source-summary').addEventListener('click', event => {
+  if (event.target.closest('#btn-pick-supply-source')) openSupplySourcePicker();
+});
+// Backing out of the picker without choosing reverts to Incoming, so the form
+// is never left in an Outgoing state with no source item.
+function cancelSupplySourcePicker() {
+  closeModal('modal-supply-source');
+  if (!document.getElementById('s-source-id').value) {
+    document.getElementById('rs-incoming').checked = true;
+    applySupplyTypeMode();
   }
-});
+}
+document.getElementById('btn-close-supply-source').addEventListener('click', cancelSupplySourcePicker);
+document.getElementById('btn-cancel-supply-source').addEventListener('click', cancelSupplySourcePicker);
 document.getElementById('s-item-code').addEventListener('input', () => {
   loadSupplyItemCodes().then(renderSupplyItemCodeResults);
 });
