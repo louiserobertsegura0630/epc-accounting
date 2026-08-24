@@ -1893,6 +1893,27 @@ document.getElementById('inv-product-search-results').addEventListener('click', 
 });
 document.getElementById('btn-rematch-sales-inv')?.addEventListener('click', () => rematchInventoryAgainstSales({ silent: false }));
 document.getElementById('btn-export-inv').addEventListener('click', exportInventoryCSV);
+
+document.getElementById('btn-match-costs').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  try {
+    const { matched, scanned } = await matchSalesCostsFromInventory(
+      (done, total, msg) => { btn.textContent = msg || `${done}/${total}`; }
+    );
+    if (!scanned) showToast('All sales days already have costs.', 'success');
+    else if (!matched) showToast(`No matching costs found for ${scanned} awaiting day(s).`, 'success');
+    else { showToast(`✅ Matched costs into ${matched} sales day(s).`, 'success'); refreshInventoryAggregates(); }
+  } catch (err) {
+    console.error('cost-match failed:', err);
+    showToast(`Cost match failed: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
 document.getElementById('btn-save-inv').addEventListener('click', saveInv);
 document.getElementById('btn-make-outgoing').addEventListener('click', openMakeOutgoingModal);
 document.getElementById('btn-confirm-make-outgoing').addEventListener('click', saveBulkOutgoing);
@@ -2924,6 +2945,50 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
   });
 });
 
+/* Normalize an imported delivery date to 'YYYY-MM-DD'.
+ *
+ * Never route through toISOString(): that converts local midnight to UTC and
+ * shifts the date back a day anywhere east of Greenwich — in Manila (UTC+8)
+ * "02/28/26" became 2026-02-27, so a whole day's deliveries were filed under
+ * (and REPLACED) the previous day. Parse M/D/YY explicitly and otherwise read
+ * local date parts. Single source of truth: the duplicate-date check and the
+ * row builder must agree, or the guard checks a different date than it writes. */
+function misNormDate(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${('0' + iso[2]).slice(-2)}-${('0' + iso[3]).slice(-2)}`;
+  const mdy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2}|\d{4})$/);
+  if (mdy) {
+    const mm = Number(mdy[1]), dd = Number(mdy[2]);
+    let yy = Number(mdy[3]);
+    if (mdy[3].length === 2) yy += yy < 70 ? 2000 : 1900;
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      return `${yy}-${('0' + mm).slice(-2)}-${('0' + dd).slice(-2)}`;
+    }
+  }
+  /* Excel serial date. Sheets are read with SheetJS `raw: true`, so a real date
+   * cell arrives as the NUMBER Excel stores, not the "4/1/26" it displays —
+   * 2026-04-01 comes through as 46113. Never let that reach new Date(): JS reads
+   * a bare 5-digit string as a YEAR, so 46113 silently became 46113-01-01, a date
+   * no query range can match, and the rows imported fine then went invisible.
+   * Use the same XLSX.SSF path as normDate() in import-mapper.js so both parsers
+   * agree; the bounded arithmetic fallback covers XLSX not being loaded. */
+  const serial = /^\d{4,6}$/.test(s) ? Number(s) : NaN;
+  if (Number.isInteger(serial) && serial >= 25569 && serial <= 91312) {
+    if (typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code) {
+      const p = XLSX.SSF.parse_date_code(serial);
+      if (p && p.y) return `${p.y}-${('0' + p.m).slice(-2)}-${('0' + p.d).slice(-2)}`;
+    }
+    const sd = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+    return `${sd.getUTCFullYear()}-${('0' + (sd.getUTCMonth() + 1)).slice(-2)}-${('0' + sd.getUTCDate()).slice(-2)}`;
+  }
+
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${('0' + (d.getMonth() + 1)).slice(-2)}-${('0' + d.getDate()).slice(-2)}`;
+}
+
 // ─── NEW: QBO-style mapping import (replaces the position-based MIS parser) ────
 // Writes to inventoryData (content-hash dedup), suppliers, and productMaster —
 // preserving the exact behavior of the old confirm handler above. Called by the
@@ -2934,62 +2999,29 @@ async function misImportMappedRows(mappedRows, onProgress) {
   const FS_BATCH = 400;
   const importDate = todayISO();
 
-  // ── DUPLICATE-DATE BLOCK (all-or-nothing) ─────────────────────────────
-  // Collect the distinct delivery dates in this file; if any date already has
-  // an inventory upload, reject the WHOLE file and name the conflicts.
-  const _nd = (v) => { const s = String(v == null ? '' : v).trim(); const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${('0'+m[2]).slice(-2)}-${('0'+m[3]).slice(-2)}`; const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10); };
+  // ── DUPLICATE BLOCK: filename is the only gate ────────────────────────
+  // Dates may legitimately be re-uploaded (corrections, re-cut exports), and the
+  // per-date writes below are an idempotent REPLACE, so overlapping dates are
+  // safe. The one thing that must not happen twice is importing the SAME file —
+  // block on an exact filename match, and accept everything else.
+  const _nd = misNormDate;
   const fileDates = new Set();
   mappedRows.forEach((m) => { const d = _nd(m.date_delivered) || importDate; fileDates.add(d); });
   const EI = (typeof EPCImport !== 'undefined') ? EPCImport : null;
-  try {
-    const conflicts = EI && EI.findDateConflicts
-      ? await EI.findDateConflicts(db, 'inventory', fileDates)
-      : await (async () => {
-          const snap = await db.collection('uploads').where('type', '==', 'inventory').get();
-          const c = []; snap.forEach((doc) => { const u = doc.data(); (u.dates || []).forEach((d) => { if (fileDates.has(d)) c.push({ date: d, fileName: u.fileName || '(unnamed)' }); }); }); return c;
-        })();
-    if (conflicts.length) {
-      // Smart per-date message: exact duplicate vs differing correction.
-      let lines;
-      if (EI && EI.smartConflictMessages) {
-        const msgs = await EI.smartConflictMessages(db, 'inventory', mappedRows, conflicts);
-        const allExact = msgs.length && msgs.every((m) => m.exact);
-        const head = allExact
-          ? `This file's inventory data is already uploaded — nothing to do.`
-          : `Blocked — ${msgs.length} date(s) already have an inventory upload.`;
-        const err = new Error(`${head}\n• ${msgs.map((m) => m.text).join('\n• ')}`);
-        err.isDuplicateBlock = true;
-        throw err;
-      } else {
-        const byDate = {};
-        conflicts.forEach((c) => { (byDate[c.date] = byDate[c.date] || new Set()).add(c.fileName); });
-        lines = Object.keys(byDate).sort().map((d) => `${d} (already in ${[...byDate[d]].join(', ')})`);
-        const err = new Error(`Blocked — ${Object.keys(byDate).length} date(s) already have an inventory upload:\n• ${lines.join('\n• ')}\nDelete/replace those dates first, or upload a file without them.`);
-        err.isDuplicateBlock = true;
-        throw err;
-      }
-    }
-  } catch (e) { if (e.isDuplicateBlock) throw e; /* read failure: proceed (idempotent replace still protects) */ }
-
-  // FILENAME WARNING (soft): same-named inventory file already uploaded?
   if (EI && EI.findSameFilenameUpload) {
     try {
       const fname = (typeof MIS_SOURCE_FILE !== 'undefined' && MIS_SOURCE_FILE) || '';
       const sameName = await EI.findSameFilenameUpload(db, 'inventory', fname);
-      if (sameName && !window.confirm(`A file named "${sameName.fileName}" was already uploaded on ${sameName.date}.\n\nContinue anyway?`)) {
-        const err = new Error('Upload cancelled — same filename already used.');
+      if (sameName) {
+        const err = new Error(`Already uploaded — "${sameName.fileName}".\n${sameName.date} — this exact file was imported on ${sameName.date}. Nothing was imported. Rename the file, or delete that upload first, if you mean to import it again.`);
         err.isDuplicateBlock = true;
         throw err;
       }
-    } catch (e) { if (e.isDuplicateBlock) throw e; }
+    } catch (e) { if (e.isDuplicateBlock) throw e; /* read failure: proceed */ }
   }
+
   const toNum = (v) => { const n = Number(String(v == null ? '' : v).replace(/,/g, '').trim()); return Number.isFinite(n) ? n : 0; };
-  const normDate = (v) => {
-    const s = String(v == null ? '' : v).trim();
-    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if (m) return `${m[1]}-${('0'+m[2]).slice(-2)}-${('0'+m[3]).slice(-2)}`;
-    const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-  };
+  const normDate = misNormDate;
 
   // 1) Build inventory rows (skip zero-cost, like the old flow), dedup by content hash.
   const invRows = DB.get('inventory_movements');
@@ -3049,6 +3081,8 @@ async function misImportMappedRows(mappedRows, onProgress) {
   const supByName = new Map();
   rawForPM.forEach((r) => { const n = r.supplier; const k = n.toLowerCase(); if (n && !supByName.has(k)) supByName.set(k, n); });
   const supList = [...supByName.values()];
+  let supSaved = 0;
+  if (onProgress && supList.length) onProgress(0, supList.length, `Updating suppliers 0/${supList.length}…`);
   for (let s = 0; s < supList.length; s += FS_BATCH) {
     const chunk = supList.slice(s, s + FS_BATCH);
     await commitFreshBatchWithRetry(() => {
@@ -3057,12 +3091,15 @@ async function misImportMappedRows(mappedRows, onProgress) {
         { id: supplierFirestoreDocId(name), name, category: '', address: '', contactPerson: '', phone: '', email: '', notes: '', status: 'Active' }, { merge: true }));
       return batch;
     }, Math.min(s + chunk.length, supList.length));
+    supSaved += chunk.length;
+    if (onProgress) onProgress(supSaved, supList.length, `Updating suppliers ${supSaved}/${supList.length}…`);
     await sleep(200);
   }
 
   // 4) Product Master sync (adds new item codes, appends cost history).
   let productsUpdated = 0;
   try {
+    if (onProgress) onProgress(0, 1, 'Loading Product Master…');
     await loadProductMasterFromFirestore('', false);
     const existingProducts = productMasterRows().map(normalizeProductCostData);
     const byCode = new Map(existingProducts.map((p) => [String(p.itemCode || p.code || '').trim().toLowerCase(), p]).filter(([c]) => c));
@@ -3081,7 +3118,12 @@ async function misImportMappedRows(mappedRows, onProgress) {
       changed.set(key, p);
     });
     const toUpsert = [...changed.values()];
-    await upsertProductMasterRowsInFirestore(toUpsert, () => {}, { batchSize: 200, commitBatch: (b) => b.commit(), delay: () => sleep(200) });
+    if (onProgress && toUpsert.length) onProgress(0, toUpsert.length, `Syncing Product Master 0/${toUpsert.length}…`);
+    await upsertProductMasterRowsInFirestore(
+      toUpsert,
+      (done, total) => { if (onProgress) onProgress(done, total, `Syncing Product Master ${done}/${total}…`); },
+      { batchSize: 200, commitBatch: (b) => b.commit(), delay: () => sleep(200) }
+    );
     cacheProductMasterRows(existingProducts);
     productsUpdated = toUpsert.length;
   } catch (e) { console.warn('Product Master sync failed:', e); }
@@ -3141,8 +3183,10 @@ async function misImportMappedRows(mappedRows, onProgress) {
   // Idempotent REPLACE: write each inventoryDaily day-doc as its OWN commit — never
   // several large day-docs in one transaction (avoids "Transaction too big").
   const dailyWrittenDates = [];
+  if (onProgress && dailyWrites.length) onProgress(0, dailyWrites.length, `Writing daily totals 0/${dailyWrites.length}…`);
   for (let i = 0; i < dailyWrites.length; i++) {
     const w = dailyWrites[i];
+    if (onProgress) onProgress(i, dailyWrites.length, `Writing daily totals ${i + 1}/${dailyWrites.length} (${w.date})…`);
     try {
       await commitFreshBatchWithRetry(() => {
         const batch = db.batch();
@@ -3158,6 +3202,8 @@ async function misImportMappedRows(mappedRows, onProgress) {
     dailyWrittenDates.push(w.date);
     await sleep(120);
   }
+  let purchasesSaved = 0;
+  if (onProgress && purchaseWrites.length) onProgress(0, purchaseWrites.length, `Updating purchase totals 0/${purchaseWrites.length}…`);
   for (let s = 0; s < purchaseWrites.length; s += FS_BATCH) {
     const chunk = purchaseWrites.slice(s, s + FS_BATCH);
     await commitFreshBatchWithRetry(() => {
@@ -3165,10 +3211,14 @@ async function misImportMappedRows(mappedRows, onProgress) {
       chunk.forEach((w) => batch.set(db.collection('dailyPurchases').doc(w.date), w.data));
       return batch;
     }, Math.min(s + chunk.length, purchaseWrites.length));
+    purchasesSaved += chunk.length;
+    if (onProgress) onProgress(purchasesSaved, purchaseWrites.length, `Updating purchase totals ${purchasesSaved}/${purchaseWrites.length}…`);
     await sleep(150);
   }
   // itemCost: latest delivery wins.
   const itemCostList = [...itemLatest.entries()];
+  let costsSaved = 0;
+  if (onProgress && itemCostList.length) onProgress(0, itemCostList.length, `Updating item costs 0/${itemCostList.length}…`);
   for (let s = 0; s < itemCostList.length; s += FS_BATCH) {
     const chunk = itemCostList.slice(s, s + FS_BATCH);
     await commitFreshBatchWithRetry(() => {
@@ -3176,71 +3226,19 @@ async function misImportMappedRows(mappedRows, onProgress) {
       chunk.forEach(([code, c]) => batch.set(db.collection('itemCost').doc(code), { unit_cost: c.unit_cost, effective_date: c.effective_date, name: c.name, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }));
       return batch;
     }, Math.min(s + chunk.length, itemCostList.length));
+    costsSaved += chunk.length;
+    if (onProgress) onProgress(costsSaved, itemCostList.length, `Updating item costs ${costsSaved}/${itemCostList.length}…`);
     await sleep(150);
   }
 
-  // 5b) COST-MATCH HOOK: newly-imported item costs backfill any sales that were
-  //     uploaded first (cost-blind). Order-independent — inventory always wins.
-  //     Reads salesDaily day-docs, applies itemLatest cost per item_code, writes
-  //     cost/profit into products[code] and totals, and shrinks awaitingCost*.
-  try {
-    const num = (v) => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
-    const costFor = (code) => {
-      const c = itemLatest.get(code);
-      return c && c.unit_cost > 0 ? c.unit_cost : null;
-    };
-    const salesSnap = await db.collection('salesDaily').get();
-    const salesUpdates = [];
-    salesSnap.forEach((doc) => {
-      const data = doc.data() || {};
-      const products = data.products || {};
-      let changed = false;
-      let tCost = 0, tProfit = 0, awItems = 0, awRevenue = 0;
-      Object.keys(products).forEach((code) => {
-        const p = products[code];
-        const units = num(p.units), revenue = num(p.revenue);
-        let uc = (p.unit_cost != null ? num(p.unit_cost) : null);
-        if (uc == null || uc <= 0) {
-          const nc = costFor(code);
-          if (nc != null) { uc = nc; p.unit_cost = nc; changed = true; }
-        }
-        if (uc != null && uc > 0) {
-          const cost = Math.round(units * uc * 100) / 100;
-          const profit = Math.round((revenue - cost) * 100) / 100;
-          p.cost = cost; p.profit = profit;
-          tCost += cost; tProfit += profit;
-        } else {
-          awItems++; awRevenue += revenue;
-        }
-      });
-      if (changed) {
-        const totals = data.totals || {};
-        totals.cost = Math.round(tCost * 100) / 100;
-        totals.profit = Math.round(tProfit * 100) / 100;
-        salesUpdates.push({ id: doc.id, data: {
-          products, totals,
-          awaitingCostItemCount: awItems,
-          awaitingCostRevenue: Math.round(awRevenue * 100) / 100,
-          lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
-        } });
-      }
-    });
-    let matched = 0;
-    for (let s = 0; s < salesUpdates.length; s += FS_BATCH) {
-      const chunk = salesUpdates.slice(s, s + FS_BATCH);
-      await commitFreshBatchWithRetry(() => {
-        const batch = db.batch();
-        chunk.forEach((w) => batch.set(db.collection('salesDaily').doc(w.id), w.data, { merge: true }));
-        return batch;
-      }, Math.min(s + chunk.length, salesUpdates.length));
-      await sleep(150);
-    }
-    matched = salesUpdates.length;
-    if (matched > 0) { try { showToast(`✅ Matched costs into ${matched} sales day(s).`, 'success'); } catch (e) {} }
-  } catch (e) { console.warn('sales cost-match failed:', e); }
+  // 5b) COST-MATCH is no longer run inline. It had to read every salesDaily
+  //     day-doc (191 docs / ~53 MB / ~97s measured), which made every import
+  //     appear to hang. It now lives in matchSalesCostsFromInventory(), run
+  //     on demand from the "Match Sales Costs" button.
 
   // uploads tracking record (one per import).
   try {
+    if (onProgress) onProgress(0, 1, 'Recording upload…');
     await db.collection('uploads').add({
       type: 'inventory', dates: importDates,
       fileName: (typeof MIS_SOURCE_FILE !== 'undefined' && MIS_SOURCE_FILE) || '',
@@ -3251,11 +3249,109 @@ async function misImportMappedRows(mappedRows, onProgress) {
   } catch (e) { console.warn('uploads record failed:', e); }
 
   try { logAudit('Import', 'MIS Inventory', `Imported ${inserted} raw rows, ${itemDays} item-days across ${importDates.length} dates, ${productsUpdated} products, ${supList.length} suppliers`); } catch (e) {}
+  if (onProgress) onProgress(1, 1, 'Finishing up…');
   invTable.render(); renderSummary(); refreshInventoryAggregates();
   try { rematchUnderReview().then(({ moved }) => { if (moved > 0) showToast(`✅ ${moved} Under Review item(s) matched and moved to Sales Data!`, 'success'); }); } catch (e) {}
 
   return { inserted, summary: `${mappedRows.length.toLocaleString()} file rows → ${itemDays.toLocaleString()} item-days across ${importDates.length} date(s); ${supList.length.toLocaleString()} new suppliers.${zeroCost ? ` (${zeroCost} zero-cost skipped)` : ''}` };
 }
+
+/* COST-MATCH (on demand). Sales days uploaded before their inventory are
+ * cost-blind; this applies recorded itemCost to them. Split out of the import
+ * because it must read whole salesDaily day-docs (products maps are large:
+ * ~53 MB across 191 days), which made every import look frozen.
+ *
+ * Reads itemCost (small) rather than deriving costs from one file, so it fixes
+ * ALL awaiting days, not just the ones a single import touched.
+ * onProgress(done, total, msg) matches the import dialog's callback. */
+async function matchSalesCostsFromInventory(onProgress = null) {
+  const db = getFirestoreDB();
+  if (!db) return { matched: 0, scanned: 0 };
+  const report = (d, t, m) => { if (onProgress) onProgress(d, t, m); };
+  const num = (v) => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+
+  // 1) Costs first — itemCost is one small doc per item.
+  report(0, 1, 'Loading item costs…');
+  const costMap = new Map();
+  const costSnap = await db.collection('itemCost').get();
+  costSnap.forEach((d) => { const c = d.data() || {}; if (num(c.unit_cost) > 0) costMap.set(d.id, num(c.unit_cost)); });
+  if (!costMap.size) return { matched: 0, scanned: 0 };
+
+  // 2) Only days that still await costs are worth downloading.
+  report(0, 1, 'Finding sales days that need costs…');
+  const candidates = [];
+  const metaSnap = await db.collection('salesDaily').get();
+  metaSnap.forEach((d) => { if (Number((d.data() || {}).awaitingCostItemCount) > 0) candidates.push(d); });
+
+  // 3) Apply costs and write back, one page of days at a time.
+  const updates = [];
+  candidates.forEach((doc, i) => {
+    const data = doc.data() || {};
+    const products = data.products || {};
+    let changed = false;
+    let tCost = 0, tProfit = 0, awItems = 0, awRevenue = 0;
+    Object.keys(products).forEach((code) => {
+      const p = products[code];
+      const units = num(p.units), revenue = num(p.revenue);
+      let uc = (p.unit_cost != null ? num(p.unit_cost) : 0);
+      if (!(uc > 0)) { const nc = costMap.get(code); if (nc != null) { uc = nc; p.unit_cost = nc; changed = true; } }
+      if (uc > 0) {
+        const cost = Math.round(units * uc * 100) / 100;
+        p.cost = cost; p.profit = Math.round((revenue - cost) * 100) / 100;
+        tCost += cost; tProfit += p.profit;
+      } else { awItems++; awRevenue += revenue; }
+    });
+    if (changed) {
+      const totals = data.totals || {};
+      totals.cost = Math.round(tCost * 100) / 100;
+      totals.profit = Math.round(tProfit * 100) / 100;
+      updates.push({ id: doc.id, data: {
+        products, totals,
+        awaitingCostItemCount: awItems,
+        awaitingCostRevenue: Math.round(awRevenue * 100) / 100,
+        lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+      } });
+    }
+    report(i + 1, candidates.length, `Matching costs ${i + 1}/${candidates.length} day(s)…`);
+  });
+
+  let saved = 0;
+  for (let s = 0; s < updates.length; s += FS_BATCH) {
+    const chunk = updates.slice(s, s + FS_BATCH);
+    await commitFreshBatchWithRetry(() => {
+      const batch = db.batch();
+      chunk.forEach((w) => batch.set(db.collection('salesDaily').doc(w.id), w.data, { merge: true }));
+      return batch;
+    }, Math.min(s + chunk.length, updates.length));
+    saved += chunk.length;
+    report(saved, updates.length, `Saving ${saved}/${updates.length} day(s)…`);
+    await sleep(150);
+  }
+  return { matched: updates.length, scanned: candidates.length };
+}
+
+// ─── Uploaded Files list ──────────────────────────────────────────────────────
+// Every past inventory import, with Delete/Replace. Since a re-upload is now
+// blocked by FILENAME, this list is the only way to undo one: deleting the
+// record frees both its date(s) and its filename.
+function invUploadsSortOpt() {
+  const v = (document.getElementById('inv-uploads-sort') || {}).value || 'uploadedAt-desc';
+  if (v === 'date') return { type: 'inventory', sortKey: 'date', dir: 'asc' };
+  if (v === 'date-desc') return { type: 'inventory', sortKey: 'date', dir: 'desc' };
+  return { type: 'inventory', sortKey: 'uploadedAt', dir: 'desc' };
+}
+function refreshInvUploadsList() {
+  if (typeof EPCImport === 'undefined' || !EPCImport.renderUploadsList) return;
+  if (!document.getElementById('inv-uploads-list')) return;
+  EPCImport.renderUploadsList('#inv-uploads-list', invUploadsSortOpt());
+}
+document.getElementById('inv-uploads-sort')?.addEventListener('change', () => {
+  const host = document.getElementById('inv-uploads-list');
+  if (host) host.dataset.uploadsPage = '1';   // reset to page 1 on re-sort
+  refreshInvUploadsList();
+});
+if (typeof getFirestoreDB === 'function') setTimeout(refreshInvUploadsList, 300);
+else window.addEventListener('load', () => setTimeout(refreshInvUploadsList, 600));
 
 document.getElementById('btn-import-mis').addEventListener('click', () => {
   if (typeof EPCImport === 'undefined') { resetMISModal(); openModal('modal-mis'); return; }
@@ -3264,7 +3360,7 @@ document.getElementById('btn-import-mis').addEventListener('click', () => {
     title: 'Import Inventory (map columns)',
     skipDuplicateCheck: true,
     importer: misImportMappedRows,
-    onDone: () => { invTable.render(); renderSummary(); },
+    onDone: () => { invTable.render(); renderSummary(); refreshInvUploadsList(); },
   });
 });
 vsInit();

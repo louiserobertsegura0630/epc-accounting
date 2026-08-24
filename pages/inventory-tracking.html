@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventory Tracking - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css?v=20260729-source-modal">
-  <link rel="stylesheet" href="../assets/import-mapper.css?v=20260703-uploads-page">
+  <link rel="stylesheet" href="../assets/import-mapper.css?v=20260821-uploads-list">
   <link rel="stylesheet" href="inventory-tracking.css?v=20260703-supplier-fix">
 </head>
 <body>
@@ -32,6 +32,7 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
           Import from MIS
         </button>
+        <button class="btn btn-outline-gray" id="btn-match-costs" title="Apply recorded item costs to sales days that were uploaded before their inventory">Match Sales Costs</button>
         <button class="btn btn-outline-gray" id="btn-export-inv">Export as CSV</button>
         <button class="btn btn-primary" id="btn-add-inv">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -118,6 +119,22 @@
       </table>
       </div>
       <div class="pagination-bar" id="inv-pagination"></div>
+    </div>
+
+    <!-- Uploaded files: view + delete/replace a past inventory upload -->
+    <div class="card mb-24" id="inv-uploads-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div style="font-size:16px;font-weight:700;">Uploaded Files</div>
+        <label class="imp-note" style="margin:0;">Sort by
+          <select id="inv-uploads-sort">
+            <option value="uploadedAt-desc">Most recent</option>
+            <option value="date">Date (ascending)</option>
+            <option value="date-desc">Date (descending)</option>
+          </select>
+        </label>
+      </div>
+      <p class="imp-note">Every inventory file you have imported. Delete/Replace removes that upload's data for its date(s) and frees the filename to be uploaded again.</p>
+      <div id="inv-uploads-list"></div>
     </div>
 
   </div>
@@ -528,7 +545,7 @@ self.onmessage = function(e) {
 
 <script src="../assets/app.js?v=20260728-supplier-tab"></script>
 <script src="../assets/shared-utils.js"></script>
-<script src="../assets/import-mapper.js?v=20260703-perday-commit"></script>
-<script src="inventory-tracking.js?v=20260703-perday-commit"></script>
+<script src="../assets/import-mapper.js?v=20260821-uploads-list"></script>
+<script src="inventory-tracking.js?v=20260821-serialdate"></script>
 </body>
 </html>

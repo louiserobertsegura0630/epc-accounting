@@ -309,11 +309,11 @@ function salesGrossSrp(row) {
 
 function salesMarginPercent(grossProfit, row) {
   const unitsSold = Number(row?.unitsSold) || 0;
-  const sellingPrice = Number(row?.sellingPrice ?? row?.srpUnit) || 0;
   const totalCost = Number(row?.totalCost) || ((Number(row?.unitCost) || 0) * unitsSold);
-  const unitCost = unitsSold > 0 ? totalCost / unitsSold : Number(row?.unitCost) || 0;
-  void grossProfit;
-  return unitCost > 0 ? Number(((sellingPrice - unitCost) / unitCost * 100).toFixed(4)) : 0;
+  if (totalCost > 0) return Number((Number(grossProfit) / totalCost * 100).toFixed(4));
+  const totalRevenue = Number(row?.totalRevenue) ||
+    ((Number(row?.sellingPrice ?? row?.srpUnit) || 0) * unitsSold);
+  return totalRevenue > 0 ? 100 : 0;
 }
 
 function salesGrossProfitAmount(row) {
@@ -334,9 +334,10 @@ function normalizeSalesFinancials(row, inventoryCostMap = null) {
   const grossProfit = salesGrossProfitAmount({ ...row, unitsSold, unitCost, totalCost });
   return {
     ...row,
+    unitCost,
     totalCost,
     grossProfit,
-    margin: salesMarginPercent(grossProfit, row),
+    margin: salesMarginPercent(grossProfit, { ...row, unitsSold, unitCost, totalCost }),
   };
 }
 

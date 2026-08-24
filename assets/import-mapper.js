@@ -123,8 +123,23 @@
     const s = String(v).trim();
     const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
     if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+    // M/D/YY(YY) — parse explicitly. Going through toISOString() would convert
+    // local midnight to UTC and shift the date back a day east of Greenwich
+    // (e.g. "02/28/26" in UTC+8 became 2026-02-27).
+    const mdy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2}|\d{4})$/);
+    if (mdy) {
+      const mm = Number(mdy[1]), dd = Number(mdy[2]);
+      let yy = Number(mdy[3]);
+      if (mdy[3].length === 2) yy += yy < 70 ? 2000 : 1900;
+      if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+        return `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+      }
+    }
     const d = new Date(s);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    // Use local date parts, not toISOString(), for the same reason.
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
     return '';
   }
 
@@ -729,38 +744,26 @@
 
       const db = global.getFirestoreDB();
       try {
-        // --- DUPLICATE BLOCK: reject the WHOLE file if any date already uploaded (same type) ---
-        const conflicts = skipDuplicateCheck ? [] : await findDateConflicts(db, fieldSetName, fileDates);
-        if (conflicts.length) {
-          status.textContent = 'Comparing against existing data…';
-          // Smart per-date comparison: exact duplicate vs differing correction.
-          const msgs = await smartConflictMessages(db, fieldSetName, rows, conflicts);
-          const allExact = msgs.length && msgs.every((m) => m.exact);
-          body.innerHTML = '';
-          body.append(
-            el('div', { class: allExact ? 'imp-note' : 'imp-error' }, [
-              el('strong', { text: allExact
-                ? `This file's data is already uploaded — nothing to do.`
-                : `Blocked — ${msgs.length} date(s) already have a ${fieldSetName} upload.` }),
-            ]),
-            el('p', { class: 'imp-note', text: allExact
-              ? 'Every conflicting date matches what is already stored. No import was performed.'
-              : 'Nothing was imported. Delete the conflicting upload(s) below to free these dates, or upload a file without them.' }),
-            el('ul', { class: 'imp-conflicts' }, msgs.map((m) => el('li', { text: m.text }))),
-          );
-          footer.innerHTML = '';
-          footer.append(el('button', { class: 'btn', onclick: renderMapping }, ['Back']));
-          return;
-        }
-
-        // --- FILENAME WARNING (soft): same-named file already uploaded (any dates)? ---
+        // --- DUPLICATE BLOCK: filename is the only gate ---------------------
+        // A file may re-cover dates that already have data and may differ from
+        // what is stored — corrections and re-cuts are normal. What must never
+        // happen twice is importing the SAME file. So: block on an exact
+        // filename match for this type, and let every other file through.
         if (!skipDuplicateCheck) {
+          status.textContent = 'Checking for a previous upload of this file…';
           const fname = state.file && state.file.name;
           const sameName = await findSameFilenameUpload(db, fieldSetName, fname);
           if (sameName) {
-            const proceed = global.confirm(
-              `A file named "${sameName.fileName}" was already uploaded on ${sameName.date}.\n\nContinue anyway?`);
-            if (!proceed) { status.textContent = ''; renderMapping(); return; }
+            body.innerHTML = '';
+            body.append(
+              el('div', { class: 'imp-note' }, [
+                el('strong', { text: `Already uploaded — "${sameName.fileName}".` }),
+              ]),
+              el('p', { class: 'imp-note', text: `This exact file was imported on ${sameName.date}. Nothing was imported. Rename the file, or delete that upload first, if you mean to import it again.` }),
+            );
+            footer.innerHTML = '';
+            footer.append(el('button', { class: 'btn', onclick: renderMapping }, ['Back']));
+            return;
           }
         }
 
@@ -790,7 +793,8 @@
           const raw = String(e.message || '');
           const parts = raw.split('\n• ');
           const head = parts.shift();
-          const allExact = /already uploaded — nothing to do/.test(head);
+          // Neutral note (nothing wrong, nothing to do) vs red error (real failure).
+          const allExact = /already uploaded/i.test(head);
           body.innerHTML = '';
           body.append(el('div', { class: allExact ? 'imp-note' : 'imp-error' }, [el('strong', { text: head })]));
           if (parts.length) body.append(el('ul', { class: 'imp-conflicts' }, parts.map((t) => el('li', { text: t }))));
@@ -839,7 +843,11 @@
     const db = global.getFirestoreDB();
     let uploads = [];
     try {
-      const snap = await db.collection('uploads').get();
+      // opts.type limits the list to one field-set ('inventory' | 'sales'), for
+      // pages that only manage their own uploads. Omitted = every type.
+      const q = opts.type ? db.collection('uploads').where('type', '==', opts.type)
+                          : db.collection('uploads');
+      const snap = await q.get();
       snap.forEach((doc) => uploads.push(Object.assign({ id: doc.id }, doc.data())));
     } catch (e) { host.innerHTML = '<p class="imp-error">Could not load uploads: ' + e.message + '</p>'; return; }
 
@@ -922,7 +930,7 @@
     body.append(
       el('p', { text: `This removes the upload record and ALL ${upload.type} data for the following date(s):` }),
       el('p', { class: 'imp-warn', text: ds.join(', ') }),
-      el('p', { class: 'imp-note', text: `Collections affected: ${upload.type === 'inventory' ? 'inventoryData' : 'salesData + underReviewData'}. This frees the date(s) to be re-uploaded. This cannot be undone.` }),
+      el('p', { class: 'imp-note', text: `Collections affected: ${upload.type === 'inventory' ? 'inventoryDaily + dailyPurchases' : 'salesDaily'}. This frees the date(s) and the filename to be re-uploaded. This cannot be undone.` }),
       el('div', { class: 'imp-status', id: 'imp-del-status' })
     );
     const go = el('button', { class: 'btn btn-primary', text: 'Delete' });
