@@ -52,12 +52,28 @@ function reportLoadErrorMessage(err) {
   return 'Could not load report data. Please try Generate again.';
 }
 
+// A hung Firestore .get() (offline SDK retrying the server forever, auth never
+// resolving, etc.) leaves the progress bar frozen at ~88% with no error. Cap the
+// wait so it surfaces as the normal error banner instead.
+const REPORT_LOAD_TIMEOUT_MS = 30000;
+function withReportLoadTimeout(promise) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => {
+      const e = new Error('Report data took too long to load (timed out). ' +
+        'Check your connection and try Generate again.');
+      e.code = 'unavailable';
+      reject(e);
+    }, REPORT_LOAD_TIMEOUT_MS)),
+  ]);
+}
+
 // Run a report load, capturing any failure into reportLoadError so the render
 // layer can show a notice instead of zeros. Returns true on success.
 async function runReportLoad(loadFn) {
   reportLoadError = null;
   try {
-    await loadFn();
+    await withReportLoadTimeout(loadFn());
     return true;
   } catch (err) {
     console.error('[Reports] load failed:', err);
@@ -311,23 +327,58 @@ async function fetchReportCollection(name, fallbackKey = '') {
   return localRows;
 }
 
+// ─── Session cache for fetched report rows ────────────────────────────────────
+// Range-scoped collections (salesDaily, inventoryDaily) are keyed by the report's
+// current start/end so switching tabs or re-opening the same period is instant and
+// costs zero reads. Non-range collections are keyed by name alone. Cleared by an
+// explicit Generate/Refresh (force) or a range change.
+const _reportRowCache = new Map();
+function reportCacheKey(collectionName) {
+  const rangeScoped = collectionName === 'salesDaily' || collectionName === 'inventoryDaily';
+  if (!rangeScoped) return collectionName;
+  const start = (document.getElementById('report-start') || {}).value || '';
+  const end = (document.getElementById('report-end') || {}).value || '';
+  return `${collectionName}|${start}|${end}`;
+}
+function clearReportRowCache() {
+  _reportRowCache.clear();
+  _reportItemCostMap = null;
+}
+
 async function loadReportCollections(keys, { force = false } = {}) {
   const uniqueKeys = [...new Set(keys)].filter(key => REPORT_COLLECTIONS[key]);
   const keysToLoad = force ? uniqueKeys : uniqueKeys.filter(key => !loadedReportCollections.has(key));
-  if (force) _reportItemCostMap = null;   // refresh latest costs on explicit re-generate
-  if (!keysToLoad.length) return;
+  if (force) clearReportRowCache();   // refresh everything on explicit re-generate
+  if (!keysToLoad.length) { reportProgressStep(86, 'Rendering report...'); return; }
+
+  let done = 0;
+  const total = keysToLoad.length;
   const loaded = await Promise.all(keysToLoad.map(async key => {
     const cfg = REPORT_COLLECTIONS[key];
-    const rows = await fetchReportCollection(cfg.collection, cfg.fallback);
+    const cacheKey = reportCacheKey(cfg.collection);
+    let rows = _reportRowCache.get(cacheKey);
+    if (!rows) {
+      rows = await fetchReportCollection(cfg.collection, cfg.fallback);
+      _reportRowCache.set(cacheKey, rows);
+    }
+    done += 1;
+    reportProgressStep(12 + Math.round((done / total) * 60), `Loading ${key}…`);
     return [cfg.dataKey, rows, key];
   }));
   loaded.forEach(([dataKey, rows, key]) => {
     REPORT_DATA[dataKey] = rows;
     loadedReportCollections.add(key);
   });
-  if (keysToLoad.includes('sales')) await loadSalesPriorInflow();
-  if (keysToLoad.includes('inventory')) await loadReportItemCostMap();
+  if (keysToLoad.includes('sales')) {
+    reportProgressStep(78, 'Loading prior sales…');
+    await loadSalesPriorInflow();
+  }
+  if (keysToLoad.includes('inventory')) {
+    reportProgressStep(82, 'Loading item costs…');
+    await loadReportItemCostMap();
+  }
   backfillSalesCategories();
+  reportProgressStep(86, 'Rendering report...');
   if (loadedReportCollections.has('productMaster')) startProductMasterReportListener();
 }
 
@@ -403,7 +454,6 @@ async function setReportTab(tab) {
   }
   await withReportProgress('Loading report data...', async () => {
     await runReportLoad(() => ensureActiveReportData());
-    setReportProgress(86, 'Rendering report...');
     await waitReportFrame();
     renderActiveReport();
   });
@@ -424,25 +474,39 @@ function waitReportFrame() {
   return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 
+// Real progress: the load pipeline calls reportProgressStep(pct, label) at genuine
+// checkpoints (fetching each collection, running the item-cost map, rendering).
+// Between checkpoints a gentle timer eases the bar forward a little so it never
+// looks frozen, but it can't overtake the next real checkpoint.
+let _reportProgressCeiling = 100;
+function reportProgressStep(value, label = '') {
+  _reportProgressCeiling = value;
+  setReportProgress(value, label);
+}
+
 async function withReportProgress(label, task) {
   const loading = document.getElementById('report-loading');
   const applyButton = document.getElementById('btn-apply-report-range');
   clearInterval(reportProgressTimer);
   loading.classList.add('active');
   applyButton.disabled = true;
+  _reportProgressCeiling = 12;
   setReportProgress(8, label);
   await waitReportFrame();
-  setReportProgress(28);
+
+  // Ease toward — but never past — the latest real checkpoint.
   reportProgressTimer = setInterval(() => {
     const current = parseInt(document.getElementById('report-loading-percent').textContent, 10) || 0;
-    if (current < 88) setReportProgress(current + 6);
-  }, 160);
+    if (current < _reportProgressCeiling - 1) {
+      setReportProgress(Math.min(current + 2, _reportProgressCeiling - 1));
+    }
+  }, 120);
 
   try {
     const result = await task();
     clearInterval(reportProgressTimer);
     setReportProgress(100, 'Report ready.');
-    setTimeout(() => loading.classList.remove('active'), 450);
+    setTimeout(() => loading.classList.remove('active'), 300);
     return result;
   } catch (error) {
     clearInterval(reportProgressTimer);
@@ -2169,7 +2233,6 @@ function exportCustomCSV() {
 async function refreshReportData() {
   await withReportProgress('Loading report data...', async () => {
     await runReportLoad(() => ensureActiveReportData({ force: true }));
-    setReportProgress(86, 'Rendering report...');
     await waitReportFrame();
     renderActiveReport();
   });
@@ -2193,6 +2256,21 @@ async function initReports() {
 }
 
 initReports();
+
+// Pre-warm Firestore while the user is still reading the page: initialising the
+// SDK, resolving auth and opening the connection is a one-time ~1–3s cost that
+// otherwise lands on the first "Generate Report" click. A single 1-doc read pays
+// it up front. Best-effort only — failures are swallowed and cost nothing.
+(function prewarmReportsFirestore() {
+  try {
+    const db = getFirestoreDB();
+    if (!db) return;
+    db.collection('salesDaily')
+      .orderBy(firebase.firestore.FieldPath.documentId())
+      .limit(1).get()
+      .catch(() => {});
+  } catch (e) { /* ignore — the gated load will surface any real problem */ }
+})();
 
 // Data is not loaded on page open — the user must click "Generate Report".
 // Each click = paid Firestore reads, so the button guards against double-clicks.
