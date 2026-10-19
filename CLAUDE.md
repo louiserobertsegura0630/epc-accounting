@@ -12,7 +12,11 @@ Internal accounting web app for EPC Commercial Corporation. Vanilla HTML/CSS/JS 
 
 - Firebase project: `inventory-system-1fb4d` (alias `default` in `.firebaserc`). Old project alias `old` → `palo-grocerette-accounting` (no longer used).
 - Hosting site `epc-inventory-system` is mapped to deploy target `app`. The project also has a default site, https://inventory-system-1fb4d.web.app, which is not the one we deploy to.
-- `package.json` still lists `louiserobertsegura0630/epc-accounting` as its repo URL. The real remote is `louiserobert921/epc-accounting` (see `git remote -v`).
+- `package.json` still lists `louiserobertsegura0630/epc-accounting` as its repo URL. That repo is an old copy, last pushed June 2026. The real remote is `louiserobert921/epc-accounting` (see `git remote -v`).
+- GitHub login: `gh` has two accounts, and the active one (`louiserobertsegura0630`) can't see the real repo ("Repository not found"). Push with the `louiserobert921` login for that one command:
+  ```sh
+  GH_TOKEN=$(gh auth token --user louiserobert921) git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin main
+  ```
 
 ## Deploying (going live)
 
