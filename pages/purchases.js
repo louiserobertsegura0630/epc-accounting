@@ -317,7 +317,7 @@ document.getElementById('f-gross-amount').addEventListener('input', calcFields);
 function resetForm() {
   document.getElementById('edit-id').value = '';
   document.getElementById('modal-purchase-title').textContent = 'Add Purchase';
-  ['f-supplier','f-total','f-input-vat','f-gross-amount','f-ewt-amount','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes'].forEach(id => {
+  ['f-supplier','f-total','f-input-vat','f-gross-amount','f-ewt-amount','f-bad-order','f-lacking','f-returns','f-other-ded','f-notes','f-si-number'].forEach(id => {
     document.getElementById(id).value = '';
   });
   setSupplierPickerValue('f-supplier', '');
@@ -975,7 +975,8 @@ async function savePurchase() {
   const netPayable = grossAmount - ewtAmount - totalDeductions + totalAdditions;
 
   const record = {
-    supplier, date, netAmount, inputVAT, inputVATCreditable, grossAmount,
+    supplier, date, salesInvoiceNumber: document.getElementById('f-si-number').value.trim(),
+    netAmount, inputVAT, inputVATCreditable, grossAmount,
     ewtRate, ewtAmount,
     additions, totalAdditions,
     discounts, badOrder, lacking, returns: returns_, noStock, otherDeduction,
@@ -1023,6 +1024,7 @@ function editPurchase(id) {
   document.getElementById('modal-purchase-title').textContent = 'Edit Purchase';
   setSupplierPickerValue('f-supplier', p.supplier || '');
   document.getElementById('f-date').value        = p.date;
+  document.getElementById('f-si-number').value   = cleanLedgerIdentifier(p.salesInvoiceNumber);
   const net = p.netAmount ?? p.total ?? 0;
   document.getElementById('f-total').value       = formatNum(net);
   document.getElementById('f-input-vat').value   = p.inputVAT != null ? formatNum(p.inputVAT) : formatNum(net * 0.12);

@@ -64,6 +64,13 @@
   width: 150px;
 }
 
+.expenses-table .col-si {
+  width: 110px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .expenses-table .col-category {
   width: 160px;
 }

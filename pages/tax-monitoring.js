@@ -444,12 +444,13 @@ function renderEWT() {
   const tbody = document.getElementById('ewt-computation-body');
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>No purchases with EWT recorded.</p></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><p>No purchases with EWT recorded.</p></div></td></tr>';
   } else {
     tbody.innerHTML = rows.map(row => `
       <tr>
         <td>${escTax(formatDate(taxDate(row)))}</td>
         <td>${escTax(row.supplier || row.supplierName || row.vendorName || 'Unknown')}</td>
+        <td class="mono">${escTax(row.salesInvoiceNumber || '—')}</td>
         <td class="mono">${formatPeso(purchaseNetAmount(row))}</td>
         <td>${purchaseEWTRate(row).toFixed(2).replace(/\.00$/, '')}%</td>
         <td class="mono">${formatPeso(purchaseEWTAmount(row))}</td>

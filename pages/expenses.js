@@ -137,6 +137,7 @@ function resetForm() {
   document.getElementById('modal-exp-title').textContent = 'Add Expense';
   document.getElementById('f-exp-name').value = '';
   document.getElementById('f-exp-date').value = todayISO();
+  document.getElementById('f-exp-si-number').value = '';
   document.getElementById('f-exp-amount').value = '';
   document.getElementById('f-exp-net-amount').value = '';
   document.getElementById('f-exp-vat').value = '';
@@ -184,6 +185,8 @@ const EXPENSE_COLUMNS = [
     render: row => formatDate(row.date) },
   { key:'name', label:'Name', type:'text', className:'col-name',
     render: row => `<strong>${expEsc(row.name)}</strong>` },
+  { key:'salesInvoiceNumber', label:'SI No.', type:'text', className:'col-si',
+    render: row => `<span class="mono">${expEsc(row.salesInvoiceNumber || '—')}</span>` },
   { key:'category', label:'Account', type:'dropdown', className:'col-category',
     options: () => [...new Set([...expenseAccountNames(), ...DB.get('expenses').map(row => row.category).filter(Boolean)])].sort() },
   { key:'description', label:'Description', type:'text', className:'col-description',
@@ -337,7 +340,7 @@ function getFilteredExpenseRows() {
   let rows = DB.get('expenses').slice();
   if (classFilter) rows = rows.filter(e => e.classification === classFilter);
   if (query) {
-    rows = rows.filter(e => [e.name, e.category, e.description, e.classification, expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible']
+    rows = rows.filter(e => [e.name, e.salesInvoiceNumber, e.category, e.description, e.classification, expenseIsDeductible(e) ? 'Deductible' : 'Non-deductible']
       .some(value => String(value || '').toLowerCase().includes(query)));
   }
   rows = rows.filter(expensePassesColumnFilters);
@@ -361,7 +364,7 @@ function renderTable() {
   const rows = getFilteredExpenseRows();
   const tbody = document.getElementById('exp-tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">💳</div><p>No expenses recorded yet.</p></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">💳</div><p>No expenses recorded yet.</p></div></td></tr>';
     syncExpenseSelectionUI();
     return;
   }
@@ -465,6 +468,7 @@ function exportExpensesCSV() {
   exportRowsToCSV(`expenses-${todayISO()}.csv`, [
     { label:'Date', value: row => csvDate(row.date) },
     { label:'Name', value:'name' },
+    { label:'Sales Invoice No.', value:'salesInvoiceNumber' },
     { label:'Account', value:'category' },
     { label:'Description', value:'description' },
     { label:'Classification', value:'classification' },
@@ -496,6 +500,7 @@ async function saveExpense() {
   const record = {
     name,
     date,
+    salesInvoiceNumber:document.getElementById('f-exp-si-number').value.trim(),
     category:cat,
     description:document.getElementById('f-exp-desc').value,
     classification:cls,
@@ -541,6 +546,7 @@ function editExp(id) {
   document.getElementById('modal-exp-title').textContent = 'Edit Expense';
   document.getElementById('f-exp-name').value   = e.name;
   document.getElementById('f-exp-date').value   = e.date;
+  document.getElementById('f-exp-si-number').value = e.salesInvoiceNumber || '';
   document.getElementById('f-exp-amount').value = formatNum(expenseGrossAmount(e));
   document.getElementById('f-exp-net-amount').value = formatNum(expenseNetAmount(e));
   document.getElementById('f-exp-vat').value = formatNum(expenseVATAmount(e));
