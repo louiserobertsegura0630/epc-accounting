@@ -23,6 +23,7 @@
       "firestore.indexes.json",
       "*.js",
       "*.log",
+      "*.md",
       "data/**"
     ]
   },
