@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css?v=20260729-source-modal">
-  <link rel="stylesheet" href="dashboard.css">
+  <link rel="stylesheet" href="dashboard.css?v=20261114-split-gen">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -30,17 +30,17 @@
       <div class="snap-datebar-rhs">
         <input type="date" id="snap-date" class="filter-date-input snap-date-input">
         <button class="dash-preset" onclick="setSnapToday()">Today</button>
-        <button class="btn btn-primary btn-sm" onclick="setSnapYesterday()">Yesterday</button>
+        <button class="dash-preset" onclick="setSnapYesterday()">Yesterday</button>
         <span id="dash-gen-status" class="gen-status"></span>
         <button class="btn btn-primary" id="dash-generate-btn" type="button">Generate Report</button>
       </div>
     </div>
 
     <div class="report-empty-state" id="dash-empty-state">
-      Click <strong>Generate Report</strong> to load data.
+      Pick a date, then click <strong>Generate Report</strong> (top right) to load the daily summary.
     </div>
 
-    <div class="snap-blocks">
+    <div class="snap-blocks" id="snap-blocks" style="display:none">
 
       <!-- Block 1: Income Summary -->
       <div class="snap-block">
@@ -110,9 +110,14 @@
             <input type="date" id="prod-to" class="filter-date-input">
             <button class="dash-preset" onclick="setProdCustomRange()">Apply</button>
           </div>
+          <span id="prod-gen-status" class="gen-status"></span>
+          <button class="btn btn-primary" id="prod-generate-btn" type="button">Generate Report</button>
         </div>
       </div>
-      <div class="prod-charts-grid">
+      <div class="report-empty-state prod-empty-state" id="prod-empty-state">
+        Pick a date range, then click <strong>Generate Report</strong> above to load product performance.
+      </div>
+      <div class="prod-charts-grid" id="prod-charts-grid" style="display:none">
         <div class="prod-chart-card">
           <div class="prod-chart-title">Best-Selling Products</div>
           <div class="prod-chart-caption" id="prod-top-caption">Top 5 by units sold</div>
@@ -133,6 +138,15 @@
     </div>
 
   </div><!-- /page-body -->
+
+  <!-- Loading pop-up (shown while a report loads) -->
+  <div class="dash-loading-overlay" id="dash-loading" role="status" aria-live="polite" hidden>
+    <div class="dash-loading-card">
+      <div class="dash-spinner" aria-hidden="true"></div>
+      <div class="dash-loading-msg" id="dash-loading-msg">Loading report…</div>
+      <div class="dash-loading-sub">Please wait. This can take a few seconds.</div>
+    </div>
+  </div>
 </div><!-- /main-content -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -141,6 +155,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260728-supplier-tab"></script>
-<script src="dashboard.js?v=20260706-yesterday2"></script>
+<script src="dashboard.js?v=20261114-split-gen"></script>
 </body>
 </html>

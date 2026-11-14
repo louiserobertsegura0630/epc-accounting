@@ -225,3 +225,27 @@
     .prod-charts-grid { grid-template-columns: 1fr; }
     .prod-chart-card + .prod-chart-card { border-left:none; border-top:1px solid #f1f5f9; }
   }
+
+  /* ── Product section: own Generate button + empty state ─────────────────── */
+  .prod-empty-state { margin: 16px 18px; }
+
+  /* ── Loading pop-up ─────────────────────────────────────────────────────── */
+  .dash-loading-overlay {
+    position: fixed; inset: 0; z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(15, 23, 42, 0.45); padding: 16px;
+  }
+  .dash-loading-overlay[hidden] { display: none; }
+  .dash-loading-card {
+    background: white; border-radius: 14px; padding: 28px 32px; max-width: 340px; width: 100%;
+    text-align: center; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  }
+  .dash-spinner {
+    width: 42px; height: 42px; margin: 0 auto 16px; border-radius: 50%;
+    border: 4px solid #e2e8f0; border-top-color: var(--primary);
+    animation: dash-spin 0.8s linear infinite;
+  }
+  .dash-loading-msg { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+  .dash-loading-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 6px; }
+  @keyframes dash-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .dash-spinner { animation-duration: 2.4s; } }
