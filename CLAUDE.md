@@ -16,17 +16,19 @@ Internal accounting web app for EPC Commercial Corporation. Vanilla HTML/CSS/JS 
 
 ## Deploying (going live)
 
-Hosting is Firebase Hosting (Classic). It serves the repo root (`public: "."`); the ignore list in `firebase.json` keeps out keys, scripts, backups and `*.js` at the root. There is no CI, so deploys are run by hand from this machine.
+Hosting is Firebase Hosting (Classic). It serves the repo root (`public: "."`); the ignore list in `firebase.json` keeps out keys, scripts, backups and `*.js` at the root.
 
-1. Work on a feature branch, push it to GitHub, and merge it into `main`.
-2. Check out `main` and pull, so the live site matches `main`.
-3. Deploy:
-   ```sh
-   npx -y firebase-tools@latest login            # first time only
-   npx -y firebase-tools@latest deploy --only hosting:app
-   ```
-   - Firestore rules/indexes changed: `npx -y firebase-tools@latest deploy --only firestore`
-4. Check https://epc-inventory-system.web.app (hard refresh).
+Deploys are automatic (GitHub Actions, set up with `firebase init hosting:github`):
+- `.github/workflows/firebase-hosting-merge.yml`: every push to `main` deploys to the live site. It takes about a minute; check the **Actions** tab on GitHub.
+- `.github/workflows/firebase-hosting-pull-request.yml`: every pull request gets a temporary preview URL, posted on the PR.
+- Both use the GitHub secret `FIREBASE_SERVICE_ACCOUNT_INVENTORY_SYSTEM_1FB4D` (service account `github-action-1259227875`, Firebase Hosting admin). The committed `firebase.json` (target `app`) and `.firebaserc` send it to the `epc-inventory-system` site.
+
+So the steps are:
+1. Work on a feature branch, push it to GitHub, open a pull request.
+2. Merge it into `main`. The live site updates by itself.
+3. Check https://epc-inventory-system.web.app (hard refresh).
+
+The workflows deploy hosting only. When Firestore rules/indexes change, deploy them by hand: `npx -y firebase-tools@latest deploy --only firestore`. A manual hosting deploy still works if ever needed: `npx -y firebase-tools@latest deploy --only hosting:app`.
 
 Local preview: `npx -y firebase-tools@latest emulators:start` (hosting on port 5050, Firestore on port 8080).
 
