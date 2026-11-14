@@ -498,7 +498,19 @@ async function setReportPreset(preset) {
   }
   document.getElementById('report-start').value = localReportIsoDate(start);
   document.getElementById('report-end').value = localReportIsoDate(end);
-  await refreshReportData();
+  // Only fill in the dates. The loaded data is for the old dates, so mark it as
+  // stale and show the prompt; Generate Report (or Apply) loads the new range.
+  markReportDataStale();
+  reportLoadError = null;
+  renderActiveReport();
+}
+
+// Forget which collections are loaded so the next Generate reads them again for
+// the current dates. The row cache is kept: range-scoped rows are keyed by their
+// dates, and the rest don't depend on the dates.
+function markReportDataStale() {
+  loadedReportCollections.clear();
+  _reportItemCostMap = null;
 }
 
 async function setReportTab(tab) {
@@ -507,19 +519,18 @@ async function setReportTab(tab) {
   document.querySelectorAll('[data-report-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.reportTab === tab);
   });
-  const needsLoad = (REPORT_TAB_COLLECTIONS[activeReportTab] || [])
+  // Switching tabs never reads data by itself (each read costs money). If this
+  // tab's data is already loaded it shows right away; otherwise renderActiveReport
+  // shows the "Click Generate Report" prompt and waits for the button.
+  reportLoadError = null;
+  renderActiveReport();
+}
+
+// True when the active tab still needs data that hasn't been loaded yet.
+function activeTabNeedsLoad() {
+  return (REPORT_TAB_COLLECTIONS[activeReportTab] || [])
     .some(key => !loadedReportCollections.has(key)) ||
     (activeReportTab === 'cashflow' && needsSalesPriorInflow());
-  if (!needsLoad) {
-    reportLoadError = null;   // this tab's data is already loaded — clear any stale error
-    renderActiveReport();
-    return;
-  }
-  await withReportProgress('Loading report data...', async () => {
-    await runReportLoad(() => ensureActiveReportData());
-    await waitReportFrame();
-    renderActiveReport();
-  });
 }
 
 function sum(rows, key) {
@@ -2233,10 +2244,15 @@ function renderActiveReport() {
   }
   if (emptyState) emptyState.classList.remove('report-load-error');
   // Until data has been generated, show the empty-state prompt and hide the output.
-  if (!reportHasGenerated) {
+  if (!reportHasGenerated || activeTabNeedsLoad()) {
     if (emptyState) {
       emptyState.style.display = '';
-      emptyState.innerHTML = 'Click <strong>Generate Report</strong> to load data.';
+      const tabBtn = document.querySelector(`[data-report-tab="${activeReportTab}"]`);
+      const tabName = tabBtn ? tabBtn.textContent.trim() : 'this';
+      // The button says "Refresh" after the first load; name it as it is shown.
+      const genBtn = document.getElementById('rep-generate-btn');
+      const btnName = (genBtn && !genBtn.disabled && genBtn.textContent.trim()) || 'Generate Report';
+      emptyState.innerHTML = `Click <strong>${escReport(btnName)}</strong> to load the ${escReport(tabName)} report.`;
     }
     if (output) output.style.display = 'none';
     return;
@@ -2344,7 +2360,11 @@ EPCReportGate.wire({
   load: async () => {
     // renderActiveReport() owns the empty-state / error-notice / report visibility
     // based on whether the load succeeded — don't force-hide the prompt here.
-    await runReportLoad(() => ensureActiveReportData());
-    renderActiveReport();
+    // Same progress bar the tabs used to show, now only on this button.
+    await withReportProgress('Loading report data...', async () => {
+      await runReportLoad(() => ensureActiveReportData());
+      await waitReportFrame();
+      renderActiveReport();
+    });
   }
 });
