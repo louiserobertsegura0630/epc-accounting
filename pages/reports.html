@@ -24,14 +24,10 @@
         <span class="section-title">Reports</span>
         <span class="section-subtitle">Financial reports and business insights</span>
       </div>
-      <div class="page-title-actions">
-        <span id="rep-gen-status" class="gen-status"></span>
-        <button class="btn btn-primary" id="rep-generate-btn" type="button">Generate Report</button>
-      </div>
     </div>
 
     <div class="report-empty-state" id="rep-empty-state">
-      Click <strong>Generate Report</strong> to load data.
+      Pick the dates below, then click <strong>Generate Report</strong>.
     </div>
 
     <div class="tabs report-tabs">
@@ -55,7 +51,8 @@
       <div class="report-date-row">
         <label>From <input type="date" class="form-input" id="report-start"></label>
         <label>To <input type="date" class="form-input" id="report-end"></label>
-        <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Apply</button>
+        <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Generate Report</button>
+        <span id="rep-gen-status" class="gen-status"></span>
         <div class="report-extra-filters" id="report-extra-filters"></div>
       </div>
       <div class="report-loading" id="report-loading" aria-live="polite">
@@ -202,6 +199,6 @@
 
 <script src="../assets/app.js?v=20260728-supplier-tab"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
-<script src="reports.js?v=20261114-tab-no-autoload"></script>
+<script src="reports.js?v=20261114-one-generate"></script>
 </body>
 </html>
