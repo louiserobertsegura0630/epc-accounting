@@ -16,6 +16,24 @@ const DASH_DATA = {
   inventory: [], expenses: [], productMap: {}
 };
 
+// ─── Loading pop-up ───────────────────────────────────────────────────────────
+// Several loads can overlap (daily summary + product performance), so count them
+// and hide the pop-up only when the last one finishes.
+let _loadingCount = 0;
+async function withLoadingPopup(message, fn) {
+  const overlay = document.getElementById('dash-loading');
+  const msg = document.getElementById('dash-loading-msg');
+  _loadingCount++;
+  if (msg) msg.textContent = message;
+  if (overlay) overlay.hidden = false;
+  try {
+    return await fn();
+  } finally {
+    _loadingCount = Math.max(0, _loadingCount - 1);
+    if (overlay && _loadingCount === 0) overlay.hidden = true;
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function snapDateFromRow(r) {
   const raw = r.date || r.dateDelivered || r.datePurchased || r.importedAt || '';
@@ -339,8 +357,12 @@ async function setSnapDate(date) {
   SNAP_DATE = date || today;
   const el = document.getElementById('snap-date');
   if (el) el.value = SNAP_DATE;
-  DASH_DATA.pos = await loadSalesForDate(SNAP_DATE);  // one salesDaily/{date} read (cached)
-  buildDailyOperationsSummary();
+  // Before the first Generate, just remember the date; the button loads it.
+  if (!dailyGate || !dailyGate.hasLoaded()) return;
+  await withLoadingPopup('Loading daily summary…', async () => {
+    DASH_DATA.pos = await loadSalesForDate(SNAP_DATE);  // one salesDaily/{date} read (cached)
+    buildDailyOperationsSummary();
+  });
 }
 function setSnapToday() { setSnapDate(today); }
 function setSnapYesterday() { setSnapDate(defaultSnapDate); }
@@ -431,7 +453,8 @@ function makeBarChart(canvasId, items, color, measure) {
   });
 }
 
-async function buildProductPerformance() {
+// Read the saved choices and update the dropdowns and labels (no data reads).
+function syncProdControls() {
   let st = {};
   try { st = JSON.parse(localStorage.getItem(PROD_PERF_KEY) || '{}'); } catch(e) {}
   const win   = st.window || 'month';
@@ -452,7 +475,11 @@ async function buildProductPerformance() {
   }
   const lbl = document.getElementById('prod-window-label');
   if (lbl) lbl.textContent = `Product Performance: ${prodWindowLabel(win, range)}`;
+  return { win, measure, range };
+}
 
+async function buildProductPerformance() {
+  const { measure, range } = syncProdControls();
   const byCode = {};
   const rangeRows = await loadSalesRange(range.from, range.to);  // cheap: docs by id range
   rangeRows.filter(r => {
@@ -495,7 +522,7 @@ function setProdWindow(win) {
     st.to   = document.getElementById('prod-to')?.value   || '';
   }
   localStorage.setItem(PROD_PERF_KEY, JSON.stringify(st));
-  buildProductPerformance();
+  refreshProdIfLoaded();
 }
 
 function setProdMeasure(measure) {
@@ -503,7 +530,7 @@ function setProdMeasure(measure) {
   try { st = JSON.parse(localStorage.getItem(PROD_PERF_KEY) || '{}'); } catch(e) {}
   st.measure = measure === 'pesos' ? 'pesos' : 'units';
   localStorage.setItem(PROD_PERF_KEY, JSON.stringify(st));
-  buildProductPerformance();
+  refreshProdIfLoaded();
 }
 
 function setProdCustomRange() {
@@ -515,26 +542,55 @@ function setProdCustomRange() {
     from: document.getElementById('prod-from')?.value || '',
     to:   document.getElementById('prod-to')?.value   || '',
   }));
-  buildProductPerformance();
+  refreshProdIfLoaded();
+}
+
+// Changing a dropdown never reads data by itself before the first Generate
+// (each read costs money). After that, it refreshes the charts right away.
+function refreshProdIfLoaded() {
+  if (prodGate && prodGate.hasLoaded()) prodGate.run();
+  else syncProdControls();
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 document.getElementById('snap-date').value = defaultSnapDate;
 
 // Data is not loaded on page open — the user must click "Generate Report".
-// Each click = paid Firestore reads, so the button guards against double-clicks.
-EPCReportGate.wire({
+// Each click = paid Firestore reads, so the buttons guard against double-clicks.
+// The page has two separate buttons:
+//   • top (date bar)            → Daily Operations Summary for the picked day
+//   • Product Performance card  → best/slowest products for the picked range
+let dailyGate = null;
+let prodGate = null;
+
+dailyGate = EPCReportGate.wire({
   button: 'dash-generate-btn',
   status: 'dash-gen-status',
-  load: async () => {
+  load: () => withLoadingPopup('Loading daily summary…', async () => {
     try {
       await loadDashData();
     } catch (err) {
       console.error('[Dashboard] Data load error:', err);
     }
     buildDailyOperationsSummary();
-    buildProductPerformance();
     const empty = document.getElementById('dash-empty-state');
     if (empty) empty.style.display = 'none';
-  }
+    const blocks = document.getElementById('snap-blocks');
+    if (blocks) blocks.style.display = '';
+  })
 });
+
+prodGate = EPCReportGate.wire({
+  button: 'prod-generate-btn',
+  status: 'prod-gen-status',
+  load: () => withLoadingPopup('Loading product performance…', async () => {
+    // Show the grid first so Chart.js can measure the canvas size.
+    const grid = document.getElementById('prod-charts-grid');
+    if (grid) grid.style.display = '';
+    const empty = document.getElementById('prod-empty-state');
+    if (empty) empty.style.display = 'none';
+    await buildProductPerformance();
+  })
+});
+
+syncProdControls();

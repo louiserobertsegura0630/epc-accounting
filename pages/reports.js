@@ -46,6 +46,9 @@ function reportLoadErrorMessage(err) {
   if (code.includes('permission-denied') || msg.includes('permission')) {
     return 'You don’t have permission to read the report data. Please sign in again or contact an administrator.';
   }
+  if (code === 'report-timeout') {
+    return 'The report took too long to load. Try a shorter date range or Generate again. This does not necessarily mean your connection is offline.';
+  }
   if (code.includes('unavailable') || msg.includes('offline') || msg.includes('network')) {
     return 'Could not reach the database (network/offline). Check your connection and try Generate again.';
   }
@@ -53,19 +56,70 @@ function reportLoadErrorMessage(err) {
 }
 
 // A hung Firestore .get() (offline SDK retrying the server forever, auth never
-// resolving, etc.) leaves the progress bar frozen at ~88% with no error. Cap the
-// wait so it surfaces as the normal error banner instead.
-const REPORT_LOAD_TIMEOUT_MS = 30000;
-function withReportLoadTimeout(promise) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => {
-      const e = new Error('Report data took too long to load (timed out). ' +
-        'Check your connection and try Generate again.');
-      e.code = 'unavailable';
-      reject(e);
-    }, REPORT_LOAD_TIMEOUT_MS)),
-  ]);
+// resolving, etc.) leaves the progress bar frozen with no error. Give up only when
+// the load STOPS making progress (no checkpoint for REPORT_IDLE_TIMEOUT_MS), not
+// after a fixed total time: a whole-year report is slow but still moving, and the
+// old fixed 30s cap cut it off part-way. A hard cap still stops a runaway load.
+const REPORT_IDLE_TIMEOUT_MS = 45000;
+const REPORT_MAX_LOAD_MS = 180000;
+let _reportLastProgressAt = 0;
+function touchReportProgress() { _reportLastProgressAt = Date.now(); }
+async function withReportLoadTimeout(promise) {
+  let timer;
+  const startedAt = Date.now();
+  touchReportProgress();
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setInterval(() => {
+          const now = Date.now();
+          if (now - _reportLastProgressAt < REPORT_IDLE_TIMEOUT_MS &&
+              now - startedAt < REPORT_MAX_LOAD_MS) return;
+          clearInterval(timer);
+          const e = new Error('Report data took too long to load (timed out). ' +
+            'Try a shorter date range or Generate again.');
+          e.code = 'report-timeout';
+          reject(e);
+        }, 1000);
+      }),
+    ]);
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+// Read daily rollup docs (salesDaily / inventoryDaily, id = YYYY-MM-DD) for a date
+// range. Long ranges are split into one query per month and run side by side:
+// a whole year downloads much faster than one giant query, and each finished
+// month counts as progress for the timeout above. Same documents, same reads.
+async function readDailyRollupDocs(db, collectionName, start, end) {
+  const idPath = firebase.firestore.FieldPath.documentId();
+  const base = () => db.collection(collectionName).orderBy(idPath);
+  if (!start || !end || start > end) {
+    let q = base();
+    if (start) q = q.startAt(start);
+    if (end) q = q.endAt(end);
+    return (await q.get()).docs;
+  }
+  const parts = [];
+  let y = Number(start.slice(0, 4));
+  let m = Number(start.slice(5, 7));
+  for (;;) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`;
+    if (ym > end.slice(0, 7)) break;
+    const from = ym === start.slice(0, 7) ? start : `${ym}-01`;
+    const to = ym === end.slice(0, 7) ? end : `${ym}-31`;   // ids are strings; -31 covers any month
+    parts.push([from, to]);
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  const snaps = await Promise.all(parts.map(async ([from, to]) => {
+    const snap = await base().startAt(from).endAt(to).get();
+    touchReportProgress();
+    return snap;
+  }));
+  return snaps.flatMap(snap => snap.docs);
 }
 
 // Run a report load, capturing any failure into reportLoadError so the render
@@ -83,7 +137,7 @@ async function runReportLoad(loadFn) {
 }
 let productMasterReportListenerStarted = false;
 // Sales revenue for all days BEFORE the current report-start (for cash flow opening
-// balance). Populated whenever sales is loaded, since REPORT_DATA.sales is now
+// balance). Loaded only for Cash Flow, since REPORT_DATA.sales is now
 // range-scoped and no longer contains pre-range rows.
 let salesPriorInflow = { before: null, total: 0 };
 const FEATURE_CUSTOM_REPORT = false;
@@ -191,12 +245,9 @@ async function fetchSalesRollupRows() {
   if (!db) return DB.get('pos_sales') || [];
   const start = (document.getElementById('report-start') || {}).value || '';
   const end = (document.getElementById('report-end') || {}).value || '';
-  let q = db.collection('salesDaily').orderBy(firebase.firestore.FieldPath.documentId());
-  if (start) q = q.startAt(start);
-  if (end) q = q.endAt(end);
-  const snap = await q.get();
+  const docs = await readDailyRollupDocs(db, 'salesDaily', start, end);
   const rows = [];
-  snap.forEach(doc => {
+  docs.forEach(doc => {
     const data = doc.data() || {};
     const products = data.products || {};
     const date = doc.id;
@@ -230,12 +281,9 @@ async function fetchInventoryRollupRows() {
   if (!db) return DB.get('inventory_movements') || [];
   const start = (document.getElementById('report-start') || {}).value || '';
   const end = (document.getElementById('report-end') || {}).value || '';
-  let q = db.collection('inventoryDaily').orderBy(firebase.firestore.FieldPath.documentId());
-  if (start) q = q.startAt(start);
-  if (end) q = q.endAt(end);
-  const snap = await q.get();
+  const docs = await readDailyRollupDocs(db, 'inventoryDaily', start, end);
   const rows = [];
-  snap.forEach(doc => {
+  docs.forEach(doc => {
     const items = (doc.data() || {}).items || {};
     const date = doc.id;
     Object.keys(items).forEach(code => {
@@ -274,18 +322,23 @@ async function loadReportItemCostMap() {
   (REPORT_DATA.sales || []).forEach(r => { const c = String(r.itemCode || '').trim(); if (c) codes.add(c); });
   const codeList = [...codes];
 
-  try {
-    const idPath = firebase.firestore.FieldPath.documentId();
-    for (let i = 0; i < codeList.length; i += 30) {
-      const chunk = codeList.slice(i, i + 30);
+  const idPath = firebase.firestore.FieldPath.documentId();
+  // Up to four requests at once; retain the same scoped document reads.
+  for (let i = 0; i < codeList.length; i += 120) {
+    const chunks = [];
+    for (let j = i; j < Math.min(i + 120, codeList.length); j += 30) {
+      chunks.push(codeList.slice(j, j + 30));
+    }
+    await Promise.all(chunks.map(async chunk => {
       const snap = await db.collection('itemCost').where(idPath, 'in', chunk).get();
+      touchReportProgress();
       snap.forEach(doc => {
         const uc = Number((doc.data() || {}).unit_cost) || 0;
         map[doc.id] = uc;
         map[String(doc.id).toUpperCase()] = uc;
       });
-    }
-  } catch (e) { console.warn('[Reports] itemCost read failed:', e); }
+    }));
+  }
 
   _reportItemCostMap = map;
   return map;
@@ -297,21 +350,16 @@ async function loadSalesPriorInflow() {
   const from = (document.getElementById('report-start') || {}).value || '';
   const db = getFirestoreDB();
   if (!from || !db) { salesPriorInflow = { before: from, total: 0, earliest: null }; return; }
-  try {
-    const snap = await db.collection('salesDaily')
-      .orderBy(firebase.firestore.FieldPath.documentId())
-      .endBefore(from).get();
-    let total = 0; let earliest = null;
-    snap.forEach(doc => {
-      const t = (doc.data() || {}).totals || {};
-      total += Number(t.revenue) || 0;
-      if (earliest === null) earliest = doc.id;   // ordered by id asc → first is earliest
-    });
-    salesPriorInflow = { before: from, total: Math.round(total * 100) / 100, earliest };
-  } catch (e) {
-    console.warn('[Reports] prior sales inflow read failed:', e);
-    salesPriorInflow = { before: from, total: 0, earliest: null };
-  }
+  const snap = await db.collection('salesDaily')
+    .orderBy(firebase.firestore.FieldPath.documentId())
+    .endBefore(from).get();
+  let total = 0; let earliest = null;
+  snap.forEach(doc => {
+    const t = (doc.data() || {}).totals || {};
+    total += Number(t.revenue) || 0;
+    if (earliest === null) earliest = doc.id;   // ordered by id asc → first is earliest
+  });
+  salesPriorInflow = { before: from, total: Math.round(total * 100) / 100, earliest };
 }
 
 async function fetchReportCollection(name, fallbackKey = '') {
@@ -343,6 +391,7 @@ function reportCacheKey(collectionName) {
 function clearReportRowCache() {
   _reportRowCache.clear();
   _reportItemCostMap = null;
+  salesPriorInflow = { before: null, total: 0 };
 }
 
 async function loadReportCollections(keys, { force = false } = {}) {
@@ -367,17 +416,13 @@ async function loadReportCollections(keys, { force = false } = {}) {
   }));
   loaded.forEach(([dataKey, rows, key]) => {
     REPORT_DATA[dataKey] = rows;
-    loadedReportCollections.add(key);
   });
-  if (keysToLoad.includes('sales')) {
-    reportProgressStep(78, 'Loading prior sales…');
-    await loadSalesPriorInflow();
-  }
   if (keysToLoad.includes('inventory')) {
     reportProgressStep(82, 'Loading item costs…');
     await loadReportItemCostMap();
   }
   backfillSalesCategories();
+  loaded.forEach(([, , key]) => loadedReportCollections.add(key));
   reportProgressStep(86, 'Rendering report...');
   if (loadedReportCollections.has('productMaster')) startProductMasterReportListener();
 }
@@ -398,7 +443,17 @@ function backfillSalesCategories() {
 
 async function ensureActiveReportData({ force = false } = {}) {
   await loadReportCollections(REPORT_TAB_COLLECTIONS[activeReportTab] || [], { force });
+  // This must also run when Sales was already cached before switching tabs.
+  if (activeReportTab === 'cashflow' && needsSalesPriorInflow()) {
+    reportProgressStep(84, 'Loading prior sales…');
+    await loadSalesPriorInflow();
+  }
   reportHasGenerated = true;   // data is now loaded — renderActiveReport may paint
+}
+
+function needsSalesPriorInflow() {
+  const from = (document.getElementById('report-start') || {}).value || '';
+  return salesPriorInflow.before !== from;
 }
 
 // Product Master is loaded on demand via loadReportCollections (a one-time .get()).
@@ -406,12 +461,19 @@ async function ensureActiveReportData({ force = false } = {}) {
 // re-rendered on every change — removed to keep report reads bounded and cheap.
 function startProductMasterReportListener() { /* no-op: productMaster loads on demand */ }
 
+// YYYY-MM-DD in the browser's own time zone. Do not use toISOString() for this:
+// it converts to UTC, which is 8 hours behind the Philippines, so local midnight
+// becomes the previous day (This Year showed 12/31/2025 to 12/30/2026).
+function localReportIsoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function setDefaultReportDates() {
   const now = new Date();
   document.getElementById('report-start').value =
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   document.getElementById('report-end').value =
-    new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    localReportIsoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
 }
 
 async function setReportPreset(preset) {
@@ -434,9 +496,21 @@ async function setReportPreset(preset) {
     start = new Date(now.getFullYear(), now.getMonth(), 1);
     end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   }
-  document.getElementById('report-start').value = start.toISOString().slice(0, 10);
-  document.getElementById('report-end').value = end.toISOString().slice(0, 10);
-  await refreshReportData();
+  document.getElementById('report-start').value = localReportIsoDate(start);
+  document.getElementById('report-end').value = localReportIsoDate(end);
+  // Only fill in the dates. The loaded data is for the old dates, so mark it as
+  // stale and show the prompt; Generate Report (or Apply) loads the new range.
+  markReportDataStale();
+  reportLoadError = null;
+  renderActiveReport();
+}
+
+// Forget which collections are loaded so the next Generate reads them again for
+// the current dates. The row cache is kept: range-scoped rows are keyed by their
+// dates, and the rest don't depend on the dates.
+function markReportDataStale() {
+  loadedReportCollections.clear();
+  _reportItemCostMap = null;
 }
 
 async function setReportTab(tab) {
@@ -445,18 +519,18 @@ async function setReportTab(tab) {
   document.querySelectorAll('[data-report-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.reportTab === tab);
   });
-  const needsLoad = (REPORT_TAB_COLLECTIONS[activeReportTab] || [])
-    .some(key => !loadedReportCollections.has(key));
-  if (!needsLoad) {
-    reportLoadError = null;   // this tab's data is already loaded — clear any stale error
-    renderActiveReport();
-    return;
-  }
-  await withReportProgress('Loading report data...', async () => {
-    await runReportLoad(() => ensureActiveReportData());
-    await waitReportFrame();
-    renderActiveReport();
-  });
+  // Switching tabs never reads data by itself (each read costs money). If this
+  // tab's data is already loaded it shows right away; otherwise renderActiveReport
+  // shows the "Click Generate Report" prompt and waits for the button.
+  reportLoadError = null;
+  renderActiveReport();
+}
+
+// True when the active tab still needs data that hasn't been loaded yet.
+function activeTabNeedsLoad() {
+  return (REPORT_TAB_COLLECTIONS[activeReportTab] || [])
+    .some(key => !loadedReportCollections.has(key)) ||
+    (activeReportTab === 'cashflow' && needsSalesPriorInflow());
 }
 
 function sum(rows, key) {
@@ -480,6 +554,7 @@ function waitReportFrame() {
 // looks frozen, but it can't overtake the next real checkpoint.
 let _reportProgressCeiling = 100;
 function reportProgressStep(value, label = '') {
+  touchReportProgress();
   _reportProgressCeiling = value;
   setReportProgress(value, label);
 }
@@ -2169,10 +2244,15 @@ function renderActiveReport() {
   }
   if (emptyState) emptyState.classList.remove('report-load-error');
   // Until data has been generated, show the empty-state prompt and hide the output.
-  if (!reportHasGenerated) {
+  if (!reportHasGenerated || activeTabNeedsLoad()) {
     if (emptyState) {
       emptyState.style.display = '';
-      emptyState.innerHTML = 'Click <strong>Generate Report</strong> to load data.';
+      const tabBtn = document.querySelector(`[data-report-tab="${activeReportTab}"]`);
+      const tabName = tabBtn ? tabBtn.textContent.trim() : 'this';
+      // The button says "Refresh" after the first load; name it as it is shown.
+      const genBtn = document.getElementById('rep-generate-btn');
+      const btnName = (genBtn && !genBtn.disabled && genBtn.textContent.trim()) || 'Generate Report';
+      emptyState.innerHTML = `Click <strong>${escReport(btnName)}</strong> to load the ${escReport(tabName)} report.`;
     }
     if (output) output.style.display = 'none';
     return;
@@ -2280,7 +2360,11 @@ EPCReportGate.wire({
   load: async () => {
     // renderActiveReport() owns the empty-state / error-notice / report visibility
     // based on whether the load succeeded — don't force-hide the prompt here.
-    await runReportLoad(() => ensureActiveReportData());
-    renderActiveReport();
+    // Same progress bar the tabs used to show, now only on this button.
+    await withReportProgress('Loading report data...', async () => {
+      await runReportLoad(() => ensureActiveReportData());
+      await waitReportFrame();
+      renderActiveReport();
+    });
   }
 });
