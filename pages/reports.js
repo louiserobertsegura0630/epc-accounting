@@ -56,26 +56,70 @@ function reportLoadErrorMessage(err) {
 }
 
 // A hung Firestore .get() (offline SDK retrying the server forever, auth never
-// resolving, etc.) leaves the progress bar frozen at ~88% with no error. Cap the
-// wait so it surfaces as the normal error banner instead.
-const REPORT_LOAD_TIMEOUT_MS = 30000;
+// resolving, etc.) leaves the progress bar frozen with no error. Give up only when
+// the load STOPS making progress (no checkpoint for REPORT_IDLE_TIMEOUT_MS), not
+// after a fixed total time: a whole-year report is slow but still moving, and the
+// old fixed 30s cap cut it off part-way. A hard cap still stops a runaway load.
+const REPORT_IDLE_TIMEOUT_MS = 45000;
+const REPORT_MAX_LOAD_MS = 180000;
+let _reportLastProgressAt = 0;
+function touchReportProgress() { _reportLastProgressAt = Date.now(); }
 async function withReportLoadTimeout(promise) {
   let timer;
+  const startedAt = Date.now();
+  touchReportProgress();
   try {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timer = setTimeout(() => {
+        timer = setInterval(() => {
+          const now = Date.now();
+          if (now - _reportLastProgressAt < REPORT_IDLE_TIMEOUT_MS &&
+              now - startedAt < REPORT_MAX_LOAD_MS) return;
+          clearInterval(timer);
           const e = new Error('Report data took too long to load (timed out). ' +
             'Try a shorter date range or Generate again.');
           e.code = 'report-timeout';
           reject(e);
-        }, REPORT_LOAD_TIMEOUT_MS);
+        }, 1000);
       }),
     ]);
   } finally {
-    clearTimeout(timer);
+    clearInterval(timer);
   }
+}
+
+// Read daily rollup docs (salesDaily / inventoryDaily, id = YYYY-MM-DD) for a date
+// range. Long ranges are split into one query per month and run side by side:
+// a whole year downloads much faster than one giant query, and each finished
+// month counts as progress for the timeout above. Same documents, same reads.
+async function readDailyRollupDocs(db, collectionName, start, end) {
+  const idPath = firebase.firestore.FieldPath.documentId();
+  const base = () => db.collection(collectionName).orderBy(idPath);
+  if (!start || !end || start > end) {
+    let q = base();
+    if (start) q = q.startAt(start);
+    if (end) q = q.endAt(end);
+    return (await q.get()).docs;
+  }
+  const parts = [];
+  let y = Number(start.slice(0, 4));
+  let m = Number(start.slice(5, 7));
+  for (;;) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`;
+    if (ym > end.slice(0, 7)) break;
+    const from = ym === start.slice(0, 7) ? start : `${ym}-01`;
+    const to = ym === end.slice(0, 7) ? end : `${ym}-31`;   // ids are strings; -31 covers any month
+    parts.push([from, to]);
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  const snaps = await Promise.all(parts.map(async ([from, to]) => {
+    const snap = await base().startAt(from).endAt(to).get();
+    touchReportProgress();
+    return snap;
+  }));
+  return snaps.flatMap(snap => snap.docs);
 }
 
 // Run a report load, capturing any failure into reportLoadError so the render
@@ -201,12 +245,9 @@ async function fetchSalesRollupRows() {
   if (!db) return DB.get('pos_sales') || [];
   const start = (document.getElementById('report-start') || {}).value || '';
   const end = (document.getElementById('report-end') || {}).value || '';
-  let q = db.collection('salesDaily').orderBy(firebase.firestore.FieldPath.documentId());
-  if (start) q = q.startAt(start);
-  if (end) q = q.endAt(end);
-  const snap = await q.get();
+  const docs = await readDailyRollupDocs(db, 'salesDaily', start, end);
   const rows = [];
-  snap.forEach(doc => {
+  docs.forEach(doc => {
     const data = doc.data() || {};
     const products = data.products || {};
     const date = doc.id;
@@ -240,12 +281,9 @@ async function fetchInventoryRollupRows() {
   if (!db) return DB.get('inventory_movements') || [];
   const start = (document.getElementById('report-start') || {}).value || '';
   const end = (document.getElementById('report-end') || {}).value || '';
-  let q = db.collection('inventoryDaily').orderBy(firebase.firestore.FieldPath.documentId());
-  if (start) q = q.startAt(start);
-  if (end) q = q.endAt(end);
-  const snap = await q.get();
+  const docs = await readDailyRollupDocs(db, 'inventoryDaily', start, end);
   const rows = [];
-  snap.forEach(doc => {
+  docs.forEach(doc => {
     const items = (doc.data() || {}).items || {};
     const date = doc.id;
     Object.keys(items).forEach(code => {
@@ -293,6 +331,7 @@ async function loadReportItemCostMap() {
     }
     await Promise.all(chunks.map(async chunk => {
       const snap = await db.collection('itemCost').where(idPath, 'in', chunk).get();
+      touchReportProgress();
       snap.forEach(doc => {
         const uc = Number((doc.data() || {}).unit_cost) || 0;
         map[doc.id] = uc;
@@ -422,12 +461,19 @@ function needsSalesPriorInflow() {
 // re-rendered on every change — removed to keep report reads bounded and cheap.
 function startProductMasterReportListener() { /* no-op: productMaster loads on demand */ }
 
+// YYYY-MM-DD in the browser's own time zone. Do not use toISOString() for this:
+// it converts to UTC, which is 8 hours behind the Philippines, so local midnight
+// becomes the previous day (This Year showed 12/31/2025 to 12/30/2026).
+function localReportIsoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function setDefaultReportDates() {
   const now = new Date();
   document.getElementById('report-start').value =
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   document.getElementById('report-end').value =
-    new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    localReportIsoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
 }
 
 async function setReportPreset(preset) {
@@ -450,8 +496,8 @@ async function setReportPreset(preset) {
     start = new Date(now.getFullYear(), now.getMonth(), 1);
     end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   }
-  document.getElementById('report-start').value = start.toISOString().slice(0, 10);
-  document.getElementById('report-end').value = end.toISOString().slice(0, 10);
+  document.getElementById('report-start').value = localReportIsoDate(start);
+  document.getElementById('report-end').value = localReportIsoDate(end);
   await refreshReportData();
 }
 
@@ -497,6 +543,7 @@ function waitReportFrame() {
 // looks frozen, but it can't overtake the next real checkpoint.
 let _reportProgressCeiling = 100;
 function reportProgressStep(value, label = '') {
+  touchReportProgress();
   _reportProgressCeiling = value;
   setReportProgress(value, label);
 }
