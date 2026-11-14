@@ -2249,11 +2249,12 @@ function renderActiveReport() {
       emptyState.style.display = '';
       const tabBtn = document.querySelector(`[data-report-tab="${activeReportTab}"]`);
       const tabName = tabBtn ? tabBtn.textContent.trim() : 'this';
-      // The button says "Refresh" after the first load; name it as it is shown.
-      const genBtn = document.getElementById('rep-generate-btn');
-      const btnName = (genBtn && !genBtn.disabled && genBtn.textContent.trim()) || 'Generate Report';
-      emptyState.innerHTML = `Click <strong>${escReport(btnName)}</strong> to load the ${escReport(tabName)} report.`;
+      emptyState.innerHTML = `Pick the dates below, then click <strong>Generate Report</strong> to load the ${escReport(tabName)} report.`;
     }
+    // The Tax tab hides the date bar once loaded; bring it back so the
+    // Generate Report button is always reachable from the prompt.
+    const controls = document.querySelector('.report-controls');
+    if (controls) controls.style.display = '';
     if (output) output.style.display = 'none';
     return;
   }
@@ -2310,15 +2311,16 @@ function exportCustomCSV() {
   URL.revokeObjectURL(link.href);
 }
 
-async function refreshReportData() {
-  await withReportProgress('Loading report data...', async () => {
-    await runReportLoad(() => ensureActiveReportData({ force: true }));
-    await waitReportFrame();
+// Typing a new date makes the loaded figures out of date: show the prompt
+// until Generate Report is clicked again.
+['report-start', 'report-end'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => {
+    markReportDataStale();
+    reportLoadError = null;
     renderActiveReport();
   });
-}
-
-document.getElementById('btn-apply-report-range').addEventListener('click', refreshReportData);
+});
 document.getElementById('btn-build-custom').addEventListener('click', renderCustomReport);
 document.getElementById('btn-export-chart').addEventListener('click', exportChartPNG);
 document.getElementById('btn-export-custom-csv').addEventListener('click', exportCustomCSV);
@@ -2354,15 +2356,20 @@ initReports();
 
 // Data is not loaded on page open — the user must click "Generate Report".
 // Each click = paid Firestore reads, so the button guards against double-clicks.
+// There is ONE Generate Report button, next to the dates (the old top-right
+// button and the separate "Apply" button were merged into it). Each click reads
+// fresh data for the active tab and the dates shown.
 EPCReportGate.wire({
-  button: 'rep-generate-btn',
+  button: 'btn-apply-report-range',
   status: 'rep-gen-status',
+  idleLabel: 'Generate Report',
+  refreshLabel: 'Generate Report',
   load: async () => {
     // renderActiveReport() owns the empty-state / error-notice / report visibility
     // based on whether the load succeeded — don't force-hide the prompt here.
     // Same progress bar the tabs used to show, now only on this button.
     await withReportProgress('Loading report data...', async () => {
-      await runReportLoad(() => ensureActiveReportData());
+      await runReportLoad(() => ensureActiveReportData({ force: true }));
       await waitReportFrame();
       renderActiveReport();
     });
