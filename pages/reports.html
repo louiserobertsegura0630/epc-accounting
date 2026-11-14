@@ -26,10 +26,6 @@
       </div>
     </div>
 
-    <div class="report-empty-state" id="rep-empty-state">
-      Pick the dates below, then click <strong>Generate Report</strong>.
-    </div>
-
     <div class="tabs report-tabs">
       <button class="tab-btn active" data-report-tab="income" onclick="setReportTab('income')">Income Statement</button>
       <button class="tab-btn" data-report-tab="sales" onclick="setReportTab('sales')">Sales</button>
@@ -64,6 +60,10 @@
           <div class="report-loading-fill" id="report-loading-fill"></div>
         </div>
       </div>
+    </div>
+
+    <div class="report-empty-state" id="rep-empty-state">
+      Pick the dates above, then click <strong>Generate Report</strong>.
     </div>
 
     <main class="report-output" id="report-output">
@@ -199,6 +199,6 @@
 
 <script src="../assets/app.js?v=20260728-supplier-tab"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
-<script src="reports.js?v=20261114-one-generate"></script>
+<script src="reports.js?v=20261114-prompt-below"></script>
 </body>
 </html>

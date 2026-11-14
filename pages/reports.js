@@ -2249,7 +2249,7 @@ function renderActiveReport() {
       emptyState.style.display = '';
       const tabBtn = document.querySelector(`[data-report-tab="${activeReportTab}"]`);
       const tabName = tabBtn ? tabBtn.textContent.trim() : 'this';
-      emptyState.innerHTML = `Pick the dates below, then click <strong>Generate Report</strong> to load the ${escReport(tabName)} report.`;
+      emptyState.innerHTML = `Pick the dates above, then click <strong>Generate Report</strong> to load the ${escReport(tabName)} report.`;
     }
     // The Tax tab hides the date bar once loaded; bring it back so the
     // Generate Report button is always reachable from the prompt.
