@@ -165,30 +165,298 @@ async function loadDashData() {
   DASH_DATA.productMap = productMap;
 }
 
+// ─── Motion helpers (entrance, count-up, 3D tilt) ────────────────────────────
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const CAN_TILT = !REDUCED_MOTION && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+// Fade/rise cards in one after another. Cards below the fold wait until they
+// scroll into view.
+const _revealObserver = ('IntersectionObserver' in window && !REDUCED_MOTION)
+  ? new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('in');
+        _revealObserver.unobserve(e.target);
+      });
+    }, { threshold: 0.12 })
+  : null;
+function revealIn(root) {
+  const els = [...(root || document).querySelectorAll('.reveal')];
+  els.forEach((el, i) => {
+    if (el.classList.contains('in')) return;
+    el.style.setProperty('--d', `${Math.min(i, 8) * 70}ms`);
+    if (_revealObserver) _revealObserver.observe(el);
+    else el.classList.add('in');
+  });
+}
+
+// Cards lean toward the mouse (max ~6°) with a soft light that follows it.
+function initTilt(root) {
+  if (!CAN_TILT) return;
+  (root || document).querySelectorAll('.tilt').forEach((el) => {
+    if (el.dataset.tiltReady) return;
+    el.dataset.tiltReady = '1';
+    el.addEventListener('pointermove', (ev) => {
+      const r = el.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width;
+      const y = (ev.clientY - r.top) / r.height;
+      el.classList.add('is-tilting');
+      el.style.setProperty('--ry', `${((x - 0.5) * 8).toFixed(2)}deg`);
+      el.style.setProperty('--rx', `${((0.5 - y) * 6).toFixed(2)}deg`);
+      el.style.setProperty('--mx', `${(x * 100).toFixed(1)}%`);
+      el.style.setProperty('--my', `${(y * 100).toFixed(1)}%`);
+    });
+    el.addEventListener('pointerleave', () => {
+      el.classList.remove('is-tilting');
+      el.style.setProperty('--rx', '0deg');
+      el.style.setProperty('--ry', '0deg');
+    });
+  });
+}
+
+// Numbers roll up from 0 to their value.
+const fmtPesoSigned = (v) => (v < 0 ? '−' : '') + formatPeso(Math.abs(v));
+function animateCount(el, to, fmt = fmtPesoSigned, ms = 1000) {
+  if (!el) return;
+  const target = Number(to) || 0;
+  if (REDUCED_MOTION) { el.textContent = fmt(target); return; }
+  const t0 = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - t0) / ms);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(target * eased);
+    if (p < 1) requestAnimationFrame(step);
+    else el.textContent = fmt(target);
+  };
+  requestAnimationFrame(step);
+}
+
+// ─── Per-day figures ─────────────────────────────────────────────────────────
+function addDaysIso(iso, n) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return isoDate(d);
+}
+function onDate(rows, date) {
+  return rows.filter(r => snapDateFromRow(r) === date);
+}
+// Everything the dashboard shows for one day. Same formulas as the daily
+// summary blocks, so the cards, charts and blocks always agree.
+function computeDay(date) {
+  const pos       = date === SNAP_DATE ? DASH_DATA.pos : (_salesDailyCache.get(date) || []);
+  const purchases = onDate(DASH_DATA.purchases, date);
+  const supplies  = onDate(DASH_DATA.supplies, date);
+  const esales    = onDate(DASH_DATA.esales, date);
+  const inventory = onDate(DASH_DATA.inventory, date);
+  const expenses  = onDate(DASH_DATA.expenses, date).filter(e => e.classification === 'Business');
+  const tots      = getPOSTotals(pos);
+  const sales     = tots.revenue;
+  // COGS = cost of the goods actually SOLD that day (from the salesDaily rollup's
+  // per-item cost), matched to revenue — NOT the day's purchases spend. Purchases
+  // are a cash outflow shown in Cash Flow, not cost of goods sold.
+  const cogs      = tots.cogs;
+  const gross     = sales - cogs;
+  const expTotal  = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const netInc    = gross - expTotal;
+  const purOut    = purchases.reduce((s, p) => s + (Number(p.netAmount ?? p.total ?? p.amount ?? 0) || 0), 0);
+  const supOut    = supplies.reduce((s, r)  => s + (Number(r.totalCost ?? r.amount) || 0), 0);
+  const netCash   = sales - purOut - supOut;
+  return { date, pos, purchases, supplies, esales, inventory, expenses,
+           sales, cogs, gross, expTotal, netInc, purOut, supOut, netCash };
+}
+
+// The 7 days ending on the selected day (for sparklines and the sales chart).
+// Sales come from salesDaily: at most 7 cheap reads, cached per day.
+function weekDates() {
+  return Array.from({ length: 7 }, (_, i) => addDaysIso(SNAP_DATE, i - 6));
+}
+async function loadWeekSales() {
+  const days = weekDates();
+  const missing = days.filter(d => !_salesDailyCache.has(d));
+  if (!missing.length) return;
+  await loadSalesRange(missing[0], missing[missing.length - 1]);
+  days.forEach(d => { if (!_salesDailyCache.has(d)) _salesDailyCache.set(d, []); });
+}
+
+// ─── Icons (inline, no extra downloads) ──────────────────────────────────────
+const DASH_ICONS = {
+  sales:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
+  profit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg>',
+  income: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2.2 0 3.3 6 1.6 6 4.6 0 1.3-1.3 2.2-3 2.2-1.4 0-2.6-.6-3-1.6"/><path d="M12 6v2M12 16v2"/></svg>',
+  cash:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>',
+};
+
+// ─── Greeting ────────────────────────────────────────────────────────────────
+function renderGreeting() {
+  const el = document.getElementById('dash-greet');
+  if (!el) return;
+  const h = new Date().getHours();
+  const part = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  let first = '';
+  try { first = String((getCurrentUser() || {}).firstName || '').trim(); } catch (e) { /* not signed in yet */ }
+  el.textContent = first ? `${part}, ${first}!` : `${part}!`;
+}
+
+// ─── KPI cards ───────────────────────────────────────────────────────────────
+function renderKpis(week) {
+  const today = week[week.length - 1];
+  const prev  = week[week.length - 2];
+  const cards = [
+    { key:'sales',   label:'Sales Revenue', cls:'kpi-lime', icon:DASH_ICONS.sales,  href:'sales.html',            title:'Open sales' },
+    { key:'gross',   label:'Gross Profit',  cls:'kpi-teal', icon:DASH_ICONS.profit, href:'income-statement.html', title:'Open income statement' },
+    { key:'netInc',  label:'Net Income',    cls:'kpi-pink', icon:DASH_ICONS.income, href:'income-statement.html', title:'Open income statement' },
+    { key:'netCash', label:'Net Cash',      cls:'kpi-lav',  icon:DASH_ICONS.cash,   href:'reports.html',          title:'Open cash flow report' },
+  ];
+  const grid = document.getElementById('kpi-grid');
+  grid.innerHTML = cards.map((c) => {
+    const series = week.map(d => d[c.key]);
+    const max = Math.max(...series.map(v => Math.abs(v)), 1);
+    const now = today[c.key];
+    const was = prev[c.key];
+    let delta = '<span>Nothing recorded the day before</span>';
+    if (was !== 0) {
+      const pct = ((now - was) / Math.abs(was)) * 100;
+      const up = pct >= 0;
+      delta = `<span class="${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}%</span> vs day before`;
+    }
+    const bars = series.map((v, i) => {
+      const h = Math.max(8, Math.round((Math.abs(v) / max) * 100));
+      const cls = [i === series.length - 1 ? 'now' : '', v < 0 ? 'neg' : ''].join(' ').trim();
+      return `<i class="${cls}" style="--h:${h}%;--bd:${300 + i * 60}ms" title="${week[i].date}: ${fmtPesoSigned(v)}"></i>`;
+    }).join('');
+    return `<article class="kpi ${c.cls} tilt reveal">
+      <div class="kpi-top">
+        <span class="kpi-icon">${c.icon}</span>
+        <a class="kpi-more" href="${c.href}" title="${c.title}" aria-label="${c.title}">→</a>
+      </div>
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-body">
+        <div>
+          <div class="kpi-value" data-kpi="${c.key}">${fmtPesoSigned(0)}</div>
+          <div class="kpi-delta">${delta}</div>
+        </div>
+        <div class="kpi-spark" aria-hidden="true">${bars}</div>
+      </div>
+    </article>`;
+  }).join('');
+  cards.forEach(c => animateCount(grid.querySelector(`[data-kpi="${c.key}"]`), today[c.key]));
+}
+
+// ─── Donut: where each peso of sales went ────────────────────────────────────
+let moneyDonut = null;
+function renderDonut(day) {
+  const canvas = document.getElementById('money-donut');
+  const legend = document.getElementById('donut-legend');
+  if (!canvas || !legend || typeof Chart === 'undefined') return;
+  animateCount(document.getElementById('donut-total'), day.sales);
+
+  const kept = Math.max(0, day.netInc);
+  const parts = [
+    { label:'Cost of Goods Sold', value:day.cogs,     color:'#f6b9c0', edge:'#e0697a' },
+    { label:'Operating Expenses', value:day.expTotal, color:'#c3c4f6', edge:'#6f72e0' },
+    { label:'Profit Kept',        value:kept,         color:'#9fdccd', edge:'#3fae96' },
+  ];
+  const total = parts.reduce((s, p) => s + p.value, 0);
+  legend.innerHTML = parts.map(p => `<li>
+      <span class="sw" style="background:linear-gradient(135deg,${p.color},${p.edge})"></span>
+      <span class="nm">${p.label}</span>
+      <span class="pc">${total ? Math.round((p.value / total) * 100) : 0}%</span>
+      <span class="am">${formatPeso(p.value)}</span>
+    </li>`).join('') +
+    (day.netInc < 0 ? `<li class="donut-note">Loss for the day: ${fmtPesoSigned(day.netInc)}</li>` : '');
+
+  if (moneyDonut) { moneyDonut.destroy(); moneyDonut = null; }
+  const ctx = canvas.getContext('2d');
+  const grad = (c1, c2) => {
+    const g = ctx.createLinearGradient(0, 0, 210, 210);
+    g.addColorStop(0, c1); g.addColorStop(1, c2); return g;
+  };
+  moneyDonut = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: total ? parts.map(p => p.label) : ['No sales recorded'],
+      datasets: [{
+        data: total ? parts.map(p => p.value) : [1],
+        backgroundColor: total ? parts.map(p => grad(p.color, p.edge)) : ['#e5e9f0'],
+        borderColor: '#fff', borderWidth: 3, borderRadius: 10, spacing: 2, hoverOffset: 10,
+      }],
+    },
+    options: {
+      cutout: '64%', responsive: true, maintainAspectRatio: false,
+      animation: REDUCED_MOTION ? false : { animateRotate: true, animateScale: true, duration: 1100, easing: 'easeOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: !!total, callbacks: { label: c => ` ${c.label}: ${formatPeso(c.parsed)}` } },
+      },
+    },
+  });
+}
+
+// ─── 3D pill chart: sales for the last 7 days ────────────────────────────────
+const PILL_COLORS = [
+  ['#f9d3a8', '#e39a4c'], ['#f6b9c0', '#e0697a'], ['#c3c4f6', '#6f72e0'],
+  ['#9fdccd', '#3fae96'], ['#f9d3a8', '#e39a4c'], ['#f6b9c0', '#e0697a'],
+];
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  return [1, 2, 2.5, 5, 10].map(m => m * p).find(m => m >= v);
+}
+function shortPeso(v) {
+  const a = Math.abs(v);
+  if (a >= 1e6) return '₱' + (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
+  if (a >= 1e3) return '₱' + (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'K';
+  return '₱' + Math.round(v);
+}
+function renderPillChart(week) {
+  const box = document.getElementById('sales-pillchart');
+  if (!box) return;
+  const max = niceMax(Math.max(...week.map(d => d.sales), 0));
+  const ticks = [1, 0.75, 0.5, 0.25, 0].map(f => shortPeso(max * f));
+  const cols = week.map((d, i) => {
+    const isNow = i === week.length - 1;
+    const [c, c2] = isNow ? ['#d6efa0', '#9fcf4a'] : PILL_COLORS[i % PILL_COLORS.length];
+    const h = Math.max(0, Math.round((d.sales / max) * 100));
+    const dt = new Date(`${d.date}T00:00:00`);
+    const day = dt.toLocaleDateString('en-PH', { weekday: 'short' });
+    const full = dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+    return `<div class="pill-col${isNow ? ' now' : ''}">
+      <div class="pill-track">
+        <div class="pill-fill-wrap" style="--h:${h}%;--bd:${i * 90}ms;--pc:${c};--pc2:${c2}">
+          <div class="pill-fill"></div>
+          <span class="pill-dot"></span>
+          <div class="pill-tip">${full}<b>${formatPeso(d.sales)}</b></div>
+        </div>
+      </div>
+      <span class="pill-day">${isNow ? 'Selected' : day}</span>
+    </div>`;
+  }).join('');
+  box.classList.remove('grow');
+  box.innerHTML = `<div class="pill-axis">${ticks.map(t => `<span>${t}</span>`).join('')}</div>
+    <div class="pill-cols">${cols}</div>`;
+  // Two frames later, let the bars grow (CSS transition on height).
+  requestAnimationFrame(() => requestAnimationFrame(() => box.classList.add('grow')));
+}
+
 // ─── Build daily operations summary ──────────────────────────────────────────
 function buildDailyOperationsSummary() {
   const d = new Date(`${SNAP_DATE}T00:00:00`);
+  const longDate = d.toLocaleDateString('en-PH', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
   document.getElementById('snap-headline').textContent =
-    'Daily Operations Summary for ' + d.toLocaleDateString('en-PH', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+    `Daily Operations Summary for ${longDate}. All figures are for this day only.`;
+  const chip = document.getElementById('dash-day-chip');
+  if (chip) chip.textContent = d.toLocaleDateString('en-PH', { month:'short', day:'numeric', year:'numeric' });
 
-  const pos       = onDay(DASH_DATA.pos);
-  const purchases = onDay(DASH_DATA.purchases);
-  const supplies  = onDay(DASH_DATA.supplies);
-  const esales    = onDay(DASH_DATA.esales);
-  const inventory = onDay(DASH_DATA.inventory);
-  const expenses  = onDay(DASH_DATA.expenses).filter(e => e.classification === 'Business');
+  const week = weekDates().map(computeDay);
+  const day = week[week.length - 1];
+  const { pos, purchases, supplies, esales, inventory, sales, cogs, gross, expTotal, netInc, purOut, supOut, netCash } = day;
+
+  // ── Cards and charts ───────────────────────────────────────────────────────
+  renderKpis(week);
+  renderDonut(day);
+  renderPillChart(week);
 
   // ── Block 1: Income Summary ────────────────────────────────────────────────
-  const tots     = getPOSTotals(pos);
-  const sales    = tots.revenue;
-  // COGS = cost of the goods actually SOLD that day (from the salesDaily rollup's
-  // per-item cost), matched to revenue — NOT the day's purchases spend. Purchases
-  // are a cash outflow shown in the Cash Flow block below, not cost of goods sold.
-  const cogs     = tots.cogs;
-  const gross    = sales - cogs;
-  const expTotal = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const netInc   = gross - expTotal;
-
   document.getElementById('snap-is').innerHTML = [
     snapRow('Sales Revenue', sales),
     snapRow('Cost of Goods Sold', -cogs, { sub:true }),
@@ -198,13 +466,8 @@ function buildDailyOperationsSummary() {
   ].join('');
 
   // ── Block 2: Cash Flow ──────────────────────────────────────────────────────
-  const inflows = sales;
-  const purOut  = purchases.reduce((s, p) => s + (Number(p.netAmount ?? p.total ?? p.amount ?? 0) || 0), 0);
-  const supOut  = supplies.reduce((s, r)  => s + (Number(r.totalCost ?? r.amount) || 0), 0);
-  const netCash = inflows - purOut - supOut;
-
   document.getElementById('snap-cf').innerHTML = [
-    snapRow('Sales Collections', inflows),
+    snapRow('Sales Collections', sales),
     snapRow('Purchases', -purOut, { sub:true }),
     snapRow('Supplies', -supOut, { sub:true }),
     snapRow('Net Cash', netCash, { total:true }),
@@ -250,6 +513,10 @@ function buildDailyOperationsSummary() {
     actRow('Supply Entries', supplies.length),
     actRow('Inventory Movements', inventory.length),
   ].join('');
+
+  const blocks = document.getElementById('snap-blocks');
+  revealIn(blocks);
+  initTilt(blocks);
 }
 
 // ─── Generate daily report ────────────────────────────────────────────────────
@@ -361,6 +628,7 @@ async function setSnapDate(date) {
   if (!dailyGate || !dailyGate.hasLoaded()) return;
   await withLoadingPopup('Loading daily summary…', async () => {
     DASH_DATA.pos = await loadSalesForDate(SNAP_DATE);  // one salesDaily/{date} read (cached)
+    await loadWeekSales();                               // up to 6 more, for the 7-day charts
     buildDailyOperationsSummary();
   });
 }
@@ -424,12 +692,28 @@ function makeBarChart(canvasId, items, color, measure) {
     type: 'bar',
     data: {
       labels: items.map(e => shorten(e.name)),
-      datasets: [{ data:items.map(e => e.metric), backgroundColor:color, borderRadius:4 }]
+      datasets: [{
+        data: items.map(e => e.metric),
+        // Shaded, rounded bars (lighter top edge, darker bottom) for a 3D feel.
+        backgroundColor: (ctx) => {
+          const area = ctx.chart.chartArea;
+          if (!area) return color;
+          const g = ctx.chart.ctx.createLinearGradient(area.left, 0, area.right, 0);
+          g.addColorStop(0, color + 'aa');
+          g.addColorStop(1, color);
+          return g;
+        },
+        borderRadius: 999, borderSkipped: false, barPercentage: 0.7, categoryPercentage: 0.8,
+      }]
     },
     options: {
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
+      animation: REDUCED_MOTION ? false : {
+        duration: 900, easing: 'easeOutQuart',
+        delay: (ctx) => (ctx.type === 'data' && ctx.mode === 'default' ? ctx.dataIndex * 110 : 0),
+      },
       plugins: {
         legend: { display:false },
         tooltip: { callbacks: { label: ctx => ` ${formatProductMetric(ctx.parsed.x, measure)}` }}
@@ -438,7 +722,8 @@ function makeBarChart(canvasId, items, color, measure) {
         x: {
           beginAtZero:true,
           min:0,
-          title:{ display:true, text:measure === 'pesos' ? 'Sales Value (₱)' : 'Units Sold' },
+          title:{ display:true, text:measure === 'pesos' ? 'Sales Value (₱)' : 'Units Sold', color:'#64748b' },
+          grid:{ color:'rgba(15,31,61,.06)' }, border:{ display:false },
           ticks:{
             precision:measure === 'units' ? 0 : undefined,
             font:{size:11},
@@ -447,7 +732,7 @@ function makeBarChart(canvasId, items, color, measure) {
               : Math.round(Number(value)).toLocaleString('en-PH')
           }
         },
-        y: { ticks:{ font:{size:11} } }
+        y: { ticks:{ font:{size:11, weight:'600'}, color:'#0f1f3d' }, grid:{ display:false }, border:{ display:false } }
       }
     }
   });
@@ -509,8 +794,8 @@ async function buildProductPerformance() {
     .filter(entry => entry.metric > 0)
     .sort((a, b) => b.metric - a.metric);
 
-  makeBarChart('prod-top-chart', entries.slice(0, 5), '#16a34a', measure);
-  makeBarChart('prod-slow-chart', [...entries].sort((a, b) => a.metric - b.metric).slice(0, 5), '#d97706', measure);
+  makeBarChart('prod-top-chart', entries.slice(0, 5), '#3fae96', measure);
+  makeBarChart('prod-slow-chart', [...entries].sort((a, b) => a.metric - b.metric).slice(0, 5), '#e39a4c', measure);
 }
 
 function setProdWindow(win) {
@@ -566,23 +851,27 @@ let prodGate = null;
 dailyGate = EPCReportGate.wire({
   button: 'dash-generate-btn',
   status: 'dash-gen-status',
+  refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading daily summary…', async () => {
     try {
       await loadDashData();
+      await loadWeekSales();
     } catch (err) {
       console.error('[Dashboard] Data load error:', err);
     }
-    buildDailyOperationsSummary();
     const empty = document.getElementById('dash-empty-state');
     if (empty) empty.style.display = 'none';
     const blocks = document.getElementById('snap-blocks');
     if (blocks) blocks.style.display = '';
+    // Show the section first so the charts can measure their size.
+    buildDailyOperationsSummary();
   })
 });
 
 prodGate = EPCReportGate.wire({
   button: 'prod-generate-btn',
   status: 'prod-gen-status',
+  refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading product performance…', async () => {
     // Show the grid first so Chart.js can measure the canvas size.
     const grid = document.getElementById('prod-charts-grid');
@@ -594,3 +883,6 @@ prodGate = EPCReportGate.wire({
 });
 
 syncProdControls();
+renderGreeting();
+revealIn(document);
+initTilt(document);
