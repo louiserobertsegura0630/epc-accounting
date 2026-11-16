@@ -850,6 +850,7 @@ let prodGate = null;
 
 dailyGate = EPCReportGate.wire({
   button: 'dash-generate-btn',
+  popup: false,   // this page shows its own loader
   status: 'dash-gen-status',
   refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading daily summary…', async () => {
@@ -870,6 +871,7 @@ dailyGate = EPCReportGate.wire({
 
 prodGate = EPCReportGate.wire({
   button: 'prod-generate-btn',
+  popup: false,   // this page shows its own loader
   status: 'prod-gen-status',
   refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading product performance…', async () => {

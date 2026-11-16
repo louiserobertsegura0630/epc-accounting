@@ -23,6 +23,9 @@ window.EPCReportGate = window.EPCReportGate || (() => {
     const refreshLabel = opts.refreshLabel || 'Refresh';
     let loaded = false;
     let running = false;
+    // Loading pop-up (bouncing bars) while the report loads. Pages that show
+    // their own loader (dashboard, reports progress bar) pass popup: false.
+    const popupLabel = opts.popup === false ? null : (opts.popupLabel || 'Loading report…');
 
     if (btn.textContent.trim() === '') btn.textContent = idleLabel;
 
@@ -33,6 +36,7 @@ window.EPCReportGate = window.EPCReportGate || (() => {
       btn.disabled = true;
       btn.textContent = loadingLabel;
       if (status) status.textContent = 'Loading data…';
+      if (popupLabel) EPCLoading.show(popupLabel);
       try {
         await load();
         loaded = true;
@@ -43,6 +47,7 @@ window.EPCReportGate = window.EPCReportGate || (() => {
         btn.textContent = loaded ? refreshLabel : (prevLabel || idleLabel);
         if (status) status.textContent = 'Could not load data. Try again.';
       } finally {
+        if (popupLabel) EPCLoading.hide();
         btn.disabled = false;
         running = false;
       }
@@ -52,6 +57,92 @@ window.EPCReportGate = window.EPCReportGate || (() => {
     return { run, hasLoaded: () => loaded };
   }
   return { wire };
+})();
+
+// ─── Loading pop-up (shared) ──────────────────────────────────────────────────
+// One overlay per page, created on first use. Counted, so overlapping loads
+// keep it up until the last one finishes.
+window.EPCLoading = window.EPCLoading || (() => {
+  let el = null;
+  let count = 0;
+  function ensure() {
+    if (el) return el;
+    el = document.createElement('div');
+    el.className = 'epc-loading-overlay';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.hidden = true;
+    el.innerHTML = '<div class="epc-loading-card">' +
+      '<div class="epc-loader" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>' +
+      '<div class="epc-loading-msg"></div>' +
+      '<div class="epc-loading-sub">Please wait. This can take a few seconds.</div></div>';
+    document.body.appendChild(el);
+    return el;
+  }
+  return {
+    show(message) {
+      const o = ensure();
+      count += 1;
+      o.querySelector('.epc-loading-msg').textContent = message || 'Loading…';
+      o.hidden = false;
+    },
+    hide() {
+      count = Math.max(0, count - 1);
+      if (el && count === 0) el.hidden = true;
+    },
+  };
+})();
+
+// ─── 3D hover tilt + chart look (shared) ─────────────────────────────────────
+// KPI, chart and summary cards lean toward the mouse, like the dashboard.
+// Works for cards added later too (event delegation). Off for touch screens
+// and "reduce motion".
+(function initThemeMotion() {
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fine = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (!reduce && fine) {
+    const SEL = '.kpi-card, .chart-card, .summary-card';
+    let current = null;
+    const reset = (el) => {
+      el.classList.remove('is-tilting');
+      el.style.setProperty('--rx', '0deg');
+      el.style.setProperty('--ry', '0deg');
+    };
+    document.addEventListener('pointermove', (ev) => {
+      const el = ev.target && ev.target.closest ? ev.target.closest(SEL) : null;
+      if (current && current !== el) { reset(current); current = null; }
+      if (!el || el.closest('.dash2')) return;   // the dashboard has its own tilt
+      current = el;
+      el.classList.add('t-tilt', 'is-tilting');
+      const r = el.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width;
+      const y = (ev.clientY - r.top) / r.height;
+      el.style.setProperty('--ry', `${((x - 0.5) * 6).toFixed(2)}deg`);
+      el.style.setProperty('--rx', `${((0.5 - y) * 5).toFixed(2)}deg`);
+    }, { passive: true });
+    document.addEventListener('pointerleave', () => { if (current) { reset(current); current = null; } });
+  }
+  // Charts: same font, rounded bars and smooth grow-in as the dashboard.
+  const applyChartDefaults = () => {
+    if (typeof Chart === 'undefined' || Chart.__epcTheme) return;
+    Chart.__epcTheme = true;
+    Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+    Chart.defaults.color = '#5b6b82';
+    Chart.defaults.borderColor = 'rgba(15,31,61,.07)';
+    Chart.defaults.elements.bar.borderRadius = 8;
+    Chart.defaults.elements.arc.borderRadius = 6;
+    Chart.defaults.elements.line.tension = 0.35;
+    Chart.defaults.elements.point.radius = 3;
+    if (reduce) Chart.defaults.animation = false;
+    else { Chart.defaults.animation.duration = 900; Chart.defaults.animation.easing = 'easeOutQuart'; }
+    if (Chart.defaults.plugins && Chart.defaults.plugins.tooltip) {
+      Object.assign(Chart.defaults.plugins.tooltip, {
+        backgroundColor: '#0f1f3d', padding: 10, cornerRadius: 12, displayColors: true, boxPadding: 4,
+      });
+    }
+  };
+  applyChartDefaults();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyChartDefaults);
 })();
 
 // ─── Storage Helpers ────────────────────────────────────────────────────────
