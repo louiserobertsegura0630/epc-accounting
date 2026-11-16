@@ -728,13 +728,13 @@ function makeBarChart(canvasId, items, color, measure) {
           grid:{ color:'rgba(15,31,61,.06)' }, border:{ display:false },
           ticks:{
             precision:measure === 'units' ? 0 : undefined,
-            font:{size:11},
+            font:{size:13},
             callback:value => measure === 'pesos'
               ? '₱' + Number(value).toLocaleString('en-PH')
               : Math.round(Number(value)).toLocaleString('en-PH')
           }
         },
-        y: { ticks:{ font:{size:11, weight:'600'}, color:'#0f1f3d' }, grid:{ display:false }, border:{ display:false } }
+        y: { ticks:{ font:{size:13, weight:'500'}, color:'#0f1f3d' }, grid:{ display:false }, border:{ display:false } }
       }
     }
   });
