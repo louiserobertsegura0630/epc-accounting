@@ -38,7 +38,7 @@
     }
     .field-table tr:last-child td { border-bottom: none; }
     .field-table code {
-      font-family: 'DM Mono', monospace; font-size: 12px;
+      font-family: 'Figtree', sans-serif; font-size: 12px;
       background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
     }
 
@@ -57,10 +57,10 @@
     .formula-box {
       background: #f8fafc; border: 1px solid var(--card-border);
       border-radius: 8px; padding: 14px 18px; margin: 12px 0;
-      font-family: 'DM Mono', monospace; font-size: 13px;
+      font-family: 'Figtree', sans-serif; font-size: 13px;
       color: var(--text-primary);
     }
-    .formula-box .formula-note { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+    .formula-box .formula-note { font-family: 'Figtree', sans-serif; font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
 
     .example-box {
       background: #eff6ff; border: 1px solid #bfdbfe;
@@ -70,7 +70,7 @@
       font-size: 11px; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.6px; color: var(--primary); margin-bottom: 8px;
     }
-    .example-box .ex-line { font-size: 13px; color: #1e40af; font-family: 'DM Mono', monospace; }
+    .example-box .ex-line { font-size: 13px; color: #1e40af; font-family: 'Figtree', sans-serif; }
     .example-box .ex-result { font-size: 14px; font-weight: 700; color: var(--primary); margin-top: 6px; }
 
     /* NEW subsection — blue accent border */
@@ -90,7 +90,7 @@
 
     .doc-divider { border: none; border-top: 1px solid var(--card-border); margin: 20px 0; }
 
-    .inline-code { font-family: 'DM Mono', monospace; font-size: 12.5px;
+    .inline-code { font-family: 'Figtree', sans-serif; font-size: 12.5px;
       background: #f1f5f9; padding: 2px 7px; border-radius: 4px; }
 
     @media (max-width: 640px) {

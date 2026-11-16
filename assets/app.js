@@ -126,7 +126,7 @@ window.EPCLoading = window.EPCLoading || (() => {
   const applyChartDefaults = () => {
     if (typeof Chart === 'undefined' || Chart.__epcTheme) return;
     Chart.__epcTheme = true;
-    Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+    Chart.defaults.font.family = "'Figtree', sans-serif";
     Chart.defaults.color = '#5b6b82';
     Chart.defaults.borderColor = 'rgba(15,31,61,.07)';
     Chart.defaults.elements.bar.borderRadius = 8;
@@ -143,6 +143,117 @@ window.EPCLoading = window.EPCLoading || (() => {
   };
   applyChartDefaults();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyChartDefaults);
+})();
+
+// ─── Info tips: description lines become an "i" icon (shared) ────────────────
+// Grey description lines under titles are hidden and replaced by a small "i"
+// button next to the title; hovering (or tapping/focusing) it shows the text.
+// The original element stays in the page (hidden), so page code can keep
+// updating its text and the tip always shows the current wording.
+(function initInfoTips() {
+  // Description lines that sit right after a title: icon goes next to the title.
+  const ATTACH = [
+    '.section-subtitle', '.chart-subtitle', '.dash-sub', '.dash-caption',
+    '.prod-chart-caption', '.esales-summary-subtitle', '#report-subtitle',
+  ].join(',');
+  // Free-standing explanation notes: icon takes the note's place.
+  const INLINE = [
+    '.tax-liability-note', '.tax-cogs-note', '.tax-input-note',
+    '.cf-coverage-note:not(.cf-coverage-none)',
+  ].join(',');
+  const clean = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+
+  let pop = null;
+  function showPop(btn) {
+    const text = clean(btn._src && btn._src.textContent);
+    if (!text) return;
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.className = 'info-pop';
+      pop.setAttribute('role', 'tooltip');
+      pop.id = 'epc-info-pop';
+      document.body.appendChild(pop);
+    }
+    pop.textContent = text;
+    pop.classList.add('show');
+    btn.setAttribute('aria-describedby', pop.id);
+    const r = btn.getBoundingClientRect();
+    const w = Math.min(300, window.innerWidth - 24);
+    pop.style.maxWidth = `${w}px`;
+    const pw = pop.offsetWidth;
+    const ph = pop.offsetHeight;
+    let left = r.left + r.width / 2 - pw / 2;
+    left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
+    let top = r.top - ph - 10;
+    pop.classList.toggle('below', top < 8);
+    if (top < 8) top = r.bottom + 10;
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  }
+  function hidePop(btn) {
+    if (pop) pop.classList.remove('show');
+    if (btn) btn.removeAttribute('aria-describedby');
+  }
+  function makeBtn(src) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'info-tip';
+    b.setAttribute('aria-label', 'More info');
+    b.textContent = 'i';
+    b._src = src;
+    b.addEventListener('pointerenter', () => showPop(b));
+    b.addEventListener('pointerleave', () => hidePop(b));
+    b.addEventListener('focus', () => showPop(b));
+    b.addEventListener('blur', () => hidePop(b));
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); showPop(b); });
+    return b;
+  }
+  function attach(src, inline) {
+    if (src._tipBtn && src._tipBtn.isConnected) return;
+    src.classList.add('info-src');
+    const btn = makeBtn(src);
+    src._tipBtn = btn;
+    const title = inline ? null : src.previousElementSibling;
+    if (title && !title.classList.contains('info-src')) {
+      // Wrap the title so the icon sits beside it without touching the title's
+      // own text (page code often sets title.textContent).
+      let wrap = title.parentElement && title.parentElement.classList.contains('info-wrap') ? title.parentElement : null;
+      if (!wrap) {
+        wrap = document.createElement('span');
+        wrap.className = 'info-wrap';
+        title.parentNode.insertBefore(wrap, title);
+        wrap.appendChild(title);
+      }
+      wrap.appendChild(btn);
+    } else {
+      src.parentNode.insertBefore(btn, src);
+    }
+  }
+  function syncAll() {
+    document.querySelectorAll('.info-tip').forEach((b) => {
+      b.hidden = !(b._src && b._src.isConnected && clean(b._src.textContent));
+      if (b._src && !b._src.isConnected) b.remove();
+    });
+  }
+  function scan() {
+    document.querySelectorAll(ATTACH).forEach((el) => attach(el, false));
+    document.querySelectorAll(INLINE).forEach((el) => attach(el, true));
+    syncAll();
+  }
+  let queued = false;
+  const queue = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; scan(); });
+  };
+  const start = () => {
+    scan();
+    new MutationObserver(queue).observe(document.body, { childList: true, subtree: true, characterData: true });
+    window.addEventListener('scroll', () => hidePop(), { passive: true, capture: true });
+    document.addEventListener('click', () => hidePop());
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 })();
 
 // ─── Storage Helpers ────────────────────────────────────────────────────────

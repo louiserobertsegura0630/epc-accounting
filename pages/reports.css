@@ -241,7 +241,7 @@
 .cf-mode-manual   { background:#fef3c7; color:#92400e; }
 .cf-begin-field { display:flex; align-items:center; gap:4px; }
 .cf-peso-sign   { font-weight:700; color:var(--text-secondary); }
-.cf-begin-input { width:160px; font-family:'DM Mono',monospace; font-size:15px; font-weight:700; text-align:right; }
+.cf-begin-input { width:160px; font-family:'Figtree', sans-serif; font-size:15px; font-weight:700; text-align:right; }
 .cf-reset-btn   { background:none; border:none; color:#2563eb; font-size:12px; cursor:pointer; padding:0; text-decoration:underline; white-space:nowrap; }
 .cf-reset-btn:hover { color:#1d4ed8; }
 .cf-coverage-note {

@@ -252,7 +252,7 @@ function renderBatchTable() {
       }
       if (c.type === 'number') {
         return `<td style="${cellStyle}"><input type="number" ${inputBase}
-          style="padding:4px 7px;font-size:12px;border:1px solid var(--card-border);border-radius:4px;width:${c.width}px;font-family:'DM Mono',monospace"
+          style="padding:4px 7px;font-size:12px;border:1px solid var(--card-border);border-radius:4px;width:${c.width}px;font-family:'Figtree', sans-serif"
           value="${row[c.key]||0}" oninput="batchRows[${i}].${c.key} = +this.value"></td>`;
       }
       return `<td style="${cellStyle}"><input type="text" ${inputBase}

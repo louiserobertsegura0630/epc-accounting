@@ -287,7 +287,7 @@ const DASH_ICONS = {
 };
 
 // ─── Greeting ────────────────────────────────────────────────────────────────
-function renderGreeting() {
+function renderGreeting(tries = 0) {
   const el = document.getElementById('dash-greet');
   if (!el) return;
   const h = new Date().getHours();
@@ -295,6 +295,8 @@ function renderGreeting() {
   let first = '';
   try { first = String((getCurrentUser() || {}).firstName || '').trim(); } catch (e) { /* not signed in yet */ }
   el.textContent = first ? `${part}, ${first}!` : `${part}!`;
+  // The signed-in user's profile loads a moment after the page; try again.
+  if (!first && tries < 20) setTimeout(() => renderGreeting(tries + 1), 500);
 }
 
 // ─── KPI cards ───────────────────────────────────────────────────────────────

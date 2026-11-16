@@ -2574,7 +2574,7 @@ function showToast(html, type = 'success', ms = 5000) {
   el.id = 'epc-toast';
   el.style.cssText = `position:fixed;bottom:24px;right:24px;background:${bg};color:white;
     padding:13px 18px;border-radius:10px;font-size:13.5px;font-weight:600;
-    font-family:'Plus Jakarta Sans',sans-serif;z-index:9999;max-width:390px;line-height:1.6;
+    font-family:'Figtree',sans-serif;z-index:9999;max-width:390px;line-height:1.6;
     box-shadow:0 4px 20px rgba(0,0,0,0.18);cursor:pointer`;
   el.innerHTML = html;
   el.onclick = () => el.remove();
