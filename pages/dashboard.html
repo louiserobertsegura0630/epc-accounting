@@ -6,11 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css?v=20260729-source-modal">
-  <link rel="stylesheet" href="dashboard.css?v=20261114-split-gen">
+  <link rel="stylesheet" href="dashboard.css?v=20261116-redesign">
 </head>
 <body>
 <div id="sidebar-container"></div>
-<div class="main-content">
+<div class="main-content dash2">
+
+  <!-- Soft moving background (decoration only) -->
+  <div class="dash-bg" aria-hidden="true">
+    <span class="dash-blob b1"></span><span class="dash-blob b2"></span><span class="dash-blob b3"></span>
+  </div>
 
   <header class="page-header">
     <div class="page-header-inner">
@@ -21,105 +26,147 @@
 
   <div class="page-body">
 
-    <!-- Date control -->
-    <div class="snap-datebar">
-      <div>
-        <h1 class="snap-headline" id="snap-headline">Daily Operations Summary</h1>
-        <p class="snap-tagline">All figures are for the selected day only.</p>
+    <!-- Greeting + date control -->
+    <section class="dash-hero reveal">
+      <div class="dash-hero-text">
+        <h1 class="dash-greet" id="dash-greet">Welcome back!</h1>
+        <p class="dash-sub" id="snap-headline">Daily Operations Summary. All figures are for the selected day only.</p>
       </div>
-      <div class="snap-datebar-rhs">
-        <input type="date" id="snap-date" class="filter-date-input snap-date-input">
-        <button class="dash-preset" onclick="setSnapToday()">Today</button>
-        <button class="dash-preset" onclick="setSnapYesterday()">Yesterday</button>
+      <div class="dash-hero-ctrls">
+        <input type="date" id="snap-date" class="dash-date" aria-label="Day to review">
+        <div class="dash-seg">
+          <button class="dash-preset" type="button" onclick="setSnapToday()">Today</button>
+          <button class="dash-preset" type="button" onclick="setSnapYesterday()">Yesterday</button>
+        </div>
         <span id="dash-gen-status" class="gen-status"></span>
-        <button class="btn btn-primary" id="dash-generate-btn" type="button">Generate Report</button>
+        <button class="dash-btn-dark" id="dash-generate-btn" type="button">Generate Report</button>
+      </div>
+    </section>
+
+    <div class="dash-empty reveal" id="dash-empty-state">
+      <div class="dash-empty-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <div>
+        <strong>Ready when you are</strong>
+        <span>Pick a date above, then click <b>Generate Report</b> to load the daily summary.</span>
       </div>
     </div>
 
-    <div class="report-empty-state" id="dash-empty-state">
-      Pick a date, then click <strong>Generate Report</strong> (top right) to load the daily summary.
-    </div>
+    <div id="snap-blocks" class="dash-day" style="display:none">
 
-    <div class="snap-blocks" id="snap-blocks" style="display:none">
-
-      <!-- Block 1: Income Summary -->
-      <div class="snap-block">
-        <div class="snap-block-hd">
-          <span class="snap-block-title">Income Summary</span>
-          <a href="income-statement.html" class="snap-block-link">Open income statement</a>
+      <!-- KPI cards -->
+      <section class="dash-panel reveal">
+        <div class="dash-panel-hd">
+          <h2>Daily Results</h2>
+          <span class="dash-chip" id="dash-day-chip"></span>
         </div>
-        <div id="snap-is"></div>
+        <div class="kpi-grid" id="kpi-grid"></div>
+      </section>
+
+      <!-- Charts -->
+      <div class="dash-row">
+        <section class="dash-panel tilt reveal">
+          <div class="dash-panel-hd">
+            <div>
+              <h2>Where Each Peso of Sales Went</h2>
+              <p class="dash-caption">Selected day: cost of goods, expenses, and what was left.</p>
+            </div>
+          </div>
+          <div class="donut-box">
+            <div class="donut-wrap">
+              <canvas id="money-donut" aria-label="Sales split chart"></canvas>
+              <div class="donut-center"><span>Sales</span><strong id="donut-total">₱0.00</strong></div>
+            </div>
+            <ul class="donut-legend" id="donut-legend"></ul>
+          </div>
+        </section>
+
+        <section class="dash-panel reveal">
+          <div class="dash-panel-hd">
+            <div>
+              <h2>Sales Overview</h2>
+              <p class="dash-caption">Last 7 days, ending on the selected day.</p>
+            </div>
+          </div>
+          <div class="pillchart" id="sales-pillchart"></div>
+        </section>
       </div>
 
-      <!-- Block 2: Cash Flow -->
-      <div class="snap-block">
-        <div class="snap-block-hd">
-          <span class="snap-block-title">Cash Flow</span>
-          <a href="reports.html" class="snap-block-link">Open cash flow report</a>
+      <!-- Detail summaries -->
+      <div class="snap-blocks">
+        <div class="snap-block tilt reveal">
+          <div class="snap-block-hd">
+            <span class="snap-block-title">Income Summary</span>
+            <a href="income-statement.html" class="snap-block-link">Open income statement</a>
+          </div>
+          <div id="snap-is"></div>
         </div>
-        <div id="snap-cf"></div>
-      </div>
-
-      <!-- Block 3: Tax -->
-      <div class="snap-block">
-        <div class="snap-block-hd">
-          <span class="snap-block-title">Tax Summary</span>
-          <a href="tax-monitoring.html" class="snap-block-link">Open tax monitoring</a>
+        <div class="snap-block tilt reveal">
+          <div class="snap-block-hd">
+            <span class="snap-block-title">Cash Flow</span>
+            <a href="reports.html" class="snap-block-link">Open cash flow report</a>
+          </div>
+          <div id="snap-cf"></div>
         </div>
-        <div id="snap-tax"></div>
-      </div>
-
-      <!-- Block 4: Inventory Movement -->
-      <div class="snap-block">
-        <div class="snap-block-hd">
-          <span class="snap-block-title">Inventory Summary</span>
-          <a href="inventory-tracking.html" class="snap-block-link">Open inventory tracking</a>
+        <div class="snap-block tilt reveal">
+          <div class="snap-block-hd">
+            <span class="snap-block-title">Tax Summary</span>
+            <a href="tax-monitoring.html" class="snap-block-link">Open tax monitoring</a>
+          </div>
+          <div id="snap-tax"></div>
         </div>
-        <div id="snap-inv"></div>
-      </div>
-
-      <!-- Block 5: Activity -->
-      <div class="snap-block snap-block-wide">
-        <div class="snap-block-hd">
-          <span class="snap-block-title">Transaction Counts</span>
+        <div class="snap-block tilt reveal">
+          <div class="snap-block-hd">
+            <span class="snap-block-title">Inventory Summary</span>
+            <a href="inventory-tracking.html" class="snap-block-link">Open inventory tracking</a>
+          </div>
+          <div id="snap-inv"></div>
         </div>
-        <div id="snap-act" class="snap-act-grid"></div>
+        <div class="snap-block snap-block-wide reveal">
+          <div class="snap-block-hd">
+            <span class="snap-block-title">Transaction Counts</span>
+          </div>
+          <div id="snap-act" class="snap-act-grid"></div>
+        </div>
       </div>
 
     </div>
 
     <!-- Product Performance -->
-    <div class="prod-perf-section">
+    <section class="prod-perf-section dash-panel reveal">
       <div class="prod-perf-hd">
         <span class="prod-perf-title" id="prod-window-label">Product Performance</span>
         <div class="prod-window-controls">
-          <select id="prod-window-sel" class="filter-date-input" style="width:auto;min-width:160px" onchange="setProdWindow(this.value)">
+          <select id="prod-window-sel" class="dash-select" onchange="setProdWindow(this.value)" aria-label="Date range">
             <option value="month">Current Month</option>
             <option value="last30">Last 30 Days</option>
             <option value="last90">Last 90 Days</option>
             <option value="ytd">Year to Date</option>
             <option value="custom">Custom Range</option>
           </select>
-          <select id="prod-measure-sel" class="filter-date-input" style="width:auto;min-width:110px" aria-label="Product performance measure" onchange="setProdMeasure(this.value)">
+          <select id="prod-measure-sel" class="dash-select" aria-label="Product performance measure" onchange="setProdMeasure(this.value)">
             <option value="units">Units</option>
             <option value="pesos">Pesos (₱)</option>
           </select>
           <div id="prod-custom-row" class="prod-custom-row" style="display:none">
-            <input type="date" id="prod-from" class="filter-date-input">
-            <span style="color:var(--text-muted);font-size:12px">–</span>
-            <input type="date" id="prod-to" class="filter-date-input">
-            <button class="dash-preset" onclick="setProdCustomRange()">Apply</button>
+            <input type="date" id="prod-from" class="dash-date dash-date-sm" aria-label="From">
+            <span class="prod-dash">–</span>
+            <input type="date" id="prod-to" class="dash-date dash-date-sm" aria-label="To">
+            <button class="dash-preset" type="button" onclick="setProdCustomRange()">Apply</button>
           </div>
           <span id="prod-gen-status" class="gen-status"></span>
-          <button class="btn btn-primary" id="prod-generate-btn" type="button">Generate Report</button>
+          <button class="dash-btn-dark" id="prod-generate-btn" type="button">Generate Report</button>
         </div>
       </div>
-      <div class="report-empty-state prod-empty-state" id="prod-empty-state">
-        Pick a date range, then click <strong>Generate Report</strong> above to load product performance.
+      <div class="dash-empty dash-empty-inline" id="prod-empty-state">
+        <div class="dash-empty-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <div>
+          <strong>Best and slowest sellers</strong>
+          <span>Pick a date range, then click <b>Generate Report</b> above.</span>
+        </div>
       </div>
       <div class="prod-charts-grid" id="prod-charts-grid" style="display:none">
         <div class="prod-chart-card">
-          <div class="prod-chart-title">Best-Selling Products</div>
+          <div class="prod-chart-title"><span class="dot dot-good"></span>Best-Selling Products</div>
           <div class="prod-chart-caption" id="prod-top-caption">Top 5 by units sold</div>
           <div class="prod-chart-wrap">
             <canvas id="prod-top-chart"></canvas>
@@ -127,7 +174,7 @@
           </div>
         </div>
         <div class="prod-chart-card">
-          <div class="prod-chart-title">Slowest-Moving Products</div>
+          <div class="prod-chart-title"><span class="dot dot-slow"></span>Slowest-Moving Products</div>
           <div class="prod-chart-caption" id="prod-slow-caption">Lowest 5 by units sold</div>
           <div class="prod-chart-wrap">
             <canvas id="prod-slow-chart"></canvas>
@@ -135,14 +182,14 @@
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
   </div><!-- /page-body -->
 
   <!-- Loading pop-up (shown while a report loads) -->
   <div class="dash-loading-overlay" id="dash-loading" role="status" aria-live="polite" hidden>
     <div class="dash-loading-card">
-      <div class="dash-spinner" aria-hidden="true"></div>
+      <div class="dash-loader" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="dash-loading-msg" id="dash-loading-msg">Loading report…</div>
       <div class="dash-loading-sub">Please wait. This can take a few seconds.</div>
     </div>
@@ -155,6 +202,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
 <script src="../assets/app.js?v=20260728-supplier-tab"></script>
-<script src="dashboard.js?v=20261114-split-gen"></script>
+<script src="dashboard.js?v=20261116-redesign"></script>
 </body>
 </html>
