@@ -2361,6 +2361,7 @@ initReports();
 // fresh data for the active tab and the dates shown.
 EPCReportGate.wire({
   button: 'btn-apply-report-range',
+  popup: false,   // this page shows its own loader
   status: 'rep-gen-status',
   idleLabel: 'Generate Report',
   refreshLabel: 'Generate Report',

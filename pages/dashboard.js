@@ -287,7 +287,7 @@ const DASH_ICONS = {
 };
 
 // ─── Greeting ────────────────────────────────────────────────────────────────
-function renderGreeting() {
+function renderGreeting(tries = 0) {
   const el = document.getElementById('dash-greet');
   if (!el) return;
   const h = new Date().getHours();
@@ -295,6 +295,8 @@ function renderGreeting() {
   let first = '';
   try { first = String((getCurrentUser() || {}).firstName || '').trim(); } catch (e) { /* not signed in yet */ }
   el.textContent = first ? `${part}, ${first}!` : `${part}!`;
+  // The signed-in user's profile loads a moment after the page; try again.
+  if (!first && tries < 20) setTimeout(() => renderGreeting(tries + 1), 500);
 }
 
 // ─── KPI cards ───────────────────────────────────────────────────────────────
@@ -726,13 +728,13 @@ function makeBarChart(canvasId, items, color, measure) {
           grid:{ color:'rgba(15,31,61,.06)' }, border:{ display:false },
           ticks:{
             precision:measure === 'units' ? 0 : undefined,
-            font:{size:11},
+            font:{size:13},
             callback:value => measure === 'pesos'
               ? '₱' + Number(value).toLocaleString('en-PH')
               : Math.round(Number(value)).toLocaleString('en-PH')
           }
         },
-        y: { ticks:{ font:{size:11, weight:'600'}, color:'#0f1f3d' }, grid:{ display:false }, border:{ display:false } }
+        y: { ticks:{ font:{size:13, weight:'500'}, color:'#0f1f3d' }, grid:{ display:false }, border:{ display:false } }
       }
     }
   });
@@ -850,6 +852,7 @@ let prodGate = null;
 
 dailyGate = EPCReportGate.wire({
   button: 'dash-generate-btn',
+  popup: false,   // this page shows its own loader
   status: 'dash-gen-status',
   refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading daily summary…', async () => {
@@ -870,6 +873,7 @@ dailyGate = EPCReportGate.wire({
 
 prodGate = EPCReportGate.wire({
   button: 'prod-generate-btn',
+  popup: false,   // this page shows its own loader
   status: 'prod-gen-status',
   refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading product performance…', async () => {

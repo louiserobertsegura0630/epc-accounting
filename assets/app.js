@@ -23,6 +23,9 @@ window.EPCReportGate = window.EPCReportGate || (() => {
     const refreshLabel = opts.refreshLabel || 'Refresh';
     let loaded = false;
     let running = false;
+    // Loading pop-up (bouncing bars) while the report loads. Pages that show
+    // their own loader (dashboard, reports progress bar) pass popup: false.
+    const popupLabel = opts.popup === false ? null : (opts.popupLabel || 'Loading report…');
 
     if (btn.textContent.trim() === '') btn.textContent = idleLabel;
 
@@ -33,6 +36,7 @@ window.EPCReportGate = window.EPCReportGate || (() => {
       btn.disabled = true;
       btn.textContent = loadingLabel;
       if (status) status.textContent = 'Loading data…';
+      if (popupLabel) EPCLoading.show(popupLabel);
       try {
         await load();
         loaded = true;
@@ -43,6 +47,7 @@ window.EPCReportGate = window.EPCReportGate || (() => {
         btn.textContent = loaded ? refreshLabel : (prevLabel || idleLabel);
         if (status) status.textContent = 'Could not load data. Try again.';
       } finally {
+        if (popupLabel) EPCLoading.hide();
         btn.disabled = false;
         running = false;
       }
@@ -52,6 +57,332 @@ window.EPCReportGate = window.EPCReportGate || (() => {
     return { run, hasLoaded: () => loaded };
   }
   return { wire };
+})();
+
+// ─── Loading pop-up (shared) ──────────────────────────────────────────────────
+// One overlay per page, created on first use. Counted, so overlapping loads
+// keep it up until the last one finishes.
+window.EPCLoading = window.EPCLoading || (() => {
+  let el = null;
+  let count = 0;
+  function ensure() {
+    if (el) return el;
+    el = document.createElement('div');
+    el.className = 'epc-loading-overlay';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.hidden = true;
+    el.innerHTML = '<div class="epc-loading-card">' +
+      '<div class="epc-loader" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>' +
+      '<div class="epc-loading-msg"></div>' +
+      '<div class="epc-loading-sub">Please wait. This can take a few seconds.</div></div>';
+    document.body.appendChild(el);
+    return el;
+  }
+  return {
+    show(message) {
+      const o = ensure();
+      count += 1;
+      o.querySelector('.epc-loading-msg').textContent = message || 'Loading…';
+      o.hidden = false;
+    },
+    hide() {
+      count = Math.max(0, count - 1);
+      if (el && count === 0) el.hidden = true;
+    },
+  };
+})();
+
+// ─── Pastel 3D chart style (shared) ──────────────────────────────────────────
+// Turns the plain bright colours that page code passes to Chart.js into the
+// dashboard's pastel gradients: rounded bars with a soft drop shadow, pastel
+// pie/donut slices, softer lines. Colours a page already made as gradients or
+// functions are left alone (the dashboard's own charts).
+const EPC_PASTELS = {
+  teal:  ['#a8e2d4', '#3fae96'],
+  lime:  ['#d6efa0', '#8fc23a'],
+  blue:  ['#bcd3fb', '#4f7fe8'],
+  lav:   ['#c9caf7', '#6f72e0'],
+  pink:  ['#f7bcc3', '#e0566b'],
+  peach: ['#f9d3a8', '#e08a35'],
+  slate: ['#dbe1ea', '#8a99ad'],
+};
+function epcPastelFor(color) {
+  if (typeof color !== 'string') return null;
+  let r, g, b;
+  const c = color.trim().toLowerCase();
+  let m = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})([0-9a-f]{2})?$/);
+  if (m) {
+    let h = m[1];
+    if (h.length === 3) h = h.split('').map(x => x + x).join('');
+    r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+  } else if ((m = c.match(/^rgba?\(([^)]+)\)/))) {
+    [r, g, b] = m[1].split(',').map(v => parseFloat(v));
+  } else return null;
+  const max = Math.max(r, g, b) / 255, min = Math.min(r, g, b) / 255;
+  const l = (max + min) / 2;
+  const d = max - min;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (sat < 0.18 || l > 0.93) return EPC_PASTELS.slate;
+  let hue;
+  const R = r / 255, G = g / 255, B = b / 255;
+  if (max === R) hue = 60 * (((G - B) / d) % 6);
+  else if (max === G) hue = 60 * ((B - R) / d + 2);
+  else hue = 60 * ((R - G) / d + 4);
+  if (hue < 0) hue += 360;
+  if (hue < 15 || hue >= 330) return EPC_PASTELS.pink;
+  if (hue < 50) return EPC_PASTELS.peach;
+  if (hue < 95) return EPC_PASTELS.lime;
+  if (hue < 185) return EPC_PASTELS.teal;
+  if (hue < 245) return EPC_PASTELS.blue;
+  return EPC_PASTELS.lav;
+}
+function epcGradientFill(pair, vertical) {
+  return (ctx) => {
+    const chart = ctx.chart;
+    const area = chart && chart.chartArea;
+    if (!area) return pair[1];
+    const g = vertical
+      ? chart.ctx.createLinearGradient(0, area.top, 0, area.bottom)
+      : chart.ctx.createLinearGradient(area.left, 0, area.right, 0);
+    g.addColorStop(0, pair[0]);
+    g.addColorStop(1, pair[1]);
+    return g;
+  };
+}
+const EPC_CHART_PASTEL = {
+  id: 'epcPastel',
+  beforeUpdate(chart) {
+    const type = chart.config.type;
+    const horizontal = chart.options && chart.options.indexAxis === 'y';
+    (chart.data.datasets || []).forEach((ds) => {
+      if (ds.__epcPastel) return;
+      ds.__epcPastel = true;
+      const dsType = ds.type || type;
+      const bg = ds.backgroundColor;
+      // Chart.js can't use a function inside a colour list, so a list of
+      // colours becomes ONE function that picks the right gradient per item.
+      const mapColors = (value, vertical) => {
+        if (typeof value === 'string') {
+          const pair = epcPastelFor(value);
+          return pair ? epcGradientFill(pair, vertical) : value;
+        }
+        if (Array.isArray(value) && value.length && value.every(v => typeof v === 'string')) {
+          const fills = value.map((col) => { const p = epcPastelFor(col); return p ? epcGradientFill(p, vertical) : null; });
+          if (!fills.some(Boolean)) return value;
+          return (ctx) => {
+            const i = ctx.dataIndex == null ? 0 : ctx.dataIndex % value.length;
+            return fills[i] ? fills[i](ctx) : value[i];
+          };
+        }
+        return value;
+      };
+      if (dsType === 'bar') {
+        ds.backgroundColor = mapColors(bg, !horizontal);
+        // Pages often ask for square or barely-rounded bars (0-4px): round them like the dashboard.
+        if (ds.borderRadius == null || (typeof ds.borderRadius === 'number' && ds.borderRadius <= 4)) ds.borderRadius = 12;
+        if (ds.borderSkipped == null) ds.borderSkipped = false;
+        if (ds.borderWidth == null) ds.borderWidth = 0;
+        if (ds.maxBarThickness == null) ds.maxBarThickness = 56;
+      } else if (dsType === 'doughnut' || dsType === 'pie' || dsType === 'polarArea') {
+        ds.backgroundColor = mapColors(bg, true);
+        if (ds.borderColor == null) ds.borderColor = '#fff';
+        if (ds.borderWidth == null) ds.borderWidth = 3;
+        if (ds.borderRadius == null) ds.borderRadius = 8;
+        if (ds.hoverOffset == null) ds.hoverOffset = 8;
+      } else if (dsType === 'line') {
+        const pair = epcPastelFor(ds.borderColor);
+        if (pair) {
+          ds.borderColor = pair[1];
+          if (ds.pointBackgroundColor == null) ds.pointBackgroundColor = '#fff';
+          if (ds.pointBorderColor == null) ds.pointBorderColor = pair[1];
+          if (typeof bg === 'string' && epcPastelFor(bg)) ds.backgroundColor = pair[0] + '66';
+        }
+        if (ds.borderWidth == null) ds.borderWidth = 3;
+      }
+    });
+  },
+  // Soft shadow under bars and slices: the "3D" lift.
+  beforeDatasetsDraw(chart) {
+    const t = chart.config.type;
+    chart.$epcShadow = (t === 'bar' || t === 'doughnut' || t === 'pie') &&
+      !(chart.canvas && chart.canvas.closest && chart.canvas.closest('.dash2'));   // dashboard styles its own
+    if (!chart.$epcShadow) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.shadowColor = 'rgba(15,31,61,.18)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 6;
+  },
+  afterDatasetsDraw(chart) {
+    if (!chart.$epcShadow) return;
+    chart.ctx.restore();
+  },
+};
+
+// ─── 3D hover tilt + chart look (shared) ─────────────────────────────────────
+// KPI, chart and summary cards lean toward the mouse, like the dashboard.
+// Works for cards added later too (event delegation). Off for touch screens
+// and "reduce motion".
+(function initThemeMotion() {
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fine = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (!reduce && fine) {
+    const SEL = '.kpi-card, .chart-card, .summary-card';
+    let current = null;
+    const reset = (el) => {
+      el.classList.remove('is-tilting');
+      el.style.setProperty('--rx', '0deg');
+      el.style.setProperty('--ry', '0deg');
+    };
+    document.addEventListener('pointermove', (ev) => {
+      const el = ev.target && ev.target.closest ? ev.target.closest(SEL) : null;
+      if (current && current !== el) { reset(current); current = null; }
+      if (!el || el.closest('.dash2')) return;   // the dashboard has its own tilt
+      current = el;
+      el.classList.add('t-tilt', 'is-tilting');
+      const r = el.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width;
+      const y = (ev.clientY - r.top) / r.height;
+      el.style.setProperty('--ry', `${((x - 0.5) * 6).toFixed(2)}deg`);
+      el.style.setProperty('--rx', `${((0.5 - y) * 5).toFixed(2)}deg`);
+    }, { passive: true });
+    document.addEventListener('pointerleave', () => { if (current) { reset(current); current = null; } });
+  }
+  // Charts: same font, rounded bars and smooth grow-in as the dashboard.
+  const applyChartDefaults = () => {
+    if (typeof Chart === 'undefined' || Chart.__epcTheme) return;
+    Chart.__epcTheme = true;
+    Chart.defaults.font.family = "'Figtree', sans-serif";
+    Chart.defaults.color = '#5b6b82';
+    Chart.defaults.borderColor = 'rgba(15,31,61,.07)';
+    Chart.defaults.elements.bar.borderRadius = 8;
+    Chart.defaults.elements.arc.borderRadius = 6;
+    Chart.defaults.elements.line.tension = 0.35;
+    Chart.defaults.elements.point.radius = 3;
+    if (reduce) Chart.defaults.animation = false;
+    else { Chart.defaults.animation.duration = 900; Chart.defaults.animation.easing = 'easeOutQuart'; }
+    Chart.defaults.font.size = 13;
+    if (Chart.register) Chart.register(EPC_CHART_PASTEL);
+    if (Chart.defaults.plugins && Chart.defaults.plugins.tooltip) {
+      Object.assign(Chart.defaults.plugins.tooltip, {
+        backgroundColor: '#0f1f3d', padding: 10, cornerRadius: 12, displayColors: true, boxPadding: 4,
+      });
+    }
+  };
+  applyChartDefaults();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyChartDefaults);
+})();
+
+// ─── Info tips: description lines become an "i" icon (shared) ────────────────
+// Grey description lines under titles are hidden and replaced by a small "i"
+// button next to the title; hovering (or tapping/focusing) it shows the text.
+// The original element stays in the page (hidden), so page code can keep
+// updating its text and the tip always shows the current wording.
+(function initInfoTips() {
+  // Description lines that sit right after a title: icon goes next to the title.
+  const ATTACH = [
+    '.section-subtitle', '.chart-subtitle', '.dash-sub', '.dash-caption',
+    '.prod-chart-caption', '.esales-summary-subtitle', '#report-subtitle',
+  ].join(',');
+  // Free-standing explanation notes: icon takes the note's place.
+  const INLINE = [
+    '.tax-liability-note', '.tax-cogs-note', '.tax-input-note',
+    '.cf-coverage-note:not(.cf-coverage-none)',
+  ].join(',');
+  const clean = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+
+  let pop = null;
+  function showPop(btn) {
+    const text = clean(btn._src && btn._src.textContent);
+    if (!text) return;
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.className = 'info-pop';
+      pop.setAttribute('role', 'tooltip');
+      pop.id = 'epc-info-pop';
+      document.body.appendChild(pop);
+    }
+    pop.textContent = text;
+    pop.classList.add('show');
+    btn.setAttribute('aria-describedby', pop.id);
+    const r = btn.getBoundingClientRect();
+    const w = Math.min(300, window.innerWidth - 24);
+    pop.style.maxWidth = `${w}px`;
+    const pw = pop.offsetWidth;
+    const ph = pop.offsetHeight;
+    let left = r.left + r.width / 2 - pw / 2;
+    left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
+    let top = r.top - ph - 10;
+    pop.classList.toggle('below', top < 8);
+    if (top < 8) top = r.bottom + 10;
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  }
+  function hidePop(btn) {
+    if (pop) pop.classList.remove('show');
+    if (btn) btn.removeAttribute('aria-describedby');
+  }
+  function makeBtn(src) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'info-tip';
+    b.setAttribute('aria-label', 'More info');
+    b.textContent = 'i';
+    b._src = src;
+    b.addEventListener('pointerenter', () => showPop(b));
+    b.addEventListener('pointerleave', () => hidePop(b));
+    b.addEventListener('focus', () => showPop(b));
+    b.addEventListener('blur', () => hidePop(b));
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); showPop(b); });
+    return b;
+  }
+  function attach(src, inline) {
+    if (src._tipBtn && src._tipBtn.isConnected) return;
+    src.classList.add('info-src');
+    const btn = makeBtn(src);
+    src._tipBtn = btn;
+    const title = inline ? null : src.previousElementSibling;
+    if (title && !title.classList.contains('info-src')) {
+      // Wrap the title so the icon sits beside it without touching the title's
+      // own text (page code often sets title.textContent).
+      let wrap = title.parentElement && title.parentElement.classList.contains('info-wrap') ? title.parentElement : null;
+      if (!wrap) {
+        wrap = document.createElement('span');
+        wrap.className = 'info-wrap';
+        title.parentNode.insertBefore(wrap, title);
+        wrap.appendChild(title);
+      }
+      wrap.appendChild(btn);
+    } else {
+      src.parentNode.insertBefore(btn, src);
+    }
+  }
+  function syncAll() {
+    document.querySelectorAll('.info-tip').forEach((b) => {
+      b.hidden = !(b._src && b._src.isConnected && clean(b._src.textContent));
+      if (b._src && !b._src.isConnected) b.remove();
+    });
+  }
+  function scan() {
+    document.querySelectorAll(ATTACH).forEach((el) => attach(el, false));
+    document.querySelectorAll(INLINE).forEach((el) => attach(el, true));
+    syncAll();
+  }
+  let queued = false;
+  const queue = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; scan(); });
+  };
+  const start = () => {
+    scan();
+    new MutationObserver(queue).observe(document.body, { childList: true, subtree: true, characterData: true });
+    window.addEventListener('scroll', () => hidePop(), { passive: true, capture: true });
+    document.addEventListener('click', () => hidePop());
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 })();
 
 // ─── Storage Helpers ────────────────────────────────────────────────────────
