@@ -17,7 +17,8 @@
      FIREBASE_PROJECT_ID default inventory-system-1fb4d
    ──────────────────────────────────────────────────────────────────────────── */
 const http = require('node:http');
-const admin = require('firebase-admin');
+const { initializeApp, getApps } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const PORT = Number(process.env.PORT || 8787);
@@ -43,7 +44,7 @@ const MAX_TOTAL_CHARS = 40000;
 const MAX_PAGE_CHARS = 60;
 const RATE_LIMIT = { max: 30, windowMs: 10 * 60 * 1000 };   // per signed-in user
 
-if (!admin.apps.length) admin.initializeApp({ projectId: PROJECT_ID });
+if (!getApps().length) initializeApp({ projectId: PROJECT_ID });
 
 // Stable system prompt (kept byte-identical between requests so it caches).
 const SYSTEM_PROMPT = `You are the help assistant inside the EPC Commercial Corporation Accounting Portal, an internal web app used by the company's accounting staff in the Philippines. Amounts are in Philippine pesos (₱).
@@ -142,7 +143,7 @@ async function handleChat(req, res, origin) {
   if (!match) return send(res, 401, { error: 'Please sign in to use the assistant.' }, origin);
   let user;
   try {
-    user = await admin.auth().verifyIdToken(match[1]);
+    user = await getAuth().verifyIdToken(match[1]);
   } catch (err) {
     return send(res, 401, { error: 'Your session expired. Please sign in again.' }, origin);
   }
