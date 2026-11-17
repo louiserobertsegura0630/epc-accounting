@@ -1552,3 +1552,13 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
 .epc-chat-note { margin: 0; padding: 0 var(--space-4) var(--space-3); font-size: var(--fs-2xs); color: var(--subtle); background: #fff; text-align: center; }
 @media print { .epc-chat { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { .epc-chat-panel { animation: none; } .epc-chat-dots i { animation-duration: 2.4s; } }
+/* "Ask about this report": which loaded report the assistant is using */
+.epc-chat-context {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4); background: var(--primary-soft); border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm); color: var(--teal-900);
+}
+.epc-chat-context[hidden] { display: none; }
+.epc-chat-context-label { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.epc-chat-context-toggle { display: inline-flex; align-items: center; gap: .375rem; white-space: nowrap; cursor: pointer; font-weight: 500; }
+.epc-chat-context-toggle input { width: 1.125rem; height: 1.125rem; accent-color: var(--teal-800); }
