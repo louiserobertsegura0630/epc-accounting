@@ -21,7 +21,7 @@ admin.initializeApp();
 
 const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY');
 
-const MODEL = 'claude-opus-5-5';
+const MODEL = 'claude-haiku-5-5';   // fast and low-cost; fine for help-desk answers
 
 // Abuse limits: keep each request (and its cost) bounded.
 const MAX_TURNS = 24;            // messages kept from the conversation
@@ -119,14 +119,11 @@ exports.chat = onRequest(
 
     const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() });
     try {
-      const response = await client.beta.messages.create({
+      const response = await client.messages.create({
         model: MODEL,
         max_tokens: 8000,
-        // On a safety decline, the API retries the same request on a suitable
-        // fallback model inside this call.
-        betas: ['server-side-fallback-2026-07-01'],
-        fallbacks: 'default',
         // Short help-desk answers: low effort keeps replies quick and cheap.
+        // (Haiku has no server-side refusal fallback; a decline is handled below.)
         output_config: { effort: 'low' },
         system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
         messages,

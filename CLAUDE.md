@@ -32,7 +32,7 @@ The workflows deploy hosting only. Cloud Functions (`functions/`, the chat assis
 
 ## AI assistant (chatbot)
 
-A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It posts the conversation to `/api/chat`, which a Hosting rewrite in `firebase.json` sends to the `chat` Cloud Function (`functions/index.js`, region `asia-southeast1`). The function checks the user's Firebase ID token, then calls Claude (`claude-opus-5-5`, low effort) with the Anthropic SDK.
+A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It posts the conversation to `/api/chat`, which a Hosting rewrite in `firebase.json` sends to the `chat` Cloud Function (`functions/index.js`, region `asia-southeast1`). The function checks the user's Firebase ID token, then calls Claude (`claude-haiku-5-5`, low effort; chosen for cost) with the Anthropic SDK.
 
 - **The Anthropic API key lives only in Firebase's secret store** (`ANTHROPIC_API_KEY`). Never put it in the website code, `firebase.json`, a `.env` file in git, or a chat. Set or rotate it with:
   ```sh
