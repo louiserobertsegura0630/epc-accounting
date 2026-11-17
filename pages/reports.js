@@ -562,6 +562,9 @@ function reportProgressStep(value, label = '') {
 async function withReportProgress(label, task) {
   const loading = document.getElementById('report-loading');
   const applyButton = document.getElementById('btn-apply-report-range');
+  // Shown as a pop-up: live at the top level so its dimmed backdrop covers the
+  // whole window (the sidebar too), like the loading pop-up on other pages.
+  if (loading.parentElement !== document.body) document.body.appendChild(loading);
   clearInterval(reportProgressTimer);
   loading.classList.add('active');
   applyButton.disabled = true;

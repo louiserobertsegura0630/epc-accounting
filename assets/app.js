@@ -90,6 +90,11 @@ window.EPCLoading = window.EPCLoading || (() => {
       count = Math.max(0, count - 1);
       if (el && count === 0) el.hidden = true;
     },
+    // Show the pop-up while fn() runs (fn may return a promise).
+    async run(message, fn) {
+      this.show(message);
+      try { return await fn(); } finally { this.hide(); }
+    },
   };
 })();
 
@@ -2256,7 +2261,7 @@ class TrackingTable {
       generateRow =
         `<tr class="generate-row"><th colspan="${span}" class="generate-cell">
           <button class="btn btn-primary btn-sm" id="${g.btnId || 'tt-generate-' + id}" type="button"
-            onclick="${g.onClick}()">${g.label || 'Generate'}</button>
+            onclick="EPCLoading.run('Loading records…', () => ${g.onClick}())">${g.label || 'Generate'}</button>
           <span class="generate-status" id="${g.statusId || 'tt-generate-status-' + id}"></span>
         </th></tr>`;
     }

@@ -300,3 +300,31 @@
 .inv-trend-chips { display:flex; gap:6px; flex-wrap:wrap; width:100%; }
 .inv-trend-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:var(--mint-50); color:#1e40af; font-size:12px; font-weight:600; }
 .inv-trend-chip button { border:0; background:none; color:#1e40af; cursor:pointer; font-size:15px; line-height:1; padding:0; }
+
+/* Loading progress shows as a centered pop-up over a dimmed page (like the
+   loading pop-up on every other page), not a small bar under the dates. */
+@media screen {
+  .report-loading.active {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 2000; width: min(24rem, calc(100vw - 2rem)); max-width: none; margin: 0;
+    padding: 1.75rem 2rem; background: #fff; border-radius: 1.375rem;
+    box-shadow: 0 0 0 100vmax rgba(13, 59, 53, .35), 0 30px 60px -20px rgba(13, 59, 53, .45);
+    animation: rep-fade .25s ease;
+  }
+  .report-loading.active::before {
+    content: ''; display: block; height: 2.875rem; margin: 0 auto 1rem; width: 4.5rem;
+    background:
+      linear-gradient(var(--t-teal-2), var(--t-teal-2)) 0 100% / 0.625rem 60% no-repeat,
+      linear-gradient(var(--t-lime-2), var(--t-lime-2)) 0.95rem 100% / 0.625rem 100% no-repeat,
+      linear-gradient(var(--t-pink-2), var(--t-pink-2)) 1.9rem 100% / 0.625rem 45% no-repeat,
+      linear-gradient(var(--t-lav-2), var(--t-lav-2)) 2.85rem 100% / 0.625rem 80% no-repeat,
+      linear-gradient(#e39a4c, #e39a4c) 3.8rem 100% / 0.625rem 55% no-repeat;
+    animation: rep-pulse 1.2s ease-in-out infinite;
+  }
+  .report-loading.active .report-loading-header { font-size: var(--fs-base); font-weight: 600; color: var(--ink); margin-bottom: 0.75rem; }
+  .report-loading.active .report-loading-track { height: 0.625rem; background: var(--mint-100); }
+  .report-loading.active .report-loading-fill { background: linear-gradient(90deg, var(--teal-600), var(--teal-900)); }
+}
+@keyframes rep-fade { from { opacity: 0; } }
+@keyframes rep-pulse { 0%, 100% { opacity: .55; transform: scaleY(.85); } 50% { opacity: 1; transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .report-loading.active, .report-loading.active::before { animation: none; } }
