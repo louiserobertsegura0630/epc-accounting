@@ -51,8 +51,8 @@ function productsBlock(products) {
   return `<div style="border-top:1px solid var(--card-border);padding-top:14px;margin-top:4px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
       <div>
-        <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Products Supplied</div>
-        <div style="font-size:13px;color:#64748b" id="supplier-products-count">${products.length.toLocaleString()} product${products.length === 1 ? '' : 's'} assigned</div>
+        <div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Products Supplied</div>
+        <div style="font-size:0.875rem;color:#64748b" id="supplier-products-count">${products.length.toLocaleString()} product${products.length === 1 ? '' : 's'} assigned</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn btn-outline btn-sm" onclick="openAssignProducts('${ACTIVE_SUPPLIER_ID}')">Edit / Assign Products</button>
@@ -98,7 +98,7 @@ function showSupToast(html, type = 'success', ms = 5000) {
   const el = document.createElement('div');
   el.id = 'sup-toast';
   el.style.cssText = `position:fixed;bottom:24px;right:24px;background:${bg};color:white;
-    padding:13px 18px;border-radius:10px;font-size:13.5px;font-weight:600;
+    padding:13px 18px;border-radius:10px;font-size:0.875rem;font-weight:600;
     font-family:'Figtree',sans-serif;z-index:9999;max-width:390px;line-height:1.5;
     box-shadow:0 4px 20px rgba(0,0,0,0.18);cursor:pointer`;
   el.innerHTML = html;
@@ -493,7 +493,7 @@ function supRender() {
       const sid = String(s.id);
       const logoHtml = s.logo
         ? `<img src="${s.logo}" style="width:32px;height:32px;border-radius:6px;object-fit:contain;border:1px solid var(--card-border)">`
-        : `<div style="width:32px;height:32px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#64748b">${s.name.slice(0,2).toUpperCase()}</div>`;
+        : `<div style="width:32px;height:32px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:#64748b">${s.name.slice(0,2).toUpperCase()}</div>`;
       const productCount = counts.get(s.name) || 0;
       const status = s.status || 'Active';
       return `<tr class="supplier-row" data-id="${sid}">
@@ -501,10 +501,10 @@ function supRender() {
         <td>${logoHtml}</td>
         <td><strong style="color:var(--primary)">${s.name}</strong> <span class="badge badge-blue" style="margin-left:6px">${productCount.toLocaleString()} products</span></td>
         <td><span class="badge badge-blue">${s.category||'—'}</span></td>
-        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:#64748b">${s.address||'—'}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.875rem;color:#64748b">${s.address||'—'}</td>
         <td>${s.contact||'—'}</td>
-        <td class="mono" style="font-size:12.5px">${s.phone||'—'}</td>
-        <td style="font-size:12.5px">${s.email||'—'}</td>
+        <td class="mono" style="font-size:0.875rem">${s.phone||'—'}</td>
+        <td style="font-size:0.875rem">${s.email||'—'}</td>
         <td><span class="badge ${status === 'Active' ? 'badge-green' : 'badge-gray'}">${status}</span></td>
         <td>
           <div class="action-btns">
@@ -563,15 +563,15 @@ function renderViewMode(s) {
   document.getElementById('view-sup-body').innerHTML = `
     ${logo}
     <div style="display:grid;gap:10px">
-      <div><div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Name</div><div style="font-size:15px;font-weight:700">${s.name}</div></div>
-      <div><div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Category</div><span class="badge badge-blue">${s.category||'—'}</span></div>
-      <div><div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Address</div><div style="font-size:13.5px">${s.address||'—'}</div></div>
+      <div><div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Name</div><div style="font-size:15px;font-weight:700">${s.name}</div></div>
+      <div><div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Category</div><span class="badge badge-blue">${s.category||'—'}</span></div>
+      <div><div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Address</div><div style="font-size:0.875rem">${s.address||'—'}</div></div>
       <div class="form-row form-row-3">
-        <div><div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Contact</div><div style="font-size:13.5px">${s.contact||'—'}</div></div>
-        <div><div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Phone</div><div style="font-size:13.5px">${s.phone||'—'}</div></div>
-        <div><div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Email</div><div style="font-size:13.5px">${s.email||'—'}</div></div>
+        <div><div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Contact</div><div style="font-size:0.875rem">${s.contact||'—'}</div></div>
+        <div><div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Phone</div><div style="font-size:0.875rem">${s.phone||'—'}</div></div>
+        <div><div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Email</div><div style="font-size:0.875rem">${s.email||'—'}</div></div>
       </div>
-      ${s.notes ? `<div><div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Notes</div><div style="font-size:13px;color:#64748b">${s.notes}</div></div>` : ''}
+      ${s.notes ? `<div><div style="font-size:0.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Notes</div><div style="font-size:0.875rem;color:#64748b">${s.notes}</div></div>` : ''}
       ${productsBlock(products)}
     </div>`;
   document.getElementById('view-sup-footer').innerHTML = `

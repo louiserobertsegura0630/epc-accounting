@@ -7,7 +7,7 @@
       background: #fef3c7;
       border: 1px solid #fcd34d;
       border-radius: 10px;
-      font-size: 13px;
+      font-size:0.875rem;
       color: #92400e;
     }
     .pm-cat-warning.open { display: flex; }
@@ -44,7 +44,7 @@
     }
     .bulk-action-bar.open { display: flex; }
     .bulk-selected-count {
-      font-size: 13.5px;
+      font-size:0.875rem;
       font-weight: 700;
       margin-right: auto;
     }
@@ -54,10 +54,10 @@
       justify-content: center;
       gap: 8px;
       padding: 9px 14px;
-      border-bottom: 1px solid #bfdbfe;
-      background: #eff6ff;
+      border-bottom: 1px solid var(--primary-soft-2);
+      background: var(--mint-50);
       color: #1e3a8a;
-      font-size: 13px;
+      font-size:0.875rem;
     }
     .pm-select-all-banner.open { display: flex; }
     .pm-select-all-link {
@@ -90,7 +90,7 @@
     }
     #prod-tbody tr[data-prod-id] { cursor: pointer; }
     #prod-tbody tr.pm-url-highlight td {
-      background: #dbeafe;
+      background: var(--primary-soft);
       transition: background 0.2s ease;
     }
     #prod-tbody tr.pm-url-highlight td:first-child { box-shadow: inset 4px 0 0 var(--primary); }
@@ -137,13 +137,13 @@
       border: 1px solid var(--card-border);
       border-radius: 8px;
     }
-    .pm-detail-grid span { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; }
-    .pm-latest-cost { background: #eff6ff; border-color: #bfdbfe !important; }
+    .pm-detail-grid span { font-size:0.75rem; color: var(--text-secondary); text-transform: uppercase; }
+    .pm-latest-cost { background: var(--mint-50); border-color: var(--primary-soft-2) !important; }
     .pm-latest-cost strong { color: var(--primary); font-size: 20px; }
     .pm-history-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--card-border); border-radius: 8px; }
     .pm-detail-pagination {
       border-top: 0;
       padding: 14px 0 0;
     }
-    .pm-average-cost { margin-top: 14px; text-align: right; font-size: 13px; color: var(--text-secondary); }
+    .pm-average-cost { margin-top: 14px; text-align: right; font-size:0.875rem; color: var(--text-secondary); }
     .pm-average-cost strong { margin-left: 8px; color: var(--text-primary); font-size: 16px; }

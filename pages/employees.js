@@ -236,7 +236,7 @@ function renderBatchTable() {
   document.getElementById('csv-batch-count').textContent =
     `${batchRows.length} employee${batchRows.length !== 1 ? 's' : ''} ready to import`;
 
-  const TH_STYLE = 'padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:1px solid var(--card-border);white-space:nowrap';
+  const TH_STYLE = 'padding:8px 10px;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:1px solid var(--card-border);white-space:nowrap';
   document.getElementById('batch-thead').innerHTML =
     '<tr>' + BATCH_COLS.map(c => `<th style="${TH_STYLE}">${c.label}</th>`).join('') + '</tr>';
 

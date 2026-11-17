@@ -9,7 +9,7 @@
       background: #f8fafc;
       border: 1px solid var(--card-border);
       border-radius: 8px;
-      font-size: 13px;
+      font-size:0.875rem;
       color: var(--text-secondary);
     }
     .tax-tabs { margin-bottom: 18px; }
@@ -18,15 +18,15 @@
       border-radius: 8px; background: #f8fafc;
     }
     .tax-credits-title {
-      margin-bottom: 12px; color: var(--text-primary); font-size: 13px;
+      margin-bottom: 12px; color: var(--text-primary); font-size:0.875rem;
       font-weight: 800; letter-spacing: .4px; text-transform: uppercase;
     }
-    .tax-credits-title span { color: var(--text-secondary); font-size: 11px; }
+    .tax-credits-title span { color: var(--text-secondary); font-size:0.75rem; }
     .tax-credit-row {
       display: grid; grid-template-columns: minmax(0, 1fr) 190px auto;
       align-items: center; gap: 10px; margin-bottom: 8px;
     }
-    .tax-credit-row label { font-size: 13px; font-weight: 600; }
+    .tax-credit-row label { font-size:0.875rem; font-weight: 600; }
     .tax-credit-total {
       display: flex; align-items: center; justify-content: space-between;
       margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--card-border);
@@ -44,13 +44,13 @@
       border-radius: 8px; background: #f8fafc;
     }
     .tax-source-title {
-      margin-bottom: 9px; color: var(--text-secondary); font-size: 11px;
+      margin-bottom: 9px; color: var(--text-secondary); font-size:0.75rem;
       font-weight: 800; letter-spacing: .45px; text-transform: uppercase;
     }
     .tax-source-row {
       display: flex; align-items: center; justify-content: space-between;
       gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--card-border);
-      font-size: 13px;
+      font-size:0.875rem;
     }
     .tax-source-row:last-of-type { margin-bottom: 10px; }
     .tax-source-row small { color: var(--text-secondary); }
@@ -85,11 +85,11 @@
       width: 100%; max-width: 100%; box-sizing: border-box;
     }
     .esales-drop-zone:hover,
-    .esales-drop-zone.dragover { border-color: var(--primary); background: #eff6ff; }
+    .esales-drop-zone.dragover { border-color: var(--primary); background: var(--mint-50); }
     .esales-drop-zone .drop-icon { font-size: 26px; line-height: 1; }
-    .esales-drop-zone p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+    .esales-drop-zone p { margin: 0; font-size:0.875rem; color: var(--text-secondary); }
     .esales-progress-label {
-      font-size: 12.5px; font-weight: 600; margin-bottom: 7px; color: var(--primary);
+      font-size:0.875rem; font-weight: 600; margin-bottom: 7px; color: var(--primary);
     }
     .esales-progress-wrap { background: #e2e8f0; border-radius: 8px; height: 10px; overflow: hidden; }
     .esales-progress-fill {
@@ -107,7 +107,7 @@
     .es-select-col { width: 42px; min-width: 42px; text-align: center; }
     .esales-active-filter-count { color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; }
     .esales-summary-period-label {
-      display: none; margin: -8px 0 16px; font-size: 12.5px;
+      display: none; margin: -8px 0 16px; font-size:0.875rem;
       color: var(--primary); font-weight: 700;
     }
     .esales-summary-period-label.open { display: block; }
@@ -121,7 +121,7 @@
     .sortable { cursor: pointer; user-select: none; white-space: nowrap; }
     .sortable:hover { color: var(--primary); }
     .sortable.is-sorted { color: var(--primary); }
-    .sort-icon { margin-left: 4px; font-size: 11px; color: var(--text-secondary); }
+    .sort-icon { margin-left: 4px; font-size:0.75rem; color: var(--text-secondary); }
     .sort-icon.sort-active { color: var(--primary); }
 
     /* Column filter row cells */
@@ -135,7 +135,7 @@
     .col-filter:focus { outline: none; border-color: var(--primary); }
     .col-filter-range { display: flex; align-items: center; gap: 3px; }
     .col-filter-range .col-filter { min-width: 0; width: 72px; }
-    .range-sep { font-size: 11px; color: var(--text-secondary); flex-shrink: 0; }
+    .range-sep { font-size:0.75rem; color: var(--text-secondary); flex-shrink: 0; }
     .es-filter-date { min-width: 200px; }
     .es-filter-date .col-filter { width: auto; min-width: 100px; }
     #esales-col-filter-row th { background: #f8fafc; }
@@ -146,23 +146,24 @@
       display: flex; align-items: center; gap: 10px;
       padding: 0 14px; margin: 0;
       background: #f8fafc; border: 0 solid var(--border); border-radius: 8px;
-      font-size: 13px; font-weight: 700;
+      font-size:0.875rem; font-weight: 700;
       transition: max-height .25s ease, opacity .2s ease, padding .25s ease, margin .25s ease, border-width .25s ease;
     }
+    .es-bulk-toolbar:not(.open) { visibility: hidden; }   /* collapsed: not tabbable */
     .es-bulk-toolbar.open {
-      max-height: 56px; opacity: 1;
+      max-height: 5rem; opacity: 1; flex-wrap: wrap;
       padding: 10px 14px; margin: 0 0 8px; border-width: 1px;
     }
     .es-select-all-banner {
       display: none; align-items: center; justify-content: center; gap: 6px;
       padding: 9px 14px; margin: 0 0 8px;
-      background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
-      color: #1e40af; font-size: 13px;
+      background: var(--mint-50); border: 1px solid var(--primary-soft-2); border-radius: 8px;
+      color: #1e40af; font-size:0.875rem;
     }
     .es-select-all-banner.open { display: flex; }
     .es-select-all-link {
       padding: 0; border: 0; background: none;
-      color: var(--primary); font-size: 13px; font-weight: 700;
+      color: var(--primary); font-size:0.875rem; font-weight: 700;
       text-decoration: underline; cursor: pointer;
     }
 
@@ -240,7 +241,7 @@
 
     .tax-period-label {
       color: var(--text-primary);
-      font-size: 13.5px;
+      font-size:0.875rem;
       font-weight: 800;
     }
 
@@ -261,7 +262,7 @@
     .tax-sheet-section-title {
       margin-bottom: 10px;
       color: var(--text-secondary);
-      font-size: 11px;
+      font-size:0.75rem;
       font-weight: 800;
       letter-spacing: .45px;
       text-transform: uppercase;
@@ -317,6 +318,6 @@
       border-radius: 8px;
       background: #fff7ed;
       color: #92400e;
-      font-size: 12.5px;
+      font-size:0.875rem;
       line-height: 1.45;
     }

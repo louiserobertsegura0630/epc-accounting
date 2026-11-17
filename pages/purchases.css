@@ -16,7 +16,7 @@
   border-bottom: 1px solid var(--border);
 }
 .vs-fetch-sentinel { height: 1px; pointer-events: none; }
-.vs-loading-row td { text-align: center; padding: 12px; color: var(--text-secondary); font-size: 13px; }
+.vs-loading-row td { text-align: center; padding: 12px; color: var(--text-secondary); font-size:0.875rem; }
 
     /* Additions list */
     .addition-row {
@@ -62,7 +62,7 @@
     .purchase-import-card:hover,
     .purchase-import-card.dragover {
       border-color: var(--primary);
-      background: #eff6ff;
+      background: var(--mint-50);
     }
     .purchase-import-card p {
       margin: 4px 0 0;
@@ -84,7 +84,7 @@
     }
     #purchases-table .sort-icon {
       color: var(--text-muted);
-      font-size: 11px;
+      font-size:0.75rem;
       margin-left: 3px;
     }
     .purchase-select-col {
@@ -102,7 +102,7 @@
       border-radius: 8px;
       background: #fff7ed;
       color: var(--text-primary);
-      font-size: 13px;
+      font-size:0.875rem;
       font-weight: 700;
     }
     .purchase-bulk-toolbar.open {
@@ -120,7 +120,7 @@
       border: 1px solid var(--card-border);
       border-radius: 6px;
       font-family: inherit;
-      font-size: 11px;
+      font-size:0.75rem;
       color: var(--text-primary);
       background: #fff;
     }
@@ -139,7 +139,7 @@
       padding: 12px 16px;
       border-top: 1px solid var(--card-border);
       background: #fff;
-      font-size: 13px;
+      font-size:0.875rem;
       color: var(--text-secondary);
     }
     .purchase-page-controls {

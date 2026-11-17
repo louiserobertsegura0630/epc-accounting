@@ -854,7 +854,7 @@ const supTable = new TrackingTable({
       <td><span class="badge ${m.type==='Incoming'?'badge-green':'badge-red'}">${m.type}</span></td>
       <td><strong>${m.name}</strong></td>
       <td>${m.description||'—'}</td>
-      <td class="mono">${onHand.toLocaleString()}<div style="font-size:11px;color:#64748b">Total used: ${used.toLocaleString()}</div></td>
+      <td class="mono">${onHand.toLocaleString()}<div style="font-size:0.75rem;color:#64748b">Total used: ${used.toLocaleString()}</div></td>
       <td class="mono">${formatPeso(m.unitCost)}</td>
       <td class="mono"><strong>${formatPeso(m.totalCost)}</strong></td>
       <td class="mono">${formatPeso(supplyNetAmount(m))}</td>

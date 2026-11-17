@@ -1,5 +1,5 @@
     .supplier-row { cursor: pointer; }
-    .supplier-row:hover td { background: #eff6ff; }
+    .supplier-row:hover td { background: var(--mint-50); }
     .supplier-row:hover td strong { color: var(--primary); }
     .supplier-products-list {
       border: 1px solid var(--card-border);
@@ -16,7 +16,7 @@
       align-items: center;
       padding: 10px 12px;
       border-bottom: 1px solid #f1f5f9;
-      font-size: 12.5px;
+      font-size:0.875rem;
     }
     .supplier-product-row:last-child,
     .product-picker-row:last-child { border-bottom: 0; }
@@ -53,7 +53,7 @@
       font-family: inherit;
       outline: none;
     }
-    .filter-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px #bfdbfe55; }
+    .filter-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft-2)55; }
 
     /* ── Bulk action bar ─────────────────────────────────────────────────── */
     .sup-bulk-bar {
@@ -69,7 +69,7 @@
     }
     .sup-bulk-bar.open { display: flex; }
     .sup-bulk-count {
-      font-size: 13.5px;
+      font-size:0.875rem;
       font-weight: 700;
       color: var(--text-primary);
       margin-right: auto;
@@ -81,11 +81,11 @@
       gap: 8px;
       padding: 9px 14px;
       margin-bottom: 10px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
+      background: var(--mint-50);
+      border: 1px solid var(--primary-soft-2);
       border-radius: 8px;
       color: #1e40af;
-      font-size: 13px;
+      font-size:0.875rem;
     }
     .sup-select-all-banner.open { display: flex; }
     .sup-select-all-link {

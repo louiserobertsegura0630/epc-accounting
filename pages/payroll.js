@@ -108,7 +108,7 @@ document.getElementById('btn-compute').addEventListener('click', () => {
 
   // Totals row
   rows.push(`<tr style="background:#f8fafc">
-    <td colspan="3" style="text-align:right;padding:12px 20px;font-size:11.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.4px">TOTALS</td>
+    <td colspan="3" style="text-align:right;padding:12px 20px;font-size:0.75rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.4px">TOTALS</td>
     <td class="mono" style="font-weight:700">${formatPeso(totBasic)}</td>
     <td colspan="3"></td>
     <td class="mono" style="font-weight:700">${formatPeso(totAllow)}</td>

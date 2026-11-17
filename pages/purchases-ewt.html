@@ -5,8 +5,8 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Purchases - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261116-type3">
-  <link rel="stylesheet" href="purchases.css?v=20260622-supplier-search">
+  <link rel="stylesheet" href="../assets/style.css?v=20261117-ux5">
+  <link rel="stylesheet" href="purchases.css?v=20261117-ds4d">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -83,7 +83,7 @@
           <option value="">All Suppliers</option>
         </select>
         <button class="btn btn-outline-gray btn-sm" id="btn-load-more-purchases" type="button" style="display:none">Load more</button>
-        <label for="purchases-load-limit" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary)">
+        <label for="purchases-load-limit" style="display:inline-flex;align-items:center;gap:6px;font-size:0.875rem;color:var(--text-secondary)">
           Load
           <input type="number" class="filter-date-input" id="purchases-load-limit" min="50" max="1000" step="50" value="200" style="width:84px">
           at a time
@@ -230,7 +230,7 @@
       </div>
 
       <div class="form-group" style="margin-bottom:14px">
-        <label class="form-label">Gross Amount (₱) <span style="font-size:11px;color:var(--text-muted);font-weight:400">= Net Amount + Input VAT</span></label>
+        <label class="form-label">Gross Amount (₱) <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400">= Net Amount + Input VAT</span></label>
         <input type="text" class="form-input" id="f-gross-amount" data-currency placeholder="0.00">
       </div>
 
@@ -275,7 +275,7 @@
       <div id="additions-list"></div>
 
       <button type="button" id="btn-add-addition"
-        style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:600;font-family:'Figtree',sans-serif;cursor:pointer;display:flex;align-items:center;gap:5px;padding:2px 0;margin-bottom:14px">
+        style="background:none;border:none;color:var(--primary);font-size:0.875rem;font-weight:600;font-family:'Figtree',sans-serif;cursor:pointer;display:flex;align-items:center;gap:5px;padding:2px 0;margin-bottom:14px">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add Another Addition
       </button>
@@ -365,7 +365,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20261116-type3b"></script>
+<script src="../assets/app.js?v=20261117-chaton"></script>
 <script src="purchases.js?v=20261019-si-number"></script>
 </body>
 </html>

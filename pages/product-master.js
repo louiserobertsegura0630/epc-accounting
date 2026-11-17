@@ -101,7 +101,7 @@ function showPMToast(html, type = 'success', ms = 5000) {
   const el = document.createElement('div');
   el.id = 'pm-toast';
   el.style.cssText = `position:fixed;bottom:24px;right:24px;background:${bg};color:white;
-    padding:13px 18px;border-radius:10px;font-size:13.5px;font-weight:600;
+    padding:13px 18px;border-radius:10px;font-size:0.875rem;font-weight:600;
     font-family:'Figtree',sans-serif;z-index:9999;max-width:390px;line-height:1.5;
     box-shadow:0 4px 20px rgba(0,0,0,0.18);cursor:pointer`;
   el.innerHTML = html;
@@ -511,7 +511,7 @@ function renderTable() {
     const missingCat = !cat;
     const trClass    = missingCat ? ' class="pm-missing-cat"' : '';
     const catCell    = missingCat
-      ? `<span class="badge badge-amber" style="font-size:10px;vertical-align:middle;margin-right:5px">Missing</span><button class="btn btn-outline btn-xs pm-edit-btn" type="button" data-id="${p.id}">Edit</button>`
+      ? `<span class="badge badge-amber" style="font-size:0.75rem;vertical-align:middle;margin-right:5px">Missing</span><button class="btn btn-outline btn-xs pm-edit-btn" type="button" data-id="${p.id}">Edit</button>`
       : cat;
     return `<tr data-prod-id="${p.id}"${trClass}>
       <td class="select-col"><input type="checkbox" class="pm-row-select" value="${p.id}" aria-label="Select product" onchange="toggleProductSelection('${p.id}', this.checked)"></td>

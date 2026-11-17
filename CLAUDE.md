@@ -28,7 +28,23 @@ So the steps are:
 2. Merge it into `main`. The live site updates by itself.
 3. Check https://epc-inventory-system.web.app (hard refresh).
 
-The workflows deploy hosting only. When Firestore rules/indexes change, deploy them by hand: `npx -y firebase-tools@latest deploy --only firestore`. A manual hosting deploy still works if ever needed: `npx -y firebase-tools@latest deploy --only hosting:app`.
+The workflows deploy hosting only (the chat API runs on the Hostinger VPS, see AI assistant below). When Firestore rules/indexes change, deploy them by hand: `npx -y firebase-tools@latest deploy --only firestore`. A manual hosting deploy still works if ever needed: `npx -y firebase-tools@latest deploy --only hosting:app`.
+
+## AI assistant (chatbot)
+
+A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It stays hidden if `EPC_CHAT_URL` in `assets/app.js` is empty; it is set to `https://epc-chat.187-127-124-15.sslip.io/api/chat`.
+
+The chat API runs on the **Hostinger VPS**, not Firebase (the Firebase project stays on the free Spark plan):
+- Code: `chat-server/server.js` (Node, no framework). It verifies the user's Firebase ID token with Google's public keys, allows only the portal's own web addresses (CORS: the live site and `epc-inventory-system--*.web.app` previews), limits each user to 30 questions per 10 minutes, and calls Claude (`claude-haiku-5-5`, low effort; chosen for cost) with the Anthropic SDK.
+- **The Anthropic API key lives only on the VPS** in `/etc/epc-chat.env` (root-only). Never put it in the website code, git, or a chat.
+- Setup or update (as root on the VPS, from a copy of the `chat-server/` folder): `bash setup-vps.sh`. It asks for the key without echoing it and prints the chat API address to put in `EPC_CHAT_URL`.
+- **Our VPS (187.127.124.15) runs Coolify**, whose Traefik (`coolify-proxy`) owns ports 80/443 and serves other apps (Supabase, n8n, etc.). The script detects this and runs the chat server as the Docker container `epc-chat` on the `coolify` network (no public port; node:22-alpine, read-only, app mounted from `/opt/epc-chat`) and adds one route file, `/data/coolify/proxy/dynamic/epc-chat.yaml`, for `epc-chat.187-127-124-15.sslip.io` with Let's Encrypt. Nothing Coolify manages is edited. On a VPS without Coolify it uses Node + Caddy as a systemd service instead.
+- Copying the folder from a Mac: `scp -r chat-server root@<VPS-IP>:/root/`
+- Logs on the VPS: `docker logs -f epc-chat` (Coolify mode) or `journalctl -u epc-chat -f` (plain mode). Each answer logs the user id and token counts.
+- **Data lookups** (`chat-server/data-tools.js`): Claude can call read-only tools `get_sales` (salesDaily, ≤31 days), `get_purchases` and `get_expenses` (≤92 days, ≤500 records) and `find_product` (Product Master by exact item code). They read Firestore's REST API **with the signed-in user's own ID token**, so security rules apply as in the portal; no service-account key is used and nothing is written.
+- **Daily limits** (Philippine date, in memory, reset on restart): 20 data questions per person and 200 for the whole team (`DATA_LIMIT_USER` / `DATA_LIMIT_TOTAL` in `/etc/epc-chat.env`). How-to questions don't count. The same 30-questions-per-10-minutes limit per person also applies.
+- The system prompt in `chat-server/server.js` lists the pages, so update it (and re-run `setup-vps.sh`) when pages are added or renamed.
+- `chat-server/` is kept out of Firebase Hosting by the `chat-server/**` ignore rule.
 
 Local preview: `npx -y firebase-tools@latest emulators:start` (hosting on port 5050, Firestore on port 8080).
 
@@ -40,6 +56,7 @@ Node note: the local Node is v25. firebase-tools warns that it supports Node 20/
 - `pages/` holds one HTML page per module (dashboard, purchases, sales, supplies, reports, etc.).
 - `firestore.rules`, `firestore.indexes.json`: security rules and indexes.
 - Root `*.js` and `scripts/` are Node admin scripts (`firebase-admin`): backups, restores, exports, user creation. They never deploy.
+- `chat-server/`: the chat assistant API that runs on the Hostinger VPS. Kept out of Hosting by the `chat-server/**` ignore rule.
 
 ## Rule: adding a field means wiring it everywhere
 

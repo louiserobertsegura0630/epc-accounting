@@ -24,7 +24,8 @@
       "*.js",
       "*.log",
       "*.md",
-      "data/**"
+      "data/**",
+      "chat-server/**"
     ]
   },
   "firestore": {

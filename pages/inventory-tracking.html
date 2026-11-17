@@ -5,9 +5,9 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventory Tracking - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261116-type3">
-  <link rel="stylesheet" href="../assets/import-mapper.css?v=20260821-uploads-list">
-  <link rel="stylesheet" href="inventory-tracking.css?v=20260703-supplier-fix">
+  <link rel="stylesheet" href="../assets/style.css?v=20261117-ux5">
+  <link rel="stylesheet" href="../assets/import-mapper.css?v=20261117-ds4d">
+  <link rel="stylesheet" href="inventory-tracking.css?v=20261117-ds4d">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -124,7 +124,7 @@
     <!-- Uploaded files: view + delete/replace a past inventory upload -->
     <div class="card mb-24" id="inv-uploads-card">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-        <div style="font-size:16px;font-weight:700;">Uploaded Files</div>
+        <div style="font-size:var(--fs-lg);font-weight:600;">Uploaded Files</div>
         <label class="imp-note" style="margin:0;">Sort by
           <select id="inv-uploads-sort">
             <option value="uploadedAt-desc">Most recent</option>
@@ -322,7 +322,7 @@
       <button class="modal-close" id="btn-close-bulk-delete" data-close-modal>✕</button>
     </div>
     <div class="modal-body">
-      <p id="bulk-delete-body" style="font-size:13.5px;color:var(--text-secondary);line-height:1.6;margin:0">
+      <p id="bulk-delete-body" style="font-size:0.875rem;color:var(--text-secondary);line-height:1.6;margin:0">
         This will permanently remove 0 inventory records. This action cannot be undone.
       </p>
     </div>
@@ -341,7 +341,7 @@
       <button class="modal-close" data-close-modal>✕</button>
     </div>
     <div class="modal-body">
-      <div class="alert alert-info" style="font-size:12.5px">
+      <div class="alert alert-info" style="font-size:0.875rem">
         Upload your MIS <strong>.xls, .xlsx, or .csv</strong> file. Columns are detected automatically.<br>
         <strong>Item Code · Description · Category · Supplier · Qty · Unit Cost · Total Cost</strong><br>
         All rows are imported as <strong>Incoming</strong>. Date is auto-detected from the file.
@@ -358,7 +358,7 @@
       <div id="mis-parse-progress" style="display:none;margin-top:14px">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <div class="mis-spinner"></div>
-          <span id="mis-parse-status" style="font-size:12.5px;font-weight:600;color:var(--text-secondary)">Parsing file…</span>
+          <span id="mis-parse-status" style="font-size:0.875rem;font-weight:600;color:var(--text-secondary)">Parsing file…</span>
         </div>
         <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden">
           <div id="mis-parse-bar" style="height:100%;background:var(--primary);border-radius:3px;width:0%;transition:width 0.2s ease"></div>
@@ -366,18 +366,18 @@
       </div>
 
       <!-- Date banner -->
-      <div id="mis-date-banner" style="display:none;padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12.5px;color:#1e40af;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <div id="mis-date-banner" style="display:none;padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:0.875rem;color:#1e40af;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span id="mis-date-text" style="flex:1"></span>
-        <label style="font-size:11.5px;font-weight:600;color:#3b82f6;flex-shrink:0">Override:</label>
+        <label style="font-size:0.75rem;font-weight:600;color:#3b82f6;flex-shrink:0">Override:</label>
         <input type="date" id="mis-date-override" class="filter-date-input" style="font-size:12px">
       </div>
 
       <!-- Preview with virtual scroll -->
       <div id="mis-preview" style="display:none;margin-top:14px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-          <span id="mis-preview-count" style="font-size:13px;font-weight:700;color:var(--text-primary)"></span>
-          <span id="mis-pm-warning" class="badge badge-amber" style="display:none;font-size:11px"></span>
+          <span id="mis-preview-count" style="font-size:0.875rem;font-weight:700;color:var(--text-primary)"></span>
+          <span id="mis-pm-warning" class="badge badge-amber" style="display:none;font-size:0.75rem"></span>
           <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
             <button class="btn btn-outline-gray btn-xs" id="mis-select-all-btn">All</button>
             <button class="btn btn-outline-gray btn-xs" id="mis-deselect-all-btn">None</button>
@@ -395,7 +395,7 @@
 
       <!-- Import progress bar (shown while saving) -->
       <div id="mis-import-progress" style="display:none;padding:14px 0 4px">
-        <div style="font-size:12.5px;font-weight:600;color:var(--text-secondary);margin-bottom:7px" id="mis-import-status">Importing…</div>
+        <div style="font-size:0.875rem;font-weight:600;color:var(--text-secondary);margin-bottom:7px" id="mis-import-status">Importing…</div>
         <div style="height:10px;background:#f1f5f9;border-radius:5px;overflow:hidden">
           <div id="mis-import-bar" style="height:100%;background:var(--primary);border-radius:5px;width:0%;transition:width 0.15s ease"></div>
         </div>
@@ -543,9 +543,9 @@ self.onmessage = function(e) {
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20261116-type3b"></script>
+<script src="../assets/app.js?v=20261117-chaton"></script>
 <script src="../assets/shared-utils.js"></script>
 <script src="../assets/import-mapper.js?v=20260821-uploads-list"></script>
-<script src="inventory-tracking.js?v=20261116-type2"></script>
+<script src="inventory-tracking.js?v=20261117-ds4d"></script>
 </body>
 </html>

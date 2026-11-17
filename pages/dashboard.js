@@ -561,17 +561,17 @@ function generateDayReport() {
 <title>Daily Operations Report - ${dateLabel}</title>
 <style>
   *{box-sizing:border-box}
-  body{font-family:Arial,sans-serif;padding:44px;color:#0f172a;font-size:13px;max-width:680px;margin:0 auto}
+  body{font-family:Arial,sans-serif;padding:44px;color:#0f172a;font-size:0.875rem;max-width:680px;margin:0 auto}
   h1{font-size:22px;margin:0 0 2px}
   .meta{color:#64748b;font-size:12px;margin:0 0 30px}
-  h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#64748b;margin:22px 0 6px;padding-bottom:6px;border-bottom:1px solid #e2e8f0}
+  h3{font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#64748b;margin:22px 0 6px;padding-bottom:6px;border-bottom:1px solid #e2e8f0}
   table{width:100%;border-collapse:collapse;margin-bottom:4px}
-  td{padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:13px}
+  td{padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:0.875rem}
   td:last-child{text-align:right;font-family:'Courier New',monospace;white-space:nowrap}
   tr.sub td:first-child{padding-left:24px;color:#64748b}
   tr.total td{font-weight:700;border-top:2px solid #cbd5e1;border-bottom:none;padding-top:10px}
   .pos{color:#15803d} .neg{color:#dc2626}
-  .footer{margin-top:36px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:12px}
+  .footer{margin-top:36px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:12px}
   @media print{body{padding:24px}}
 </style></head><body>
 <h1>EPC Commercial Corporation</h1>
@@ -725,7 +725,7 @@ function makeBarChart(canvasId, items, color, measure) {
           beginAtZero:true,
           min:0,
           title:{ display:true, text:measure === 'pesos' ? 'Sales Value (₱)' : 'Units Sold', color:'#64748b' },
-          grid:{ color:'rgba(15,31,61,.06)' }, border:{ display:false },
+          grid:{ color:'rgba(13,59,53,.06)' }, border:{ display:false },
           ticks:{
             precision:measure === 'units' ? 0 : undefined,
             font:{size:13},
@@ -734,7 +734,7 @@ function makeBarChart(canvasId, items, color, measure) {
               : Math.round(Number(value)).toLocaleString('en-PH')
           }
         },
-        y: { ticks:{ font:{size:13, weight:'500'}, color:'#0f1f3d' }, grid:{ display:false }, border:{ display:false } }
+        y: { ticks:{ font:{size:13, weight:'500'}, color:'#0d3b35' }, grid:{ display:false }, border:{ display:false } }
       }
     }
   });
