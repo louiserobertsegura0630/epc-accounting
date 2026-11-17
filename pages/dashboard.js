@@ -106,8 +106,22 @@ async function loadSalesForDate(date) {
   _salesDailyCache.set(date, rows);
   return rows;
 }
+// The Sales Pulse (dashboard-sales.js) loads a block of recent days on page open.
+// It hands them over here so the rest of the page reuses them instead of reading again.
+let _salesCoverage = null; // { from, to }: every date in this range is in the cache
+function primeSalesCache(from, to, docsByDate) {
+  for (let d = from; d <= to; d = addDaysIso(d, 1)) {
+    _salesDailyCache.set(d, docsByDate[d] ? salesDayToRows(d, docsByDate[d]) : []);
+  }
+  _salesCoverage = { from, to };
+}
 // Read a date range of salesDaily docs by document-id (one read per existing day).
 async function loadSalesRange(from, to) {
+  if (_salesCoverage && from >= _salesCoverage.from && to <= _salesCoverage.to) {
+    const cached = [];
+    for (let d = from; d <= to; d = addDaysIso(d, 1)) cached.push(...(_salesDailyCache.get(d) || []));
+    return cached;
+  }
   const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
   if (!db) return [];
   try {
