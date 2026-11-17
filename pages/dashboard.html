@@ -5,10 +5,46 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261117-askreport">
+  <link rel="stylesheet" href="../assets/style.css?v=20261117-chat-size">
   <link rel="stylesheet" href="dashboard.css?v=20261117-ds4e">
+  <link rel="stylesheet" href="dashboard-sales.css?v=20261117-pulse">
+  <script>
+    // Runs before the page paints: pick the season from today's date and decide
+    // whether to show the logo intro (once per browser session).
+    (function () {
+      var d = new Date(), m = d.getMonth() + 1, day = d.getDate(), s = 'default';
+      if (m >= 9) s = 'christmas';
+      else if (m === 1 && day <= 15) s = 'newyear';
+      else if (m === 2 && day <= 14) s = 'valentine';
+      else if (m >= 3 && m <= 5) s = 'summer';
+      else if (m >= 6 && m <= 8) s = 'rainy';
+      var q = /[?&]season=([a-z]+)/.exec(location.search);
+      if (q && /^(christmas|newyear|valentine|summer|rainy|default)$/.test(q[1])) s = q[1];
+      window.EPC_SEASON = s;
+      document.documentElement.setAttribute('data-season', s);
+      try {
+        if (!sessionStorage.getItem('epc_intro_seen') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          document.documentElement.classList.add('intro-pending');
+        }
+      } catch (e) { /* storage off: no intro */ }
+    })();
+  </script>
 </head>
 <body>
+<!-- Logo intro: shown once per browser session, click or press a key to skip -->
+<div class="intro" id="epc-intro" aria-hidden="true">
+  <canvas class="intro-fx"></canvas>
+  <div class="intro-stage">
+    <div class="intro-logo">
+      <svg class="intro-ring" viewBox="0 0 120 120"><circle cx="60" cy="60" r="56"/></svg>
+      <img src="../logo.jpeg" alt="">
+      <span class="intro-shine"></span>
+    </div>
+    <div class="intro-name">EPC Commercial Corporation</div>
+    <div class="intro-tag" id="intro-tag">Accounting Portal</div>
+  </div>
+  <div class="intro-skip">Click anywhere to skip</div>
+</div>
 <div id="sidebar-container"></div>
 <div class="main-content dash2">
 
@@ -24,8 +60,14 @@
     <!-- Greeting + date control -->
     <section class="dash-hero reveal">
       <div class="dash-hero-text">
+        <p class="dash-today" id="dash-today"></p>
         <h1 class="dash-greet" id="dash-greet">Welcome back!</h1>
         <p class="dash-sub" id="snap-headline">Daily Operations Summary. All figures are for the selected day only.</p>
+        <div class="season-bar">
+          <span class="season-chip" id="season-chip" hidden></span>
+          <button type="button" class="season-btn" id="season-fx-btn" aria-pressed="true" hidden>Effects on</button>
+          <button type="button" class="season-btn" id="season-sound-btn" aria-pressed="true">Sound on</button>
+        </div>
       </div>
       <div class="dash-hero-ctrls">
         <input type="date" id="snap-date" class="dash-date" aria-label="Day to review">
@@ -36,6 +78,22 @@
         <span id="dash-gen-status" class="gen-status"></span>
         <button class="dash-btn-dark" id="dash-generate-btn" type="button">Generate Report</button>
       </div>
+    </section>
+
+    <!-- Sales Pulse: loads by itself from the latest sales imports (dashboard-sales.js) -->
+    <section class="dash-panel reveal" id="sales-pulse">
+      <div class="dash-panel-hd sp-hd">
+        <div>
+          <h2>Sales Pulse</h2>
+          <p class="dash-caption">From your latest sales imports. Loads by itself.</p>
+        </div>
+        <div class="sp-hd-right">
+          <span class="dash-chip" id="sp-asof">Loading…</span>
+          <span class="gen-status" id="sp-updated"></span>
+          <button type="button" class="dash-preset sp-refresh" id="sp-refresh">Refresh</button>
+        </div>
+      </div>
+      <div id="sp-body"></div>
     </section>
 
     <div class="dash-empty reveal" id="dash-empty-state">
@@ -196,7 +254,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20261117-askreport"></script>
-<script src="dashboard.js?v=20261117-askreport"></script>
+<script src="../assets/app.js?v=20261117-chat-size"></script>
+<script src="dashboard.js?v=20261117-pulse"></script>
+<script src="dashboard-sales.js?v=20261117-pulse"></script>
+<script src="dashboard-season.js?v=20261117-pulse"></script>
 </body>
 </html>

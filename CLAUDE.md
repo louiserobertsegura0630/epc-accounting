@@ -61,6 +61,12 @@ Node note: the local Node is v25. firebase-tools warns that it supports Node 20/
 - Root `*.js` and `scripts/` are Node admin scripts (`firebase-admin`): backups, restores, exports, user creation. They never deploy.
 - `chat-server/`: the chat assistant API that runs on the Hostinger VPS. Kept out of Hosting by the `chat-server/**` ignore rule.
 
+## Dashboard: Sales Pulse, season theme, logo intro
+
+- `pages/dashboard-sales.js` + `dashboard-sales.css`: the **Sales Pulse** loads by itself on page open (the rest of the dashboard still waits for Generate Report). It reads the last 92 `salesDaily` day-docs (one read each), keeps them in `sessionStorage` for 30 minutes, and hands them to `dashboard.js` (`primeSalesCache`) so Product Performance reuses them. Profit is revenue minus recorded cost, so it is overstated for products with no cost yet.
+- `pages/dashboard-season.js`: season theme, logo intro and bell tune. The season comes from today's date (script in the head of `dashboard.html`): Sep–Dec Christmas, Jan 1–15 New Year, Feb 1–14 Valentine's, Mar–May summer, Jun–Aug rainy. Preview one with `dashboard.html?season=christmas`. The intro shows once per browser session; Effects and Sound buttons remember the choice in `localStorage`. Sound is made with Web Audio (no audio files), and browsers block it until the user has clicked on the site.
+- Chart colours: `EPC_CHART_PASTEL` in `assets/app.js` recolours every chart. A dataset with `__epcPastel: true` keeps its own colours.
+
 ## Rule: adding a field means wiring it everywhere
 
 When a field is added to any form, wire it through end to end in the same change, without being asked:

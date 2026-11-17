@@ -1502,6 +1502,7 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
   animation: t-pop .3s var(--t-ease);
 }
 .epc-chat-panel[hidden] { display: none; }
+.epc-chat.large .epc-chat-panel { width: min(52rem, calc(100vw - 2rem)); height: calc(100vh - 7.5rem); }
 .epc-chat-head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
   padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);

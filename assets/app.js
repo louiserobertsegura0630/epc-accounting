@@ -463,6 +463,9 @@ window.EPCChatContext = window.EPCChatContext || (() => {
             <button type="button" class="epc-chat-icon" data-act="clear" aria-label="Start a new chat" title="New chat">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
             </button>
+            <button type="button" class="epc-chat-icon" data-act="size" aria-label="Enlarge the assistant" title="Enlarge" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
+            </button>
             <button type="button" class="epc-chat-icon" data-act="close" aria-label="Close the assistant">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
             </button>
@@ -569,6 +572,21 @@ window.EPCChatContext = window.EPCChatContext || (() => {
         busy = false; send.disabled = false; input.focus();
       }
     }
+
+    // Enlarge / shrink the panel; the choice is remembered on this browser.
+    const sizeBtn = root.querySelector('[data-act="size"]');
+    function setLarge(large) {
+      root.classList.toggle('large', large);
+      sizeBtn.setAttribute('aria-pressed', String(large));
+      sizeBtn.setAttribute('aria-label', large ? 'Shrink the assistant' : 'Enlarge the assistant');
+      sizeBtn.title = large ? 'Shrink' : 'Enlarge';
+      try { localStorage.setItem('epc_chat_large', large ? '1' : ''); } catch (e) { /* storage off */ }
+      log.scrollTop = log.scrollHeight;
+    }
+    let startLarge = false;
+    try { startLarge = localStorage.getItem('epc_chat_large') === '1'; } catch (e) { /* storage off */ }
+    setLarge(startLarge);
+    sizeBtn.addEventListener('click', () => setLarge(!root.classList.contains('large')));
 
     fab.addEventListener('click', () => open(panel.hidden));
     root.querySelector('[data-act="close"]').addEventListener('click', () => { open(false); fab.focus(); });
