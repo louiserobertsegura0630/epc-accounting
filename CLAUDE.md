@@ -28,7 +28,24 @@ So the steps are:
 2. Merge it into `main`. The live site updates by itself.
 3. Check https://epc-inventory-system.web.app (hard refresh).
 
-The workflows deploy hosting only. When Firestore rules/indexes change, deploy them by hand: `npx -y firebase-tools@latest deploy --only firestore`. A manual hosting deploy still works if ever needed: `npx -y firebase-tools@latest deploy --only hosting:app`.
+The workflows deploy hosting only. Cloud Functions (`functions/`, the chat assistant) are deployed by hand, see AI assistant below. When Firestore rules/indexes change, deploy them by hand: `npx -y firebase-tools@latest deploy --only firestore`. A manual hosting deploy still works if ever needed: `npx -y firebase-tools@latest deploy --only hosting:app`.
+
+## AI assistant (chatbot)
+
+A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It posts the conversation to `/api/chat`, which a Hosting rewrite in `firebase.json` sends to the `chat` Cloud Function (`functions/index.js`, region `asia-southeast1`). The function checks the user's Firebase ID token, then calls Claude (`claude-opus-5-5`, low effort) with the Anthropic SDK.
+
+- **The Anthropic API key lives only in Firebase's secret store** (`ANTHROPIC_API_KEY`). Never put it in the website code, `firebase.json`, a `.env` file in git, or a chat. Set or rotate it with:
+  ```sh
+  npx -y firebase-tools@latest functions:secrets:set ANTHROPIC_API_KEY
+  ```
+- Cloud Functions need the Firebase **Blaze** (pay-as-you-go) plan.
+- **Functions are not deployed by the GitHub workflow** (it deploys hosting only). After changing `functions/`, deploy by hand:
+  ```sh
+  (cd functions && npm install)
+  npx -y firebase-tools@latest deploy --only functions
+  ```
+- The assistant can't see the company's records; it explains the portal and accounting/tax topics. The system prompt in `functions/index.js` lists the pages, so update it when pages are added or renamed.
+- Usage is logged per request (uid, tokens) in the function logs: Firebase console → Functions → `chat` → Logs.
 
 Local preview: `npx -y firebase-tools@latest emulators:start` (hosting on port 5050, Firestore on port 8080).
 
@@ -40,6 +57,7 @@ Node note: the local Node is v25. firebase-tools warns that it supports Node 20/
 - `pages/` holds one HTML page per module (dashboard, purchases, sales, supplies, reports, etc.).
 - `firestore.rules`, `firestore.indexes.json`: security rules and indexes.
 - Root `*.js` and `scripts/` are Node admin scripts (`firebase-admin`): backups, restores, exports, user creation. They never deploy.
+- `functions/`: Cloud Functions (the chat assistant). Kept out of Hosting by the `functions/**` ignore rule.
 
 ## Rule: adding a field means wiring it everywhere
 

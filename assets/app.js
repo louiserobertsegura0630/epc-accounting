@@ -385,6 +385,163 @@ const EPC_CHART_PASTEL = {
   else start();
 })();
 
+// ─── AI assistant chat widget (shared) ──────────────────────────────────────
+// Floating "Ask the assistant" button + chat panel on every signed-in page.
+// Messages go to /api/chat (a Firebase Function, see functions/index.js), which
+// holds the Anthropic API key on the server; the browser only sends the user's
+// Firebase ID token. The conversation is kept for this browser tab only.
+(function initChatWidget() {
+  const STORE_KEY = 'epc_chat_v1';
+  const GREETING = 'Hi! I can help you use the portal, or explain accounting and tax topics. What would you like to know?';
+  let msgs = [];
+  try { msgs = JSON.parse(sessionStorage.getItem(STORE_KEY) || '[]') || []; } catch (e) { msgs = []; }
+  const save = () => { try { sessionStorage.setItem(STORE_KEY, JSON.stringify(msgs.slice(-40))); } catch (e) { /* storage off */ } };
+
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Tiny, safe markdown: escape first, then **bold**, `code`, "- " lists, paragraphs.
+  function render(text) {
+    const lines = esc(text).split('\n');
+    let html = ''; let inList = false;
+    const inline = (l) => l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+    lines.forEach((line) => {
+      const m = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
+      if (m) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${inline(m[1])}</li>`; return; }
+      if (inList) { html += '</ul>'; inList = false; }
+      if (line.trim()) html += `<p>${inline(line.replace(/^#+\s*/, ''))}</p>`;
+    });
+    if (inList) html += '</ul>';
+    return html;
+  }
+
+  function pageName() {
+    const t = document.querySelector('.section-title') || document.querySelector('.nav-item.active');
+    if (t) return t.textContent.trim();
+    return document.title.split(' - ')[0].trim();
+  }
+
+  function start() {
+    if (!document.getElementById('sidebar-container')) return;   // app pages only (not login)
+    if (document.getElementById('epc-chat')) return;
+
+    const root = document.createElement('div');
+    root.id = 'epc-chat';
+    root.className = 'epc-chat';
+    root.innerHTML = `
+      <button type="button" class="epc-chat-fab" aria-label="Open the assistant" aria-expanded="false" aria-controls="epc-chat-panel">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12Z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg>
+      </button>
+      <section class="epc-chat-panel" id="epc-chat-panel" role="dialog" aria-label="Assistant" hidden>
+        <header class="epc-chat-head">
+          <div>
+            <strong>EPC Assistant</strong>
+            <span>Answers about the portal, accounting and tax</span>
+          </div>
+          <div class="epc-chat-head-btns">
+            <button type="button" class="epc-chat-icon" data-act="clear" aria-label="Start a new chat" title="New chat">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <button type="button" class="epc-chat-icon" data-act="close" aria-label="Close the assistant">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </div>
+        </header>
+        <div class="epc-chat-log" aria-live="polite"></div>
+        <form class="epc-chat-form">
+          <textarea class="epc-chat-input" rows="1" maxlength="4000" placeholder="Ask a question…" aria-label="Your question"></textarea>
+          <button type="submit" class="epc-chat-send" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
+        <p class="epc-chat-note">AI answers can be wrong. Check important figures in the reports.</p>
+      </section>`;
+    document.body.appendChild(root);
+
+    const fab = root.querySelector('.epc-chat-fab');
+    const panel = root.querySelector('.epc-chat-panel');
+    const log = root.querySelector('.epc-chat-log');
+    const form = root.querySelector('.epc-chat-form');
+    const input = root.querySelector('.epc-chat-input');
+    const send = root.querySelector('.epc-chat-send');
+    let busy = false;
+
+    function bubble(role, html, extra = '') {
+      const div = document.createElement('div');
+      div.className = `epc-chat-msg ${role} ${extra}`.trim();
+      div.innerHTML = html;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+      return div;
+    }
+    function paint() {
+      log.innerHTML = '';
+      bubble('assistant', render(GREETING));
+      msgs.forEach((m) => bubble(m.role, m.role === 'user' ? `<p>${esc(m.content).replace(/\n/g, '<br>')}</p>` : render(m.content)));
+    }
+    function open(show) {
+      panel.hidden = !show;
+      fab.setAttribute('aria-expanded', String(show));
+      root.classList.toggle('open', show);
+      if (show) { paint(); setTimeout(() => input.focus(), 50); }
+    }
+    function autosize() {
+      input.style.height = 'auto';
+      input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+    }
+
+    async function ask(question) {
+      if (busy) return;
+      busy = true; send.disabled = true;
+      msgs.push({ role: 'user', content: question }); save();
+      bubble('user', `<p>${esc(question).replace(/\n/g, '<br>')}</p>`);
+      const typing = bubble('assistant', '<span class="epc-chat-dots"><i></i><i></i><i></i></span>', 'typing');
+      try {
+        const authUser = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
+        if (!authUser) throw new Error('Please sign in again to use the assistant.');
+        const token = await authUser.getIdToken();
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ messages: msgs.slice(-24), page: pageName() }),
+        });
+        let data = {};
+        try { data = await resp.json(); } catch (e) { /* non-JSON error page */ }
+        if (!resp.ok) throw new Error(data.error || (resp.status === 404
+          ? 'The assistant is not switched on yet. Please tell the administrator.'
+          : 'The assistant could not answer right now. Please try again.'));
+        typing.remove();
+        msgs.push({ role: 'assistant', content: data.reply }); save();
+        bubble('assistant', render(data.reply));
+      } catch (err) {
+        typing.remove();
+        msgs.pop(); save();                        // let them resend the same question
+        bubble('assistant', `<p>${esc(err.message || 'Something went wrong. Please try again.')}</p>`, 'error');
+        input.value = question; autosize();
+      } finally {
+        busy = false; send.disabled = false; input.focus();
+      }
+    }
+
+    fab.addEventListener('click', () => open(panel.hidden));
+    root.querySelector('[data-act="close"]').addEventListener('click', () => { open(false); fab.focus(); });
+    root.querySelector('[data-act="clear"]').addEventListener('click', () => { msgs = []; save(); paint(); input.focus(); });
+    panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { open(false); fab.focus(); } });
+    input.addEventListener('input', autosize);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = input.value.trim();
+      if (!q || busy) return;
+      input.value = ''; autosize();
+      ask(q);
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+
 // ─── Storage Helpers ────────────────────────────────────────────────────────
 // Large shared collections live in Firestore. Keep only an in-memory view for
 // synchronous rendering; never serialize these datasets into localStorage.

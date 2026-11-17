@@ -24,7 +24,17 @@
       "*.js",
       "*.log",
       "*.md",
-      "data/**"
+      "data/**",
+      "functions/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/chat",
+        "function": {
+          "functionId": "chat",
+          "region": "asia-southeast1"
+        }
+      }
     ]
   },
   "firestore": {
@@ -43,5 +53,18 @@
       "port": 0
     },
     "singleProjectMode": true
-  }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "*.local",
+        "firebase-debug.log*"
+      ]
+    }
+  ]
 }
