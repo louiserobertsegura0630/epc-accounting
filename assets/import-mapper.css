@@ -14,7 +14,7 @@
 .imp-map-field { font-size: 14px; white-space: nowrap; }
 .imp-req { color: #c0392b; font-weight: 700; }
 .imp-opt { color: #999; font-size: 12px; }
-.imp-select { flex: 1; min-width: 0; padding: 5px 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
+.imp-select { flex: 1; min-width: 0; padding: 5px 6px; border: 1px solid #ccc; border-radius: 6px; font-size:0.875rem; }
 
 .imp-preview { margin-top: 10px; }
 .imp-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; display: block; overflow-x: auto; }
@@ -34,7 +34,7 @@
 .imp-conflicts { margin: 8px 0 0 18px; font-size: 14px; color: #c0392b; }
 .imp-conflicts li { margin: 2px 0; }
 
-.imp-uploads td, .imp-uploads th { font-size: 13px; }
+.imp-uploads td, .imp-uploads th { font-size:0.875rem; }
 .imp-del { background: #fdecea; color: #c0392b; border: 1px solid #f0b7b0; }
 .imp-del:hover { background: #f9d9d4; }
 #uploads-sort { padding: 3px 6px; border: 1px solid #ccc; border-radius: 6px; }

@@ -29,7 +29,7 @@
   max-width: 260px;
 }
 .table-scroll.vs-active #inv-tbody td.select-col { max-width: none; overflow: visible; }
-.vs-loading-row td { text-align: center; padding: 12px; color: var(--text-secondary); font-size: 13px; }
+.vs-loading-row td { text-align: center; padding: 12px; color: var(--text-secondary); font-size:0.875rem; }
 
     .spinner {
       display: inline-block;
@@ -45,7 +45,7 @@
 
     .mis-spinner {
       width: 18px; height: 18px; flex-shrink: 0;
-      border: 2.5px solid #bfdbfe;
+      border: 2.5px solid var(--primary-soft-2);
       border-top-color: var(--primary);
       border-radius: 50%;
       animation: mis-spin 0.7s linear infinite;
@@ -80,7 +80,7 @@
     }
     .bulk-action-bar.open { display: flex; }
     .bulk-selected-count {
-      font-size: 13.5px;
+      font-size:0.875rem;
       font-weight: 700;
       margin-right: auto;
     }
@@ -89,7 +89,7 @@
       background: transparent;
       color: var(--primary);
       font-family: inherit;
-      font-size: 13px;
+      font-size:0.875rem;
       font-weight: 700;
       padding: 6px 0;
       cursor: pointer;
@@ -119,14 +119,14 @@
       color: var(--text-secondary);
       cursor: pointer;
       font-family: inherit;
-      font-size: 13px;
+      font-size:0.875rem;
       font-weight: 700;
       padding: 8px 12px;
     }
     .potential-subtab.active {
       border-color: var(--primary);
       color: var(--primary);
-      background: #eff6ff;
+      background: var(--mint-50);
     }
     .potential-detail-tab {
       display: none;
@@ -145,7 +145,7 @@
       display: grid;
       gap: 4px;
       color: var(--text-secondary);
-      font-size: 11px;
+      font-size:0.75rem;
       font-weight: 800;
       text-transform: uppercase;
     }
@@ -157,7 +157,7 @@
       border-radius: 7px;
       padding: 0 10px;
       font: inherit;
-      font-size: 13px;
+      font-size:0.875rem;
       background: white;
       color: var(--text-primary);
     }
@@ -186,7 +186,7 @@
     .potential-bulk-bar.open { display: flex; }
     .potential-bulk-bar > span:first-child {
       margin-right: auto;
-      font-size: 13.5px;
+      font-size:0.875rem;
       font-weight: 800;
     }
     .potential-bulk-markup {
@@ -217,7 +217,7 @@
     .potential-source {
       display: block;
       color: var(--text-muted);
-      font-size: 11px;
+      font-size:0.75rem;
       margin-top: 2px;
     }
     .potential-detail-grid {
@@ -235,7 +235,7 @@
     .potential-detail-grid span {
       display: block;
       color: var(--text-secondary);
-      font-size: 11px;
+      font-size:0.75rem;
       font-weight: 800;
       text-transform: uppercase;
     }
@@ -254,7 +254,7 @@
     .potential-detail-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
+      font-size:0.875rem;
     }
     .potential-detail-table th,
     .potential-detail-table td {
@@ -281,7 +281,7 @@
       display: grid;
       gap: 4px;
       color: var(--text-secondary);
-      font-size: 11px;
+      font-size:0.75rem;
       font-weight: 800;
       text-transform: uppercase;
     }
@@ -348,7 +348,7 @@
       text-align: left;
     }
     .inv-product-result:last-child { border-bottom: 0; }
-    .inv-product-result:hover { background: #eff6ff; }
+    .inv-product-result:hover { background: var(--mint-50); }
     .inv-product-result span { color: var(--text-secondary); }
     .inv-change-product {
       display: none;
@@ -367,9 +367,9 @@
       display: none;
       margin-bottom: 14px;
       padding: 12px;
-      border: 1px solid #bfdbfe;
+      border: 1px solid var(--primary-soft-2);
       border-radius: 8px;
-      background: #eff6ff;
+      background: var(--mint-50);
     }
     .inv-outgoing-detail.open { display: block; }
     .inv-balance-grid {
@@ -382,7 +382,7 @@
       border-radius: 6px;
       background: white;
     }
-    .inv-balance-grid span { display: block; color: #64748b; font-size: 11px; }
+    .inv-balance-grid span { display: block; color: #64748b; font-size:0.75rem; }
     .inv-history-title { margin-top: 12px; font-size: 12px; font-weight: 800; }
     .inv-incoming-history { margin-top: 6px; font-size: 12px; line-height: 1.7; }
     .inv-hide-revenue-cols th[data-col="avgSellingPrice"],
@@ -416,7 +416,7 @@
       background: #f8fafc;
       border-bottom: 1px solid var(--card-border);
       color: #64748b;
-      font-size: 10.5px;
+      font-size:0.75rem;
       font-weight: 700;
       letter-spacing: 0.4px;
       text-transform: uppercase;
@@ -443,7 +443,7 @@
     .mis-vgrid-row.dim { opacity: 0.35; }
     #modal-import-review .modal-card { max-width: 1180px; width: 94vw; max-height: 90vh; }
     .review-section { margin-bottom: 20px; }
-    .review-title { font-size: 13px; font-weight: 800; margin: 0 0 8px; color: var(--text-primary); }
+    .review-title { font-size:0.875rem; font-weight: 800; margin: 0 0 8px; color: var(--text-primary); }
     .review-table-wrap { max-height: 260px; overflow: auto; border: 1px solid var(--card-border); border-radius: 8px; }
     .review-table th, .review-table td { white-space: nowrap; }
     .review-cost-change { background: #fff7ed; }

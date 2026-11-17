@@ -5,15 +5,15 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sales - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261116-type3">
+  <link rel="stylesheet" href="../assets/style.css?v=20261117-ds4h">
   <script src="../assets/vendor/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-  <link rel="stylesheet" href="../assets/import-mapper.css?v=20260703-uploads-page">
-  <link rel="stylesheet" href="pos-import.css?v=20260703-hide-unitcost">
+  <link rel="stylesheet" href="../assets/import-mapper.css?v=20261117-ds4d">
+  <link rel="stylesheet" href="pos-import.css?v=20261117-ds4d">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -40,7 +40,7 @@
 
     <!-- Import Area -->
     <div class="card mb-24">
-      <div style="font-size:16px;font-weight:700;margin-bottom:16px">Import POS Data</div>
+      <div style="font-size:var(--fs-lg);font-weight:600;margin-bottom:16px">Import POS Data</div>
       <div class="cost-method-picker">
         <span>Cost Method for COGS:</span>
         <div class="cost-method-toggle">
@@ -57,7 +57,7 @@
 
       <!-- Import Progress (shown during XLS processing) -->
       <div id="import-status" style="display:none;margin-top:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--primary)" id="import-status-label">Processing…</div>
+        <div style="font-size:0.875rem;font-weight:600;margin-bottom:8px;color:var(--primary)" id="import-status-label">Processing…</div>
         <div class="progress-wrap"><div class="progress-fill" id="progress-fill"></div></div>
       </div>
 
@@ -66,7 +66,7 @@
     <!-- Uploaded files: view + delete/replace to free a blocked date -->
     <div class="card mb-24">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-        <div style="font-size:16px;font-weight:700;">Uploaded Files</div>
+        <div style="font-size:var(--fs-lg);font-weight:600;">Uploaded Files</div>
         <label class="imp-note" style="margin:0;">Sort by
           <select id="uploads-sort">
             <option value="uploadedAt-desc">Most recent</option>
@@ -85,7 +85,7 @@
          z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:12px">
       <div style="width:40px;height:40px;border:4px solid #e2e8f0;border-top-color:var(--primary);
            border-radius:50%;animation:spin 0.7s linear infinite"></div>
-      <span style="font-size:13px;color:var(--text-secondary)">Loading...</span>
+      <span style="font-size:0.875rem;color:var(--text-secondary)">Loading...</span>
     </div>
     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 
@@ -148,7 +148,7 @@
           <button class="btn btn-outline-gray btn-sm" id="btn-clear-sales-filters" type="button">Clear Filters</button>
           <span id="sales-active-filter-count" class="sales-active-filter-count"></span>
           <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
-            <span id="sales-page-info" style="font-size:12.5px;color:var(--text-secondary)"></span>
+            <span id="sales-page-info" style="font-size:0.875rem;color:var(--text-secondary)"></span>
             <div id="sales-pagination" class="pagination" style="margin-top:0"></div>
           </div>
         </div>
@@ -203,7 +203,7 @@
             🔄 Re-match with Product Master
           </button>
           <div id="rematch-progress-host" class="sales-long-progress-host"></div>
-          <span id="rematch-result" style="font-size:12.5px"></span>
+          <span id="rematch-result" style="font-size:0.875rem"></span>
         </div>
         <div class="review-info-bar" id="review-info-bar" style="display:none"></div>
         <div class="table-toolbar" id="review-toolbar" style="display:none">
@@ -213,7 +213,7 @@
           <button class="btn btn-outline-gray btn-sm" id="btn-clear-review-filters" type="button">Clear Filters</button>
           <span id="review-active-filter-count" class="sales-active-filter-count"></span>
           <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
-            <span id="review-page-info" style="font-size:12.5px;color:var(--text-secondary)"></span>
+            <span id="review-page-info" style="font-size:0.875rem;color:var(--text-secondary)"></span>
             <div id="review-pagination" class="pagination" style="margin-top:0"></div>
           </div>
         </div>
@@ -370,7 +370,7 @@
       <button class="modal-close" data-close-modal>✕</button>
     </div>
     <div class="modal-body">
-      <p style="margin:0 0 14px;font-size:13.5px;color:var(--text-secondary)">
+      <p style="margin:0 0 14px;font-size:0.875rem;color:var(--text-secondary)">
         Choose which dataset to export for the selected date range.<br>
         All matching records will be downloaded — not just the rows currently loaded on screen.
       </p>
@@ -385,7 +385,7 @@
           <input type="radio" name="export-dataset" value="both"> Both (two separate files)
         </label>
       </div>
-      <div id="export-chooser-progress" class="sales-long-progress-host" style="margin-top:14px;font-size:13px;color:var(--text-secondary);min-height:20px"></div>
+      <div id="export-chooser-progress" class="sales-long-progress-host" style="margin-top:14px;font-size:0.875rem;color:var(--text-secondary);min-height:20px"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline-gray" data-close-modal>Cancel</button>
@@ -394,12 +394,12 @@
   </div>
 </div>
 
-<script src="../assets/app.js?v=20261116-type3b"></script>
+<script src="../assets/app.js?v=20261117-ds4d"></script>
 <script src="../assets/shared-utils.js?v=20260619-full-range-rematch"></script>
 <script src="../assets/import-mapper.js?v=20260821-uploads-list"></script>
 <script src="pos-import-firestore.js?v=20260703-profit-fix"></script>
 <script src="pos-import-parser.js?v=20260611-dsr-all-sheets-lineitems"></script>
-<script src="pos-import-render.js?v=20260703-profit-fix"></script>
+<script src="pos-import-render.js?v=20261117-ds4d"></script>
 <script src="pos-import-ui.js?v=20260703-uploads-page"></script>
 </body>
 </html>

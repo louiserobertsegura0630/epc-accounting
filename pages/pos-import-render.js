@@ -479,7 +479,7 @@ async function openSalesDetail(id) {
   document.getElementById('sales-detail-body').innerHTML =
     '<div id="sales-info-section"></div>' +
     '<hr class="sales-detail-divider">' +
-    '<div id="cost-info-section"><p style="color:var(--text-secondary);font-size:13px">Loading cost info…</p></div>';
+    '<div id="cost-info-section"><p style="color:var(--text-secondary);font-size:0.875rem">Loading cost info…</p></div>';
   renderSalesInfo(row);
   openModal('modal-sales-detail');
   // Fetch PM data once in the background; never block or clear Sales Info
@@ -494,7 +494,7 @@ async function openSalesDetail(id) {
     console.error('[POS Sales Detail] Product Master lookup failed:', err);
     const costSection = document.getElementById('cost-info-section');
     if (costSection) costSection.innerHTML =
-      '<p style="color:#dc2626;font-size:13px">Could not load the Product Master record.</p>';
+      '<p style="color:#dc2626;font-size:0.875rem">Could not load the Product Master record.</p>';
   }
 }
 
@@ -567,7 +567,7 @@ function renderCostInfo(product) {
   const header = '<h3 class="sales-detail-section-title">Cost Information from Product Master <span class="sales-detail-readonly-label">read only</span></h3>';
   if (!product) {
     section.innerHTML = header +
-      '<p style="color:#d97706;font-size:13px">No Product Master record was found for this item code.</p>' +
+      '<p style="color:#d97706;font-size:0.875rem">No Product Master record was found for this item code.</p>' +
       '<p class="sales-product-master-note">💡 Cost data comes from Product Master</p>';
     return;
   }
@@ -594,7 +594,7 @@ function renderCostInfo(product) {
 async function refreshCostInfoForItemCode(itemCode) {
   const costSection = document.getElementById('cost-info-section');
   if (!costSection) return;
-  costSection.innerHTML = '<p style="color:var(--text-secondary);font-size:13px">Loading cost info…</p>';
+  costSection.innerHTML = '<p style="color:var(--text-secondary);font-size:0.875rem">Loading cost info…</p>';
   document.getElementById('btn-open-product-master').href =
     `product-master.html?itemCode=${encodeURIComponent(itemCode || '')}`;
   try {
@@ -604,7 +604,7 @@ async function refreshCostInfoForItemCode(itemCode) {
     console.error('[POS Sales Detail] PM re-fetch failed:', err);
     if (document.getElementById('cost-info-section')) {
       document.getElementById('cost-info-section').innerHTML =
-        '<p style="color:#dc2626;font-size:13px">Could not load the Product Master record.</p>';
+        '<p style="color:#dc2626;font-size:0.875rem">Could not load the Product Master record.</p>';
     }
   }
 }

@@ -674,7 +674,7 @@ function renderCategoryChart(rows, labelFn, valueFn, title) {
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
-        legend:{ position:'right', labels:{ font:{ size:11 }, padding:12 } },
+        legend:{ position:'right', labels:{ font:{ size:12 }, padding:12 } },
         title:{ display:true, text:title, font:{ size:13, weight:'500' } },
         tooltip:{ callbacks:{ label:context => {
           const total = context.dataset.data.reduce((sum, value) => sum + value, 0);
@@ -2024,7 +2024,7 @@ function renderCustomReport() {
       options: {
         responsive:true, maintainAspectRatio:false,
         plugins: {
-          legend:{ position:'right', labels:{ font:{ size:11 }, padding:12 } },
+          legend:{ position:'right', labels:{ font:{ size:12 }, padding:12 } },
           title:{ display:true, text:`${measureLabel} by ${groupBy}`, font:{ size:13, weight:'500' } },
           tooltip:{ callbacks:{ label: ctx => {
             const pct = pieTotal ? (ctx.parsed / pieTotal * 100).toFixed(1) : '0.0';
@@ -2189,7 +2189,7 @@ function renderCashFlowReport() {
         responsive:true, maintainAspectRatio:false,
         plugins:{
           title:{ display:true, text:'Cash Inflows vs Outflows by Month', font:{size:13,weight:'500'} },
-          legend:{ position:'bottom', labels:{font:{size:11},padding:14} },
+          legend:{ position:'bottom', labels:{font:{size:12},padding:14} },
           tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ₱${ctx.parsed.y.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}` } },
         },
         scales:{ y:{ beginAtZero:true, ticks:{ callback:v=>`₱${(v/1000).toFixed(0)}k` } } },

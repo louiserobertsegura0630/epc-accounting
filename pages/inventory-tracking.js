@@ -2308,8 +2308,8 @@ function vsRender() {
 function misBuildRow(item, idx) {
   const { row, checked, inPM } = item;
   const badge = inPM
-    ? `<span class="badge badge-green" style="font-size:10px">&#10003; In PM</span>`
-    : `<span class="badge badge-amber" style="font-size:10px">&#8594; Will be added</span>`;
+    ? `<span class="badge badge-green" style="font-size:0.75rem">&#10003; In PM</span>`
+    : `<span class="badge badge-amber" style="font-size:0.75rem">&#8594; Will be added</span>`;
   const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   return `<div class="mis-vgrid-row${checked ? '' : ' dim'}" style="transform:translateY(${idx * VS.ROW_H}px)">
     <div class="mis-vgrid-cell"><input type="checkbox" class="mis-row-chk" data-idx="${idx}" ${checked ? 'checked' : ''} style="accent-color:var(--primary)"></div>
@@ -2573,7 +2573,7 @@ function showToast(html, type = 'success', ms = 5000) {
   const el = document.createElement('div');
   el.id = 'epc-toast';
   el.style.cssText = `position:fixed;bottom:24px;right:24px;background:${bg};color:white;
-    padding:13px 18px;border-radius:10px;font-size:13.5px;font-weight:600;
+    padding:13px 18px;border-radius:10px;font-size:0.875rem;font-weight:600;
     font-family:'Figtree',sans-serif;z-index:9999;max-width:390px;line-height:1.6;
     box-shadow:0 4px 20px rgba(0,0,0,0.18);cursor:pointer`;
   el.innerHTML = html;

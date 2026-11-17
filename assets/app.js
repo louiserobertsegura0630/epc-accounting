@@ -210,7 +210,7 @@ const EPC_CHART_PASTEL = {
     if (!chart.$epcShadow) return;
     const ctx = chart.ctx;
     ctx.save();
-    ctx.shadowColor = 'rgba(15,31,61,.18)';
+    ctx.shadowColor = 'rgba(13,59,53,.18)';
     ctx.shadowBlur = 14;
     ctx.shadowOffsetY = 6;
   },
@@ -254,8 +254,8 @@ const EPC_CHART_PASTEL = {
     if (typeof Chart === 'undefined' || Chart.__epcTheme) return;
     Chart.__epcTheme = true;
     Chart.defaults.font.family = "'Figtree', sans-serif";
-    Chart.defaults.color = '#5b6b82';
-    Chart.defaults.borderColor = 'rgba(15,31,61,.07)';
+    Chart.defaults.color = '#5b706b';
+    Chart.defaults.borderColor = 'rgba(13,59,53,.07)';
     Chart.defaults.elements.bar.borderRadius = 8;
     Chart.defaults.elements.arc.borderRadius = 6;
     Chart.defaults.elements.line.tension = 0.35;
@@ -266,7 +266,7 @@ const EPC_CHART_PASTEL = {
     if (Chart.register) Chart.register(EPC_CHART_PASTEL);
     if (Chart.defaults.plugins && Chart.defaults.plugins.tooltip) {
       Object.assign(Chart.defaults.plugins.tooltip, {
-        backgroundColor: '#0f1f3d', padding: 10, cornerRadius: 12, displayColors: true, boxPadding: 4,
+        backgroundColor: '#0d3b35', padding: 10, cornerRadius: 12, displayColors: true, boxPadding: 4,
       });
     }
   };
@@ -988,7 +988,7 @@ function ensurePrintArea() {
     #report-print-area h1 { font-size:20px; margin:0 0 4px; }
     #report-print-area p.meta { color:#64748b; font-size:12px; margin:0 0 12px; }
     #report-print-area img { max-width:100%; height:auto; display:block; margin:12px 0; }
-    #report-print-area table { border-collapse:collapse; width:100%; margin:12px 0; font-size:11px; }
+    #report-print-area table { border-collapse:collapse; width:100%; margin:12px 0; font-size:0.75rem; }
     #report-print-area th, #report-print-area td { border:1px solid #999; padding:4px 6px; text-align:left; }
     #report-print-area th { background:#f1f5f9; }
     @media print {
