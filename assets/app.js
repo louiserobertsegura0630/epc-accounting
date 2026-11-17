@@ -392,9 +392,11 @@ const EPC_CHART_PASTEL = {
 
 // ─── AI assistant chat widget (shared) ──────────────────────────────────────
 // Floating "Ask the assistant" button + chat panel on every signed-in page.
-// Messages go to /api/chat (a Firebase Function, see functions/index.js), which
-// holds the Anthropic API key on the server; the browser only sends the user's
-// Firebase ID token. The conversation is kept for this browser tab only.
+// Messages go to the chat API on the Hostinger VPS (chat-server/server.js),
+// which holds the Anthropic API key on the server; the browser only sends the
+// user's Firebase ID token. The conversation is kept for this browser tab only.
+// The button stays hidden until EPC_CHAT_URL is set.
+const EPC_CHAT_URL = '';   // e.g. 'https://chat.example.com/api/chat' (printed by chat-server/setup-vps.sh)
 (function initChatWidget() {
   const STORE_KEY = 'epc_chat_v1';
   const GREETING = 'Hi! I can help you use the portal, or explain accounting and tax topics. What would you like to know?';
@@ -425,6 +427,7 @@ const EPC_CHART_PASTEL = {
   }
 
   function start() {
+    if (!EPC_CHAT_URL) return;                                     // chat API not set up yet
     if (!document.getElementById('sidebar-container')) return;   // app pages only (not login)
     if (document.getElementById('epc-chat')) return;
 
@@ -503,7 +506,7 @@ const EPC_CHART_PASTEL = {
         const authUser = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
         if (!authUser) throw new Error('Please sign in again to use the assistant.');
         const token = await authUser.getIdToken();
-        const resp = await fetch('/api/chat', {
+        const resp = await fetch(EPC_CHAT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ messages: msgs.slice(-24), page: pageName() }),

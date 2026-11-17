@@ -28,24 +28,20 @@ So the steps are:
 2. Merge it into `main`. The live site updates by itself.
 3. Check https://epc-inventory-system.web.app (hard refresh).
 
-The workflows deploy hosting only. Cloud Functions (`functions/`, the chat assistant) are deployed by hand, see AI assistant below. When Firestore rules/indexes change, deploy them by hand: `npx -y firebase-tools@latest deploy --only firestore`. A manual hosting deploy still works if ever needed: `npx -y firebase-tools@latest deploy --only hosting:app`.
+The workflows deploy hosting only (the chat API runs on the Hostinger VPS, see AI assistant below). When Firestore rules/indexes change, deploy them by hand: `npx -y firebase-tools@latest deploy --only firestore`. A manual hosting deploy still works if ever needed: `npx -y firebase-tools@latest deploy --only hosting:app`.
 
 ## AI assistant (chatbot)
 
-A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It posts the conversation to `/api/chat`, which a Hosting rewrite in `firebase.json` sends to the `chat` Cloud Function (`functions/index.js`, region `asia-southeast1`). The function checks the user's Firebase ID token, then calls Claude (`claude-haiku-5-5`, low effort; chosen for cost) with the Anthropic SDK.
+A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It stays hidden until `EPC_CHAT_URL` in `assets/app.js` is set.
 
-- **The Anthropic API key lives only in Firebase's secret store** (`ANTHROPIC_API_KEY`). Never put it in the website code, `firebase.json`, a `.env` file in git, or a chat. Set or rotate it with:
-  ```sh
-  npx -y firebase-tools@latest functions:secrets:set ANTHROPIC_API_KEY
-  ```
-- Cloud Functions need the Firebase **Blaze** (pay-as-you-go) plan.
-- **Functions are not deployed by the GitHub workflow** (it deploys hosting only). After changing `functions/`, deploy by hand:
-  ```sh
-  (cd functions && npm install)
-  npx -y firebase-tools@latest deploy --only functions
-  ```
-- The assistant can't see the company's records; it explains the portal and accounting/tax topics. The system prompt in `functions/index.js` lists the pages, so update it when pages are added or renamed.
-- Usage is logged per request (uid, tokens) in the function logs: Firebase console → Functions → `chat` → Logs.
+The chat API runs on the **Hostinger VPS**, not Firebase (the Firebase project stays on the free Spark plan):
+- Code: `chat-server/server.js` (Node, no framework). It verifies the user's Firebase ID token with Google's public keys, allows only the portal's own web addresses (CORS: the live site and `epc-inventory-system--*.web.app` previews), limits each user to 30 questions per 10 minutes, and calls Claude (`claude-haiku-5-5`, low effort; chosen for cost) with the Anthropic SDK.
+- **The Anthropic API key lives only on the VPS** in `/etc/epc-chat.env` (root-only). Never put it in the website code, git, or a chat.
+- Setup or update (as root on the VPS, from a copy of the `chat-server/` folder): `bash setup-vps.sh`. It installs Node.js and Caddy, runs the server as the `epc-chat` systemd service on 127.0.0.1:8787, puts HTTPS in front with Caddy, asks for the key without echoing it, and prints the chat API address to put in `EPC_CHAT_URL`.
+- Copying the folder from a Mac: `scp -r chat-server root@<VPS-IP>:/root/`
+- Logs and status on the VPS: `journalctl -u epc-chat -f`, `systemctl status epc-chat`. Each answer logs the user id and token counts.
+- The assistant can't see the company's records; it explains the portal and accounting/tax topics. The system prompt in `chat-server/server.js` lists the pages, so update it (and re-run `setup-vps.sh`) when pages are added or renamed.
+- `chat-server/` is kept out of Firebase Hosting by the `chat-server/**` ignore rule.
 
 Local preview: `npx -y firebase-tools@latest emulators:start` (hosting on port 5050, Firestore on port 8080).
 
@@ -57,7 +53,7 @@ Node note: the local Node is v25. firebase-tools warns that it supports Node 20/
 - `pages/` holds one HTML page per module (dashboard, purchases, sales, supplies, reports, etc.).
 - `firestore.rules`, `firestore.indexes.json`: security rules and indexes.
 - Root `*.js` and `scripts/` are Node admin scripts (`firebase-admin`): backups, restores, exports, user creation. They never deploy.
-- `functions/`: Cloud Functions (the chat assistant). Kept out of Hosting by the `functions/**` ignore rule.
+- `chat-server/`: the chat assistant API that runs on the Hostinger VPS. Kept out of Hosting by the `chat-server/**` ignore rule.
 
 ## Rule: adding a field means wiring it everywhere
 
