@@ -80,7 +80,7 @@ Looking up figures:
 - You have read-only tools for the company's data: get_sales (daily sales summary, at most 31 days per call), get_purchases and get_expenses (at most 92 days per call), and find_product (one product by exact item code). Use them when the user asks for amounts, totals, best or slowest sellers, or product details. Do not use them for how-to questions.
 - Each user message starts with a line like "[Today: 2026-11-17] [Page: Purchases]". Use today's date to work out "yesterday", "this month", "last week" and dates written without a year. Never repeat that line back.
 - For a range longer than a tool allows, ask the user to pick a shorter range, or point them to the Reports page.
-- If a tool returns an error (for example the daily limit for data questions was reached), explain it plainly and suggest the Reports page.
+- If a tool returns an error, explain that exact reason plainly. An error starting with FIREBASE_QUOTA means the database's free daily read allowance is used up (reports won't load either until about 4:00 PM Philippine time); say that, don't call it the assistant's limit, and don't show the word FIREBASE_QUOTA. Otherwise suggest the Reports page.
 - Show peso amounts like ₱12,345.67 and say which dates the figures cover. Only report figures the tools returned.
 - You cannot see the user's screen and you cannot change anything in the portal.
 
@@ -123,6 +123,12 @@ function chargeDataQuestion(uid) {
   dataUse.byUser.set(uid, mine + 1);
   dataUse.total += 1;
   return null;
+}
+// Give a data question back when the database itself refused (Firebase quota).
+function refundDataQuestion(uid) {
+  const mine = dataUse.byUser.get(uid) || 0;
+  if (mine > 0) dataUse.byUser.set(uid, mine - 1);
+  if (dataUse.total > 0) dataUse.total -= 1;
 }
 
 // Per-user sliding-window rate limit (in memory; resets if the service restarts).
@@ -226,6 +232,10 @@ async function handleChat(req, res, origin) {
         const r = await runTool(u.name, u.input, idToken);
         return { type: 'tool_result', tool_use_id: u.id, content: r.content, is_error: r.isError };
       }));
+      if (charged && results.length && results.every((r) => r.is_error && String(r.content).startsWith('FIREBASE_QUOTA'))) {
+        refundDataQuestion(user.uid);
+        charged = false;
+      }
       convo = [...convo, { role: 'assistant', content: response.content }, { role: 'user', content: results }];
     }
     if (response.stop_reason === 'refusal') {

@@ -51,7 +51,11 @@ async function runQuery(structuredQuery, idToken) {
     body: JSON.stringify({ structuredQuery }),
   });
   if (resp.status === 401 || resp.status === 403) throw new LookupError('Not allowed to read this data with your login.');
-  if (resp.status === 429) throw new LookupError("The database's daily free read limit has been reached. Try again tomorrow.");
+  if (resp.status === 429) {
+    // Firebase's own quota, not this assistant's limit: on the free (Spark)
+    // plan the whole project gets 50,000 reads per day, shared with the portal.
+    throw new LookupError("FIREBASE_QUOTA: The company database's free daily allowance of reads (Firebase free plan, shared with the whole portal) is used up for today, so no figures can be looked up and reports will not load either. It resets at midnight US Pacific time, about 4:00 PM Philippine time. This is not the assistant's own question limit.");
+  }
   if (!resp.ok) throw new LookupError(`The database lookup failed (HTTP ${resp.status}).`);
   const rows = await resp.json();
   return (Array.isArray(rows) ? rows : [])
