@@ -337,23 +337,32 @@ function renderSummary() {
   const totalVAT = aggregate?.totalVAT ?? purch.reduce((s,p) => s+(p.inputVAT||0), 0);
   const totalGross = aggregate?.totalGross ?? purch.reduce((s,p) => s+(p.grossAmount??((p.netAmount??p.total??0)+(p.inputVAT||0))), 0);
   const totalEwt = aggregate?.totalEwt ?? purch.reduce((s,p) => s+(p.ewtAmount||0), 0);
+  // The full-range total could not be fetched (e.g. daily read limit) and more
+  // rows exist than are loaded: say so, or the partial sum looks like the total.
+  const partialNote = value => (aggregate && value == null && purchaseHasMoreRecords)
+    ? `<div class="kpi-sub kpi-partial">⚠️ Only the ${purch.length.toLocaleString()} loaded rows. Full total unavailable.</div>`
+    : '';
 
   document.getElementById('summary-row').innerHTML = `
     <div class="summary-card">
       <div class="kpi-label">Total Net Amount (Excl. VAT)</div>
       <div class="kpi-value">${formatPeso(totalNet)}</div>
+      ${partialNote(aggregate?.totalNet)}
     </div>
     <div class="summary-card">
       <div class="kpi-label">Total Input VAT</div>
       <div class="kpi-value" style="color:#b45309">${formatPeso(totalVAT)}</div>
+      ${partialNote(aggregate?.totalVAT)}
     </div>
     <div class="summary-card">
       <div class="kpi-label">Total Gross Amount</div>
       <div class="kpi-value blue">${formatPeso(totalGross)}</div>
+      ${partialNote(aggregate?.totalGross)}
     </div>
     <div class="summary-card">
       <div class="kpi-label">Total EWT Withheld</div>
       <div class="kpi-value" style="color:var(--primary)">${formatPeso(totalEwt)}</div>
+      ${partialNote(aggregate?.totalEwt)}
     </div>`;
 }
 
@@ -913,7 +922,10 @@ function renderTable() {
 
   tbody.innerHTML = topSpacer + windowRows.map(_purchaseRowHTML).join('') + bottomSpacer + fetchSentinel + loadingRow;
 
-  const loadedLabel = displayCount !== rows.length
+  const countUnknown = aggregate && aggregate.count == null && purchaseHasMoreRecords && !hasPurchaseNonDateFilters();
+  const loadedLabel = countUnknown
+    ? `${rows.length.toLocaleString()} shown | total unavailable`
+    : displayCount !== rows.length
     ? `${rows.length.toLocaleString()} filtered (${rows.length.toLocaleString()} loaded | ${displayCount.toLocaleString()} total)`
     : `${rows.length.toLocaleString()} shown | ${displayCount.toLocaleString()} total`;
   document.getElementById('purchases-count').textContent = loadedLabel;

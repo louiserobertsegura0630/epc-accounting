@@ -37,15 +37,21 @@ window.EPCReportGate = window.EPCReportGate || (() => {
       btn.textContent = loadingLabel;
       if (status) status.textContent = 'Loading data…';
       if (popupLabel) EPCLoading.show(popupLabel);
+      const startedAt = Date.now();
       try {
         await load();
         loaded = true;
         btn.textContent = refreshLabel;
         if (status) status.textContent = '';
+        EPCQuota.ok(startedAt);
       } catch (err) {
         console.error('[EPCReportGate] load failed:', err);
         btn.textContent = loaded ? refreshLabel : (prevLabel || idleLabel);
-        if (status) status.textContent = 'Could not load data. Try again.';
+        if (status) {
+          status.textContent = EPCQuota.report(err)
+            ? `Daily read limit reached. Try again after ${EPCQuota.resetText()}.`
+            : 'Could not load data. Try again.';
+        }
       } finally {
         if (popupLabel) EPCLoading.hide();
         btn.disabled = false;
@@ -96,6 +102,113 @@ window.EPCLoading = window.EPCLoading || (() => {
       try { return await fn(); } finally { this.hide(); }
     },
   };
+})();
+
+// ─── Daily read limit warning (shared) ───────────────────────────────────────
+// The Firebase project is on the free Spark plan: 50,000 Firestore reads per
+// day for the whole portal. When they run out, loads fail or come back partial.
+// Any code that catches a load error passes it to EPCQuota.report(err); if it is
+// the quota, a warning bar appears with the reset time. The hit is remembered on
+// this browser until the reset, so the bar shows again on every page load
+// without spending a read. A load that works again clears it (EPCQuota.ok()).
+window.EPCQuota = window.EPCQuota || (() => {
+  const KEY = 'epc_quota_hit';
+  let el = null;
+  let hit = null;        // { at, reset } in ms, or null
+  let hidden = false;    // "Hide" lasts for this page view only
+  let timer = null;
+
+  function isQuotaError(err) {
+    const code = String((err && err.code) ?? '').toLowerCase();
+    const msg = String((err && err.message) || err || '').toLowerCase();
+    return code.includes('resource-exhausted') || msg.includes('resource_exhausted') ||
+      msg.includes('resource-exhausted') || msg.includes('quota exceeded');
+  }
+  // The free quota resets at midnight US Pacific time (3 or 4 PM in Manila).
+  function nextReset(from) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles', hour12: false,
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).formatToParts(new Date(from));
+    const n = type => Number(parts.find(p => p.type === type).value);
+    const elapsed = (n('hour') % 24) * 3600 + n('minute') * 60 + n('second');  // midnight can come back as "24"
+    return from - (from % 1000) + (86400 - elapsed) * 1000;
+  }
+  function manila(ms, opts) {
+    return new Date(ms).toLocaleString('en-US', { timeZone: 'Asia/Manila', ...opts });
+  }
+  const clock = ms => manila(ms, { hour: 'numeric', minute: '2-digit' });
+  const day = ms => manila(ms, { year: 'numeric', month: 'numeric', day: 'numeric' });
+  // "about 4:00 PM today (Philippine time)"
+  function resetText() {
+    const reset = hit ? hit.reset : nextReset(Date.now());
+    return `about ${clock(reset)} ${day(reset) === day(Date.now()) ? 'today' : 'tomorrow'} (Philippine time)`;
+  }
+  function countdown(ms) {
+    const mins = Math.max(1, Math.ceil(ms / 60000));
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return (h ? `${h} hr ` : '') + (m || !h ? `${m} min` : '').trim();
+  }
+
+  function paint() {
+    if (hit && Date.now() >= hit.reset) clear();
+    if (!hit || hidden) { if (el) el.hidden = true; return; }
+    if (!document.body) { document.addEventListener('DOMContentLoaded', paint, { once: true }); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'epc-quota';
+      el.setAttribute('role', 'alert');
+      el.innerHTML = '<span class="epc-quota-icon" aria-hidden="true">⚠️</span>' +
+        '<div class="epc-quota-text"><strong>Firebase’s free daily read limit is used up</strong>' +
+        '<span class="epc-quota-msg"></span></div>' +
+        '<button type="button" class="epc-quota-hide">Hide</button>';
+      el.querySelector('.epc-quota-hide').addEventListener('click', () => { hidden = true; paint(); });
+      document.body.appendChild(el);
+    }
+    el.querySelector('.epc-quota-msg').textContent =
+      `Totals and reports may be incomplete or fail to load until the limit resets at ${resetText()}, ` +
+      `in ${countdown(hit.reset - Date.now())}. Your records are safe. ` +
+      `Please wait until then before clicking Generate Report or Refresh. First noticed at ${clock(hit.at)}.`;
+    el.hidden = false;
+    if (!timer) timer = setInterval(paint, 60000);
+  }
+  function clear() {
+    hit = null;
+    try { localStorage.removeItem(KEY); } catch (e) { /* storage off */ }
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  // Pass any load error here. Returns true (and shows the bar) if it is the quota.
+  function report(err) {
+    if (!isQuotaError(err)) return false;
+    const now = Date.now();
+    if (!hit || now >= hit.reset) {
+      hit = { at: now, reset: nextReset(now) };
+      try { localStorage.setItem(KEY, JSON.stringify(hit)); } catch (e) { /* storage off */ }
+    }
+    hit.seen = now;
+    hidden = false;
+    paint();
+    return true;
+  }
+  // A read worked. With `since`, keep the bar if the quota was hit after that time.
+  function ok(since) {
+    if (!hit || (since && hit.seen >= since)) return;
+    clear();
+    paint();
+  }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved && saved.reset > Date.now()) hit = { at: saved.at, reset: saved.reset, seen: 0 };
+    else if (saved) localStorage.removeItem(KEY);
+  } catch (e) { /* storage off */ }
+  if (hit) paint();
+  // Loads that nobody catches still raise the bar.
+  window.addEventListener('unhandledrejection', e => { report(e.reason); });
+
+  return { report, ok, isQuotaError, resetText, active: () => !!hit };
 })();
 
 // ─── Pastel 3D chart style (shared) ──────────────────────────────────────────
@@ -767,6 +880,7 @@ function clampRecordsLoadLimit(inputId, { syncInput = true } = {}) {
 
 function reportFirestoreAggregateError(err, label = 'aggregate query') {
   console.error(`[Firestore] ${label} real aggregate error:`, err);
+  if (EPCQuota.report(err)) return;
   const indexUrl = firestoreIndexUrlFromError(err);
   if (indexUrl) {
     console.error(`[Firestore] ${label} needs an index: ${indexUrl}`, err);
@@ -855,6 +969,7 @@ async function _runAggregationRest(query, aggregations, label) {
     const txt = await res.text();
     throw new Error(`[Firestore REST] ${label} HTTP ${res.status}: ${txt}`);
   }
+  EPCQuota.ok();
   return await res.json();
 }
 

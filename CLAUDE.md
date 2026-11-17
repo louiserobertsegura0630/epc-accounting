@@ -67,6 +67,10 @@ Node note: the local Node is v25. firebase-tools warns that it supports Node 20/
 - `pages/dashboard-season.js`: season theme, logo intro and bell tune. The season comes from today's date (script in the head of `dashboard.html`): Sep–Dec Christmas, Jan 1–15 New Year, Feb 1–14 Valentine's, Mar–May summer, Jun–Aug rainy. Preview one with `dashboard.html?season=christmas`. The intro shows once per browser session; Effects and Sound buttons remember the choice in `localStorage`. Sound is made with Web Audio (no audio files), and browsers block it until the user has clicked on the site.
 - Chart colours: `EPC_CHART_PASTEL` in `assets/app.js` recolours every chart. A dataset with `__epcPastel: true` keeps its own colours.
 
+## Daily read limit warning
+
+`EPCQuota` in `assets/app.js` shows a warning bar on every page when Firebase's free daily reads (50,000, Spark plan) run out, with the reset time (midnight US Pacific, about 4 PM Philippine time). The hit is saved in `localStorage` (`epc_quota_hit`) until the reset, so the bar shows again on each page load without spending a read; a load that works again clears it. New code that catches a Firestore load error must pass it to `EPCQuota.report(err)`. The Purchases cards mark their totals "Only the N loaded rows" when the full-range totals could not be fetched.
+
 ## Rule: adding a field means wiring it everywhere
 
 When a field is added to any form, wire it through end to end in the same change, without being asked:

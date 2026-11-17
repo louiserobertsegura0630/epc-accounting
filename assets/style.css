@@ -1563,3 +1563,23 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
 .epc-chat-context-label { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .epc-chat-context-toggle { display: inline-flex; align-items: center; gap: .375rem; white-space: nowrap; cursor: pointer; font-weight: 500; }
 .epc-chat-context-toggle input { width: 1.125rem; height: 1.125rem; accent-color: var(--teal-800); }
+/* Daily read limit warning bar (EPCQuota in app.js), shown on every page */
+.epc-quota {
+  position: fixed; top: var(--space-3); left: 50%; transform: translateX(-50%); z-index: 1900;
+  display: flex; align-items: flex-start; gap: var(--space-3);
+  width: min(46rem, calc(100vw - 2rem)); padding: var(--space-3) var(--space-4);
+  background: var(--warning-bg); color: #7c2d12; border: 1px solid #fcd34d; border-radius: 0.875rem;
+  box-shadow: 0 12px 32px -16px rgba(13,59,53,.45);
+  font: 400 var(--fs-sm)/1.45 'Figtree', sans-serif;
+}
+.epc-quota[hidden] { display: none; }
+.epc-quota-icon { font-size: 1.25rem; line-height: 1.2; }
+.epc-quota-text { flex: 1; min-width: 0; }
+.epc-quota-text strong { display: block; font-size: var(--fs-md); font-weight: 700; }
+.epc-quota-hide {
+  flex-shrink: 0; min-height: 2.25rem; padding: 0 var(--space-3); border-radius: 999px; cursor: pointer;
+  border: 1px solid #f59e0b; background: #fff; color: #7c2d12; font: 600 var(--fs-sm) 'Figtree', sans-serif;
+}
+.epc-quota-hide:focus-visible { outline: 3px solid #f59e0b; outline-offset: 2px; }
+.kpi-sub.kpi-partial { color: var(--warning-text); font-weight: 600; }
+@media print { .epc-quota { display: none !important; } }

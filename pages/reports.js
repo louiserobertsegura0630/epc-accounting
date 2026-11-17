@@ -41,7 +41,7 @@ function reportLoadErrorMessage(err) {
   const msg = String((err && err.message) || err || '').toLowerCase();
   if (code.includes('resource-exhausted') || code === '8' || msg.includes('quota') || msg.includes('resource_exhausted')) {
     return 'Daily Firestore read limit reached — reports can’t load right now. ' +
-      'This resets at midnight (US Pacific). Figures are not really ₱0; the data just couldn’t be read.';
+      `This resets at ${EPCQuota.resetText()}. Figures are not really ₱0; the data just couldn’t be read.`;
   }
   if (code.includes('permission-denied') || msg.includes('permission')) {
     return 'You don’t have permission to read the report data. Please sign in again or contact an administrator.';
@@ -131,6 +131,7 @@ async function runReportLoad(loadFn) {
     return true;
   } catch (err) {
     console.error('[Reports] load failed:', err);
+    EPCQuota.report(err);
     reportLoadError = reportLoadErrorMessage(err);
     return false;
   }
