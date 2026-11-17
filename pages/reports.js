@@ -2379,3 +2379,121 @@ EPCReportGate.wire({
     });
   }
 });
+
+// ─── "Ask about this report": share the loaded figures with the assistant ────
+// Builds a compact summary from REPORT_DATA (already loaded by Generate Report),
+// limited to the report's dates. No extra Firestore reads.
+function reportChatSummary() {
+  const from = (document.getElementById('report-start') || {}).value || '';
+  const to = (document.getElementById('report-end') || {}).value || '';
+  const tabBtn = document.querySelector(`[data-report-tab="${activeReportTab}"]`);
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const out = { report: tabBtn ? tabBtn.textContent.trim() : activeReportTab, from, to, currency: 'PHP' };
+  const table = (columns, rows) => ({ columns, rows });
+  const top = (map, key, n, asc) => Object.values(map).sort((a, b) => asc ? a[key] - b[key] : b[key] - a[key]).slice(0, n);
+
+  if (loadedReportCollections.has('sales')) {
+    const days = {}; const products = {}; const cats = {};
+    let revenue = 0; let cost = 0; let units = 0;
+    (REPORT_DATA.sales || []).filter(inReportRange).forEach((row) => {
+      const d = reportDate(row);
+      const rev = Number(row.totalRevenue ?? row.revenue ?? row.totalSales ?? row.total) || 0;
+      const u = Number(row.unitsSold ?? row.quantity) || 0;
+      const c = Number(row.totalCost) || (Number(row.unitCost) || 0) * u;
+      revenue += rev; cost += c; units += u;
+      const day = days[d] || (days[d] = { revenue: 0, cost: 0, units: 0 });
+      day.revenue += rev; day.cost += c; day.units += u;
+      const code = String(row.itemCode || row.productName || '?');
+      const p = products[code] || (products[code] = { itemCode: code, name: row.productName || code, category: row.category || '', revenue: 0, cost: 0, units: 0 });
+      p.revenue += rev; p.cost += c; p.units += u;
+      const cat = row.category || 'Uncategorized';
+      const k = cats[cat] || (cats[cat] = { category: cat, revenue: 0, units: 0 });
+      k.revenue += rev; k.units += u;
+    });
+    const fmtP = (p) => [p.itemCode, p.name, p.category, r2(p.revenue), Math.round(p.units), r2(p.revenue - p.cost)];
+    out.sales = {
+      totals: { revenue: r2(revenue), costOfGoodsSold: r2(cost), grossProfit: r2(revenue - cost), unitsSold: Math.round(units), daysWithSales: Object.keys(days).length, productsSold: Object.keys(products).length },
+      byDay: table(['date', 'revenue', 'cost', 'grossProfit', 'units'],
+        Object.keys(days).sort().map((d) => [d, r2(days[d].revenue), r2(days[d].cost), r2(days[d].revenue - days[d].cost), Math.round(days[d].units)])),
+      topProductsByRevenue: table(['itemCode', 'name', 'category', 'revenue', 'units', 'grossProfit'], top(products, 'revenue', 20).map(fmtP)),
+      topProductsByUnits: table(['itemCode', 'name', 'category', 'revenue', 'units', 'grossProfit'], top(products, 'units', 10).map(fmtP)),
+      slowestProducts: table(['itemCode', 'name', 'category', 'revenue', 'units', 'grossProfit'], top(products, 'revenue', 10, true).map(fmtP)),
+      byCategory: table(['category', 'revenue', 'units'], top(cats, 'revenue', 20).map((c) => [c.category, r2(c.revenue), Math.round(c.units)])),
+    };
+  }
+  if (loadedReportCollections.has('expenses')) {
+    const days = {}; const cats = {}; const tot = { business: 0, personal: 0, other: 0 };
+    (REPORT_DATA.expenses || []).filter(inReportRange).forEach((e) => {
+      const amt = Number(e.amount) || 0; const d = reportDate(e);
+      const cls = String(e.classification || '').toLowerCase();
+      tot[cls === 'business' ? 'business' : cls === 'personal' ? 'personal' : 'other'] += amt;
+      days[d] = (days[d] || 0) + amt;
+      const cat = e.category || e.account || 'Uncategorized';
+      const k = cats[cat] || (cats[cat] = { category: cat, amount: 0, records: 0 });
+      k.amount += amt; k.records += 1;
+    });
+    out.expenses = {
+      totals: { business: r2(tot.business), personal: r2(tot.personal), unclassified: r2(tot.other) },
+      byDay: table(['date', 'amount'], Object.keys(days).sort().map((d) => [d, r2(days[d])])),
+      byCategory: table(['category', 'amount', 'records'], top(cats, 'amount', 20).map((c) => [c.category, r2(c.amount), c.records])),
+    };
+  }
+  if (loadedReportCollections.has('purchases')) {
+    const days = {}; const sup = {}; const tot = { net: 0, vat: 0, gross: 0, ewt: 0, records: 0 };
+    (REPORT_DATA.purchases || []).filter(inReportRange).forEach((p) => {
+      const net = purchaseSpend(p); const d = reportDate(p);
+      tot.net += net; tot.vat += purchaseInputVAT(p); tot.gross += purchaseGrossAmount(p); tot.ewt += purchaseEWT(p); tot.records += 1;
+      days[d] = (days[d] || 0) + net;
+      const s = purchaseSupplier(p) || 'Unknown supplier';
+      const k = sup[s] || (sup[s] = { supplier: s, net: 0, records: 0 });
+      k.net += net; k.records += 1;
+    });
+    out.purchases = {
+      totals: { netAmount: r2(tot.net), inputVAT: r2(tot.vat), grossAmount: r2(tot.gross), ewtWithheld: r2(tot.ewt), records: tot.records },
+      byDay: table(['date', 'netAmount'], Object.keys(days).sort().map((d) => [d, r2(days[d])])),
+      bySupplier: table(['supplier', 'netAmount', 'records'], top(sup, 'net', 20).map((s) => [s.supplier, r2(s.net), s.records])),
+    };
+  }
+  if (loadedReportCollections.has('supplies')) {
+    let total = 0; const days = {};
+    (REPORT_DATA.supplies || []).filter(inReportRange).forEach((r) => {
+      const amt = Number(r.totalCost ?? r.amount) || 0; const d = reportDate(r);
+      total += amt; days[d] = (days[d] || 0) + amt;
+    });
+    out.supplies = { total: r2(total), byDay: table(['date', 'amount'], Object.keys(days).sort().map((d) => [d, r2(days[d])])) };
+  }
+  if (loadedReportCollections.has('inventory')) {
+    let value = 0; let qty = 0; const days = {}; const items = {};
+    (REPORT_DATA.inventory || []).filter(inReportRange).forEach((r) => {
+      const v = Number(r.totalCost) || 0; const q = Number(r.qty ?? r.quantity) || 0; const d = reportDate(r);
+      value += v; qty += q;
+      const day = days[d] || (days[d] = { value: 0, qty: 0 }); day.value += v; day.qty += q;
+      const code = String(r.itemCode || '?');
+      const it = items[code] || (items[code] = { itemCode: code, name: r.description || code, value: 0, qty: 0 });
+      it.value += v; it.qty += q;
+    });
+    out.inventoryReceived = {
+      totals: { value: r2(value), units: Math.round(qty) },
+      byDay: table(['date', 'value', 'units'], Object.keys(days).sort().map((d) => [d, r2(days[d].value), Math.round(days[d].qty)])),
+      topItemsByValue: table(['itemCode', 'name', 'value', 'units'], top(items, 'value', 15).map((i) => [i.itemCode, i.name, r2(i.value), Math.round(i.qty)])),
+    };
+  }
+  return out;
+}
+
+function updateReportChatContext() {
+  if (!window.EPCChatContext) return;
+  if (!reportHasGenerated || reportLoadError || activeTabNeedsLoad()) { EPCChatContext.clear(); return; }
+  const tabBtn = document.querySelector(`[data-report-tab="${activeReportTab}"]`);
+  const from = (document.getElementById('report-start') || {}).value || '';
+  const to = (document.getElementById('report-end') || {}).value || '';
+  const fmt = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  EPCChatContext.set(`${tabBtn ? tabBtn.textContent.trim() : 'Report'}, ${fmt(from)} – ${fmt(to)}`, reportChatSummary);
+}
+
+// Keep the assistant's report context in step with what is on screen.
+const _renderActiveReportForChat = renderActiveReport;
+renderActiveReport = function renderActiveReportWithChat() {
+  _renderActiveReportForChat.apply(this, arguments);
+  try { updateReportChatContext(); } catch (e) { console.warn('[Reports] chat context failed', e); }
+};

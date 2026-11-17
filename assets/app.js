@@ -397,6 +397,21 @@ const EPC_CHART_PASTEL = {
 // user's Firebase ID token. The conversation is kept for this browser tab only.
 // The button stays hidden until EPC_CHAT_URL is set.
 const EPC_CHAT_URL = 'https://epc-chat.187-127-124-15.sslip.io/api/chat';   // printed by chat-server/setup-vps.sh
+
+// Report pages share what they already loaded so the assistant can analyse it
+// ("Ask about this report"): EPCChatContext.set('Income Statement, Oct 1–31',
+// () => ({ ...compact summary... })). Nothing extra is read from Firestore.
+window.EPCChatContext = window.EPCChatContext || (() => {
+  let current = null;   // { label, build }
+  const listeners = new Set();
+  const notify = () => listeners.forEach((fn) => { try { fn(current); } catch (e) { /* ignore */ } });
+  return {
+    set(label, build) { current = label && typeof build === 'function' ? { label: String(label), build } : null; notify(); },
+    clear() { current = null; notify(); },
+    get() { return current; },
+    onChange(fn) { listeners.add(fn); },
+  };
+})();
 (function initChatWidget() {
   const STORE_KEY = 'epc_chat_v1';
   const GREETING = 'Hi! I can help you use the portal, or explain accounting and tax topics. What would you like to know?';
@@ -453,6 +468,10 @@ const EPC_CHAT_URL = 'https://epc-chat.187-127-124-15.sslip.io/api/chat';   // p
             </button>
           </div>
         </header>
+        <div class="epc-chat-context" hidden>
+          <span class="epc-chat-context-label"></span>
+          <label class="epc-chat-context-toggle"><input type="checkbox" checked> Use it</label>
+        </div>
         <div class="epc-chat-log" aria-live="polite"></div>
         <form class="epc-chat-form">
           <textarea class="epc-chat-input" rows="1" maxlength="4000" placeholder="Ask a question…" aria-label="Your question"></textarea>
@@ -470,7 +489,29 @@ const EPC_CHAT_URL = 'https://epc-chat.187-127-124-15.sslip.io/api/chat';   // p
     const form = root.querySelector('.epc-chat-form');
     const input = root.querySelector('.epc-chat-input');
     const send = root.querySelector('.epc-chat-send');
+    const ctxBox = root.querySelector('.epc-chat-context');
+    const ctxLabel = root.querySelector('.epc-chat-context-label');
+    const ctxUse = root.querySelector('.epc-chat-context-toggle input');
     let busy = false;
+
+    // Show which loaded report (if any) the assistant will analyse.
+    function showContext(ctx) {
+      ctxBox.hidden = !ctx;
+      if (ctx) ctxLabel.textContent = `📊 Using: ${ctx.label}`;
+    }
+    EPCChatContext.onChange(showContext);
+    showContext(EPCChatContext.get());
+    // The summary of the report on screen, kept under ~150 KB.
+    function contextPayload() {
+      const ctx = EPCChatContext.get();
+      if (!ctx || !ctxUse.checked) return null;
+      try {
+        const data = ctx.build();
+        let json = JSON.stringify(data);
+        if (json.length > 150000) json = json.slice(0, 150000);
+        return { label: ctx.label, data: json };
+      } catch (e) { return null; }
+    }
 
     function bubble(role, html, extra = '') {
       const div = document.createElement('div');
@@ -509,7 +550,7 @@ const EPC_CHAT_URL = 'https://epc-chat.187-127-124-15.sslip.io/api/chat';   // p
         const resp = await fetch(EPC_CHAT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ messages: msgs.slice(-24), page: pageName() }),
+          body: JSON.stringify({ messages: msgs.slice(-24), page: pageName(), context: contextPayload() }),
         });
         let data = {};
         try { data = await resp.json(); } catch (e) { /* non-JSON error page */ }

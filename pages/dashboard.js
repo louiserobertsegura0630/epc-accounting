@@ -519,6 +519,39 @@ function buildDailyOperationsSummary() {
   const blocks = document.getElementById('snap-blocks');
   revealIn(blocks);
   initTilt(blocks);
+
+  // "Ask about this report": share the loaded day (and its 7-day trend) with
+  // the assistant. Built from data already loaded; no extra reads.
+  if (window.EPCChatContext) {
+    EPCChatContext.set(`Dashboard, ${longDate}`, () => {
+      const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+      const products = {};
+      (day.pos || []).forEach((r) => {
+        const code = String(r.itemCode || r.productName || '?');
+        const p = products[code] || (products[code] = { itemCode: code, name: r.productName || code, revenue: 0, units: 0, cost: 0 });
+        p.revenue += Number(r.totalRevenue) || 0; p.units += Number(r.unitsSold) || 0; p.cost += Number(r.totalCost) || 0;
+      });
+      const list = Object.values(products);
+      const row = (p) => [p.itemCode, p.name, r2(p.revenue), Math.round(p.units), r2(p.revenue - p.cost)];
+      return {
+        report: 'Dashboard (one day)', date: SNAP_DATE, currency: 'PHP',
+        selectedDay: {
+          salesRevenue: r2(day.sales), costOfGoodsSold: r2(day.cogs), grossProfit: r2(day.gross),
+          businessExpenses: r2(day.expTotal), netIncome: r2(day.netInc),
+          purchases: r2(day.purOut), supplies: r2(day.supOut), netCash: r2(day.netCash),
+          vatOutputFromESales: r2(vatOutput), ewtWithheld: r2(ewtHeld),
+          inventoryUnitsIn: Math.round(invIn), inventoryUnitsOut: Math.round(invOut),
+          counts: { salesLines: pos.length, purchases: purchases.length, supplyEntries: supplies.length, inventoryMovements: inventory.length },
+        },
+        last7Days: { columns: ['date', 'salesRevenue', 'grossProfit', 'netIncome', 'netCash'],
+          rows: week.map((w) => [w.date, r2(w.sales), r2(w.gross), r2(w.netInc), r2(w.netCash)]) },
+        topProductsToday: { columns: ['itemCode', 'name', 'revenue', 'units', 'grossProfit'],
+          rows: list.sort((a, b) => b.revenue - a.revenue).slice(0, 15).map(row) },
+        slowestProductsToday: { columns: ['itemCode', 'name', 'revenue', 'units', 'grossProfit'],
+          rows: list.sort((a, b) => a.revenue - b.revenue).slice(0, 10).map(row) },
+      };
+    });
+  }
 }
 
 // ─── Generate daily report ────────────────────────────────────────────────────
