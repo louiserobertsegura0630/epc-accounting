@@ -531,7 +531,9 @@
       setStatus(`Up to date · checked ${clock(pack.checkedAt)}`);
     } catch (err) {
       console.error('[Sales Pulse] load failed:', err);
-      if (shownOnce && !force) setStatus('Could not check for new uploads');
+      const quota = window.EPCQuota && EPCQuota.report(err);
+      if (shownOnce && !force) setStatus(quota ? 'Daily read limit reached · showing the saved copy' : 'Could not check for new uploads');
+      else if (quota) showState('error', 'Daily read limit reached', esc(`Sales can load again at ${EPCQuota.resetText()}.`));
       else showState('error', 'Could not load the latest sales', 'Check your connection, then try again.');
     } finally {
       loading = false;
