@@ -41,7 +41,9 @@ The chat API runs on the **Hostinger VPS**, not Firebase (the Firebase project s
 - **Our VPS (187.127.124.15) runs Coolify**, whose Traefik (`coolify-proxy`) owns ports 80/443 and serves other apps (Supabase, n8n, etc.). The script detects this and runs the chat server as the Docker container `epc-chat` on the `coolify` network (no public port; node:22-alpine, read-only, app mounted from `/opt/epc-chat`) and adds one route file, `/data/coolify/proxy/dynamic/epc-chat.yaml`, for `epc-chat.187-127-124-15.sslip.io` with Let's Encrypt. Nothing Coolify manages is edited. On a VPS without Coolify it uses Node + Caddy as a systemd service instead.
 - Copying the folder from a Mac: `scp -r chat-server root@<VPS-IP>:/root/`
 - Logs on the VPS: `docker logs -f epc-chat` (Coolify mode) or `journalctl -u epc-chat -f` (plain mode). Each answer logs the user id and token counts.
-- The assistant can't see the company's records; it explains the portal and accounting/tax topics. The system prompt in `chat-server/server.js` lists the pages, so update it (and re-run `setup-vps.sh`) when pages are added or renamed.
+- **Data lookups** (`chat-server/data-tools.js`): Claude can call read-only tools `get_sales` (salesDaily, ≤31 days), `get_purchases` and `get_expenses` (≤92 days, ≤500 records) and `find_product` (Product Master by exact item code). They read Firestore's REST API **with the signed-in user's own ID token**, so security rules apply as in the portal; no service-account key is used and nothing is written.
+- **Daily limits** (Philippine date, in memory, reset on restart): 20 data questions per person and 200 for the whole team (`DATA_LIMIT_USER` / `DATA_LIMIT_TOTAL` in `/etc/epc-chat.env`). How-to questions don't count. The same 30-questions-per-10-minutes limit per person also applies.
+- The system prompt in `chat-server/server.js` lists the pages, so update it (and re-run `setup-vps.sh`) when pages are added or renamed.
 - `chat-server/` is kept out of Firebase Hosting by the `chat-server/**` ignore rule.
 
 Local preview: `npx -y firebase-tools@latest emulators:start` (hosting on port 5050, Firestore on port 8080).

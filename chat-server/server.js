@@ -20,6 +20,7 @@ const http = require('node:http');
 const { initializeApp, getApps } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const Anthropic = require('@anthropic-ai/sdk');
+const { TOOLS, runTool } = require('./data-tools');
 
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 when Caddy runs on the same machine; 0.0.0.0 inside a Docker
@@ -43,6 +44,10 @@ const MAX_MESSAGE_CHARS = 4000;
 const MAX_TOTAL_CHARS = 40000;
 const MAX_PAGE_CHARS = 60;
 const RATE_LIMIT = { max: 30, windowMs: 10 * 60 * 1000 };   // per signed-in user
+// Data questions (ones that look up figures) per Philippine calendar day.
+const DATA_LIMIT_USER = Number(process.env.DATA_LIMIT_USER || 20);
+const DATA_LIMIT_TOTAL = Number(process.env.DATA_LIMIT_TOTAL || 200);
+const MAX_TOOL_ROUNDS = 5;
 
 if (!getApps().length) initializeApp({ projectId: PROJECT_ID });
 
@@ -71,11 +76,18 @@ The portal's pages (sidebar menu):
 - Settings: user profile and login. Audit Log: who changed what.
 Reports and the dashboard load data only when Generate Report is clicked.
 
+Looking up figures:
+- You have read-only tools for the company's data: get_sales (daily sales summary, at most 31 days per call), get_purchases and get_expenses (at most 92 days per call), and find_product (one product by exact item code). Use them when the user asks for amounts, totals, best or slowest sellers, or product details. Do not use them for how-to questions.
+- Each user message starts with a line like "[Today: 2026-11-17] [Page: Purchases]". Use today's date to work out "yesterday", "this month", "last week" and dates written without a year. Never repeat that line back.
+- For a range longer than a tool allows, ask the user to pick a shorter range, or point them to the Reports page.
+- If a tool returns an error (for example the daily limit for data questions was reached), explain it plainly and suggest the Reports page.
+- Show peso amounts like ₱12,345.67 and say which dates the figures cover. Only report figures the tools returned.
+- You cannot see the user's screen and you cannot change anything in the portal.
+
 Rules:
-- You cannot see the company's records or the user's screen, and you cannot change anything in the portal. If a question needs their figures, ask them to paste the numbers or tell them which page and report shows it.
 - Never invent figures, records or features. If you are not sure the portal does something, say so.
 - Answer in plain, friendly language that a non-accountant can follow. Keep answers short: a few sentences or a short list. Use simple markdown (bold, lists) only when it helps.
-- Each user message may start with a line like "[Page: Purchases]" telling you which page they are on; use it for context and never repeat it back.`;
+- The "[Page: …]" part of the first line tells you which page the user is on; use it for context.`;
 
 function cleanMessages(raw) {
   if (!Array.isArray(raw) || !raw.length) return null;
@@ -92,6 +104,25 @@ function cleanMessages(raw) {
   }
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
   return msgs.length ? msgs : null;
+}
+
+// Daily data-question limits, per person and for everyone, by Philippine date.
+// In memory: a restart of the service resets today's counts.
+const phDate = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+const dataUse = { day: '', total: 0, byUser: new Map() };
+function chargeDataQuestion(uid) {
+  const day = phDate();
+  if (dataUse.day !== day) { dataUse.day = day; dataUse.total = 0; dataUse.byUser.clear(); }
+  const mine = dataUse.byUser.get(uid) || 0;
+  if (mine >= DATA_LIMIT_USER) {
+    return `Daily limit reached: you can ask ${DATA_LIMIT_USER} data questions per day. It resets at midnight (Philippine time). Use the Reports page for more figures today.`;
+  }
+  if (dataUse.total >= DATA_LIMIT_TOTAL) {
+    return `Daily limit reached: the whole team can ask ${DATA_LIMIT_TOTAL} data questions per day. It resets at midnight (Philippine time). Use the Reports page for more figures today.`;
+  }
+  dataUse.byUser.set(uid, mine + 1);
+  dataUse.total += 1;
+  return null;
 }
 
 // Per-user sliding-window rate limit (in memory; resets if the service restarts).
@@ -158,29 +189,52 @@ async function handleChat(req, res, origin) {
   const messages = cleanMessages(body.messages);
   if (!messages) return send(res, 400, { error: 'Please type a question.' }, origin);
   const page = String(body.page || '').replace(/[\r\n[\]]/g, ' ').trim().slice(0, MAX_PAGE_CHARS);
-  if (page) {
-    const last = messages[messages.length - 1];
-    last.content = `[Page: ${page}]\n${last.content}`;
-  }
+  const last = messages[messages.length - 1];
+  last.content = `[Today: ${phDate()}]${page ? ` [Page: ${page}]` : ''}\n${last.content}`;
+  const idToken = match[1];
 
   try {
-    const response = await client().messages.create({
-      model: MODEL,
-      max_tokens: 8000,
-      // Short help-desk answers: low effort keeps replies quick and cheap.
-      output_config: { effort: 'low' },
-      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-      messages,
-    });
+    // Tool loop: Claude may look up figures (read-only) before answering.
+    let convo = messages;
+    let response = null;
+    let charged = false;
+    let limitMessage = null;
+    const usage = { input: 0, cached: 0, output: 0, lookups: 0 };
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+      response = await client().messages.create({
+        model: MODEL,
+        max_tokens: 8000,
+        // Short help-desk answers: low effort keeps replies quick and cheap.
+        output_config: { effort: 'low' },
+        system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+        tools: round < MAX_TOOL_ROUNDS ? TOOLS : [],
+        messages: convo,
+      });
+      usage.input += (response.usage && response.usage.input_tokens) || 0;
+      usage.cached += (response.usage && response.usage.cache_read_input_tokens) || 0;
+      usage.output += (response.usage && response.usage.output_tokens) || 0;
+      if (response.stop_reason !== 'tool_use') break;
+
+      const uses = response.content.filter((b) => b.type === 'tool_use');
+      if (!charged && !limitMessage) {
+        limitMessage = chargeDataQuestion(user.uid);   // one data question per user message
+        charged = !limitMessage;
+      }
+      const results = await Promise.all(uses.map(async (u) => {
+        if (limitMessage) return { type: 'tool_result', tool_use_id: u.id, content: limitMessage, is_error: true };
+        usage.lookups += 1;
+        const r = await runTool(u.name, u.input, idToken);
+        return { type: 'tool_result', tool_use_id: u.id, content: r.content, is_error: r.isError };
+      }));
+      convo = [...convo, { role: 'assistant', content: response.content }, { role: 'user', content: results }];
+    }
     if (response.stop_reason === 'refusal') {
       return send(res, 200, { reply: "Sorry, I can't help with that one. Try asking about the portal or an accounting topic." }, origin);
     }
     const reply = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
     console.log(JSON.stringify({
       at: new Date().toISOString(), uid: user.uid, model: response.model, stop: response.stop_reason,
-      input: response.usage && response.usage.input_tokens,
-      cached: response.usage && response.usage.cache_read_input_tokens,
-      output: response.usage && response.usage.output_tokens,
+      ...usage, dataQuestionsToday: dataUse.byUser.get(user.uid) || 0, teamToday: dataUse.total,
     }));
     return send(res, 200, { reply: reply || "Sorry, I couldn't come up with an answer. Please try rephrasing." }, origin);
   } catch (err) {

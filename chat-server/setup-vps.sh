@@ -26,7 +26,7 @@ warn() { printf '\n\033[1;33m!!  %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31mXX  %s\033[0m\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Please run as root (log in as root, or use: sudo bash setup-vps.sh)."
-[ -f "$HERE/server.js" ] && [ -f "$HERE/package.json" ] || die "Run this from the chat-server folder (server.js not found next to it)."
+[ -f "$HERE/server.js" ] && [ -f "$HERE/data-tools.js" ] && [ -f "$HERE/package.json" ] || die "Run this from the chat-server folder (server.js not found next to it)."
 
 # ── Which mode? ──────────────────────────────────────────────────────────────
 MODE=plain
@@ -78,7 +78,7 @@ umask 022
 # ── 3. App files ─────────────────────────────────────────────────────────────
 say "Copying the chat server to $APP_DIR…"
 mkdir -p "$APP_DIR"
-install -m 0644 "$HERE/server.js" "$HERE/package.json" "$APP_DIR/"
+install -m 0644 "$HERE/server.js" "$HERE/data-tools.js" "$HERE/package.json" "$APP_DIR/"
 [ -f "$HERE/package-lock.json" ] && install -m 0644 "$HERE/package-lock.json" "$APP_DIR/"
 
 if [ "$MODE" = coolify ]; then
