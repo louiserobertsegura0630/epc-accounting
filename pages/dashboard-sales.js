@@ -3,9 +3,13 @@
 // latest day, 30-day trend, month so far, weekday pattern, top products,
 // movers, margin watch and missing days.
 //
-// Cost: one read per salesDaily day-doc in the last 92 days. The result is kept
-// in sessionStorage for 30 minutes and handed to dashboard.js (primeSalesCache),
-// so Product Performance and the daily summary reuse it instead of reading again.
+// Cost: the first open on a browser reads one salesDaily day-doc per day in the
+// last 92 days and keeps them in IndexedDB. After that the saved copy is shown
+// and only changes are fetched: at most every 10 minutes it asks for day-docs
+// whose lastUpdated is newer than the saved copy (imports and cost matching both
+// stamp it) and counts the days to catch deletions. With no new upload that is
+// 2 reads. The days are handed to dashboard.js (primeSalesCache) so Product
+// Performance and the daily summary reuse them instead of reading again.
 // Loaded after dashboard.js and shares its helpers (isoDate, addDaysIso, …).
 (function initSalesPulse() {
   const root = document.getElementById('sales-pulse');
@@ -13,8 +17,11 @@
   if (!root || !body) return;
 
   const DAYS_BACK = 92;
-  const CACHE_KEY = 'epc_sales_pulse_v1';
-  const CACHE_MS = 30 * 60 * 1000;
+  const CACHE_DB = 'epc-cache';
+  const CACHE_STORE = 'kv';
+  const CACHE_KEY = 'salesPulse';
+  const CACHE_VERSION = 2;
+  const CHECK_MS = 10 * 60 * 1000; // how often to look for new uploads
   const THIN_MARGIN = 5; // percent
   const C = { revenue: '#2a9d8a', profit: '#6f72e0', avg: '#0d3b35', prev: '#94a3b8', grid: 'rgba(13,59,53,.06)', ink: '#0d3b35', muted: '#5b706b' };
   const charts = {};
@@ -31,15 +38,30 @@
   const marginOf = (revenue, cost) => (revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0);
 
   // ── Load ────────────────────────────────────────────────────────────────────
-  function readCache() {
+  // One saved pack per browser, in IndexedDB (day-docs are too big for localStorage).
+  function cacheStore(mode, action) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open(CACHE_DB, 1);
+      open.onupgradeneeded = () => open.result.createObjectStore(CACHE_STORE);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const idb = open.result;
+        const tx = idb.transaction(CACHE_STORE, mode);
+        const req = action(tx.objectStore(CACHE_STORE));
+        tx.oncomplete = () => { idb.close(); resolve(req.result); };
+        tx.onerror = tx.onabort = () => { idb.close(); reject(tx.error); };
+      };
+    });
+  }
+  async function readCache(uid) {
     try {
-      const pack = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
-      if (pack && pack.to === today && Date.now() - pack.at < CACHE_MS) return pack;
-    } catch (e) { /* storage off or bad data */ }
+      const pack = await cacheStore('readonly', (store) => store.get(CACHE_KEY));
+      if (pack && pack.v === CACHE_VERSION && pack.uid === uid && pack.days) return pack;
+    } catch (e) { /* storage off or blocked */ }
     return null;
   }
-  function writeCache(pack) {
-    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(pack)); } catch (e) { /* too big or storage off: just skip */ }
+  async function writeCache(pack) {
+    try { await cacheStore('readwrite', (store) => store.put(pack, CACHE_KEY)); } catch (e) { /* storage off: just skip */ }
   }
   function whenSignedIn() {
     return new Promise((resolve, reject) => {
@@ -48,27 +70,60 @@
       const off = auth.onAuthStateChanged((user) => { if (user) { off(); resolve(user); } });
     });
   }
-  // pack = { from, to, at, names:{code:name}, days:{date:[[code, units, revenue, cost], …]} }
-  async function fetchPack() {
-    await whenSignedIn();
+  // pack = { v, uid, from, to, at, checkedAt, stamp:{s,n}, names:{code:name},
+  //          days:{date:[[code, units, revenue, cost], …]} }
+  // stamp is the newest lastUpdated seen, kept exactly so the next check asks
+  // only for day-docs changed after it.
+  function addDay(pack, doc) {
+    const data = doc.data() || {};
+    const products = data.products || {};
+    pack.days[doc.id] = Object.keys(products).map((code) => {
+      const p = products[code] || {};
+      const units = Number(p.units) || 0;
+      const cost = (p.cost != null ? Number(p.cost) : (Number(p.unit_cost) || 0) * units) || 0;
+      pack.names[code] = p.name || code;
+      return [code, units, r2(p.revenue), r2(cost)];
+    });
+    noteStamp(pack, data.lastUpdated);
+  }
+  function noteStamp(pack, ts) {
+    if (!ts || typeof ts.seconds !== 'number') return;
+    const cur = pack.stamp;
+    if (!cur || ts.seconds > cur.s || (ts.seconds === cur.s && ts.nanoseconds > cur.n)) pack.stamp = { s: ts.seconds, n: ts.nanoseconds || 0 };
+  }
+  const windowQuery = (db, from) => db.collection('salesDaily').orderBy(firebase.firestore.FieldPath.documentId()).startAt(from).endAt(today);
+  async function fetchPack(uid) {
     const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
     if (!db) throw new Error('The database is not available.');
     const from = addDaysIso(today, -DAYS_BACK);
-    const snap = await db.collection('salesDaily')
-      .orderBy(firebase.firestore.FieldPath.documentId())
-      .startAt(from).endAt(today).get();
-    const days = {}; const names = {};
-    snap.forEach((doc) => {
-      const products = (doc.data() || {}).products || {};
-      days[doc.id] = Object.keys(products).map((code) => {
-        const p = products[code] || {};
-        const units = Number(p.units) || 0;
-        const cost = (p.cost != null ? Number(p.cost) : (Number(p.unit_cost) || 0) * units) || 0;
-        names[code] = p.name || code;
-        return [code, units, r2(p.revenue), r2(cost)];
-      });
+    const pack = { v: CACHE_VERSION, uid, from, to: today, at: Date.now(), checkedAt: Date.now(), stamp: null, names: {}, days: {} };
+    (await windowQuery(db, from).get()).forEach((doc) => addDay(pack, doc));
+    // No stamps at all (old records): start from five minutes ago to allow for clock differences.
+    if (!pack.stamp) pack.stamp = { s: Math.floor(Date.now() / 1000) - 300, n: 0 };
+    await writeCache(pack);
+    return pack;
+  }
+  // Bring a saved pack up to date. Returns { pack, changed }.
+  async function syncPack(pack) {
+    const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
+    if (!db || !pack.stamp) return { pack: await fetchPack(pack.uid), changed: true };
+    const from = addDaysIso(today, -DAYS_BACK);
+    let changed = pack.to !== today;             // a new day moves the window
+    Object.keys(pack.days).forEach((d) => { if (d < from) delete pack.days[d]; });
+    // 1) Day-docs written since the saved copy (new uploads, re-uploads, cost matching).
+    const since = new firebase.firestore.Timestamp(pack.stamp.s, pack.stamp.n);
+    (await db.collection('salesDaily').where('lastUpdated', '>', since).get()).forEach((doc) => {
+      if (doc.id >= from && doc.id <= today) { addDay(pack, doc); changed = true; } else noteStamp(pack, (doc.data() || {}).lastUpdated);
     });
-    return { from, to: today, at: Date.now(), names, days };
+    // 2) Deleted uploads leave no trace, so compare the number of days (1 read).
+    try {
+      const counted = (await windowQuery(db, from).count().get()).data().count;
+      if (counted !== Object.keys(pack.days).length) return { pack: await fetchPack(pack.uid), changed: true };
+    } catch (e) { console.warn('[Sales Pulse] day count check skipped:', e); }
+    pack.from = from; pack.to = today; pack.checkedAt = Date.now();
+    if (changed) pack.at = Date.now();
+    await writeCache(pack);
+    return { pack, changed };
   }
   // Give the loaded days to dashboard.js in the shape its own reader expects.
   function shareWithDashboard(pack) {
@@ -88,9 +143,11 @@
   function buildModel(pack) {
     const totals = {}; // date -> { units, revenue, cost, profit }
     Object.keys(pack.days).forEach((date) => {
-      let units = 0; let revenue = 0; let cost = 0;
-      pack.days[date].forEach(([, u, r, c]) => { units += u; revenue += r; cost += c; });
-      if (revenue > 0 || units > 0) totals[date] = { units, revenue, cost, profit: revenue - cost };
+      // Profit counts only products that have a cost, so a day whose costs are
+      // not matched yet shows "no costs" instead of a false 100% margin.
+      let units = 0; let revenue = 0; let cost = 0; let costed = 0;
+      pack.days[date].forEach(([, u, r, c]) => { units += u; revenue += r; if (c > 0) { cost += c; costed += r; } });
+      if (revenue > 0 || units > 0) totals[date] = { units, revenue, cost, costed, profit: costed - cost };
     });
     const dates = Object.keys(totals).sort();
     if (!dates.length) return null;
@@ -120,7 +177,7 @@
     const trend = {
       dates: trendDates,
       revenue: trendDates.map((d) => (totals[d] ? r2(totals[d].revenue) : null)),
-      profit: trendDates.map((d) => (totals[d] ? r2(totals[d].profit) : null)),
+      profit: trendDates.map((d) => (totals[d] && totals[d].costed > 0 ? r2(totals[d].profit) : null)),
       avg7: trendDates.map((d) => {
         const win = rangeDates(addDaysIso(d, -6), d).filter((x) => totals[x]);
         return win.length ? r2(win.reduce((s, x) => s + totals[x].revenue, 0) / win.length) : null;
@@ -209,10 +266,11 @@
   // Lines and the weekday bars set __epcPastel so the shared chart theme (app.js)
   // keeps their exact colours: the average must stay dark and the best day stand out.
   // ── Render helpers ──────────────────────────────────────────────────────────
-  function deltaLine(now, before, label, isRate) {
-    if (before == null) return `<span class="sp-delta sp-flat">No sales on ${esc(label)}</span>`;
+  function deltaLine(now, before, label, isRate, missing = 'No sales on') {
+    if (now == null) return '';
+    if (before == null) return `<span class="sp-delta sp-flat">${missing} ${esc(label)}</span>`;
     const diff = isRate ? now - before : change(now, before);
-    if (diff == null) return `<span class="sp-delta sp-flat">No sales on ${esc(label)}</span>`;
+    if (diff == null) return `<span class="sp-delta sp-flat">${missing} ${esc(label)}</span>`;
     const cls = Math.abs(diff) < 0.05 ? 'sp-flat' : diff > 0 ? 'sp-up' : 'sp-down';
     const arrow = cls === 'sp-flat' ? '•' : diff > 0 ? '▲' : '▼';
     const amount = isRate ? `${Math.abs(diff).toFixed(1)} pts` : pctText(diff);
@@ -221,7 +279,7 @@
   function tile(label, id, value, fmt, deltas) {
     return `<div class="sp-tile">
       <span class="sp-tile-label">${label}</span>
-      <strong class="sp-tile-value" id="${id}" data-value="${value}" data-fmt="${fmt}">—</strong>
+      <strong class="sp-tile-value" id="${id}" ${value == null ? '' : `data-value="${value}" data-fmt="${fmt}"`}>—</strong>
       ${deltas.join('')}
     </div>`;
   }
@@ -252,8 +310,16 @@
     const h = m.headline; const d = h.day;
     const prevLabel = h.prevDate ? shortDay(h.prevDate) : 'the day before';
     const weekLabel = `last ${fmtDay(h.weekAgoDate, { weekday: 'long' })}`;
-    const dayMargin = marginOf(d.revenue, d.cost);
-    const marginBefore = (t) => (t ? marginOf(t.revenue, t.cost) : null);
+    // Profit and margin cover only the sales that have a cost recorded.
+    const hasCost = (t) => !!t && t.costed > 0;
+    const profitOf = (t) => (hasCost(t) ? t.profit : null);
+    const marginBefore = (t) => (hasCost(t) ? marginOf(t.costed, t.cost) : null);
+    const dayProfit = profitOf(d);
+    const dayMargin = marginBefore(d);
+    const coverage = d.revenue ? (d.costed / d.revenue) * 100 : 0;
+    const costNote = !hasCost(d) ? '<span class="sp-delta sp-flat">No costs matched for this day yet</span>'
+      : coverage < 99.5 ? `<span class="sp-delta sp-flat">Based on the ${coverage.toFixed(0)}% of sales that have a cost</span>` : '';
+    const NO_COST = 'No costs on';
     const mo = m.month;
     const moChange = change(mo.mtd, mo.prevSame);
     const best = m.weekday.best; const worst = m.weekday.worst;
@@ -261,8 +327,8 @@
     body.innerHTML = `
       <div class="sp-tiles">
         ${tile('Sales revenue', 'sp-v-rev', d.revenue, 'peso', [deltaLine(d.revenue, h.prev && h.prev.revenue, prevLabel), deltaLine(d.revenue, h.weekAgo && h.weekAgo.revenue, weekLabel)])}
-        ${tile('Gross profit', 'sp-v-profit', d.profit, 'peso', [deltaLine(d.profit, h.prev && h.prev.profit, prevLabel), deltaLine(d.profit, h.weekAgo && h.weekAgo.profit, weekLabel)])}
-        ${tile('Profit margin', 'sp-v-margin', dayMargin, 'pct', [deltaLine(dayMargin, marginBefore(h.prev), prevLabel, true), deltaLine(dayMargin, marginBefore(h.weekAgo), weekLabel, true)])}
+        ${tile('Gross profit', 'sp-v-profit', dayProfit, 'peso', [deltaLine(dayProfit, profitOf(h.prev), prevLabel, false, NO_COST), deltaLine(dayProfit, profitOf(h.weekAgo), weekLabel, false, NO_COST), costNote])}
+        ${tile('Profit margin', 'sp-v-margin', dayMargin, 'pct', [deltaLine(dayMargin, marginBefore(h.prev), prevLabel, true, NO_COST), deltaLine(dayMargin, marginBefore(h.weekAgo), weekLabel, true, NO_COST), costNote])}
         ${tile('Units sold', 'sp-v-units', d.units, 'units', [deltaLine(d.units, h.prev && h.prev.units, prevLabel), deltaLine(d.units, h.weekAgo && h.weekAgo.units, weekLabel)])}
       </div>
 
@@ -332,7 +398,7 @@
             ${m.watch.loss.length ? '' : m.watch.thin.slice(0, 4).map((p) => productRow(p, `<b>${p.margin.toFixed(1)}%</b>`, `Sold ${peso0(p.revenue)} · profit ${peso0(p.profit)}`)).join('')}
             ${m.watch.loss.length || m.watch.thin.length ? '' : emptyRow('No products sold at a loss or thin margin.')}
           </ul>
-          ${m.watch.noCost.length ? `<p class="sp-note">${m.watch.noCost.length} product${m.watch.noCost.length === 1 ? '' : 's'} (${peso0(m.watch.noCostRevenue)} of sales) have no cost recorded, so profit above is overstated until inventory costs are matched.</p>` : ''}
+          ${m.watch.noCost.length ? `<p class="sp-note">${m.watch.noCost.length} product${m.watch.noCost.length === 1 ? '' : 's'} (${peso0(m.watch.noCostRevenue)} of sales) have no cost recorded yet, so they are left out of profit and margin until inventory costs are matched.</p>` : ''}
         </article>
       </div>
 
@@ -348,7 +414,7 @@
 
     // Numbers roll up (same helper as the daily cards).
     const fmts = { peso: fmtPesoSigned, units: units0, pct: (v) => `${v.toFixed(1)}%` };
-    body.querySelectorAll('.sp-tile-value').forEach((el) => animateCount(el, Number(el.dataset.value), fmts[el.dataset.fmt]));
+    body.querySelectorAll('.sp-tile-value[data-value]').forEach((el) => animateCount(el, Number(el.dataset.value), fmts[el.dataset.fmt]));
 
     destroyCharts();
     const dayLabels = m.trend.dates.map((x) => fmtDay(x, { month: 'short', day: 'numeric' }));
@@ -419,6 +485,27 @@
     }));
   }
 
+  let shownOnce = false;
+  function showPack(pack) {
+    shareWithDashboard(pack);
+    const model = buildModel(pack);
+    if (!model) {
+      showState('empty', 'No sales imports yet', `Nothing was imported in the last ${DAYS_BACK} days. <a href="pos-import.html">Import a sales file</a> to see it here.`);
+      document.getElementById('sp-asof').textContent = 'No recent sales data';
+      return;
+    }
+    render(model);
+    shareWithAssistant(model);
+    if (shownOnce) return;
+    shownOnce = true;
+    // Open the rest of the page on the latest import too.
+    const dateInput = document.getElementById('snap-date');
+    if (dateInput && dateInput.value === defaultSnapDate && typeof setSnapDate === 'function') setSnapDate(model.latest);
+    if (typeof prodGate !== 'undefined' && prodGate && !prodGate.hasLoaded()) prodGate.run();
+  }
+  const clock = (ms) => new Date(ms).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+  function setStatus(text) { const el = document.getElementById('sp-updated'); if (el) el.textContent = text; }
+
   let loading = false;
   async function load(force) {
     if (loading) return;            // guard against double-clicks (paid reads)
@@ -426,30 +513,26 @@
     const refresh = document.getElementById('sp-refresh');
     if (refresh) refresh.disabled = true;
     try {
-      let pack = force ? null : readCache();
-      if (!pack) {
-        showState('loading', 'Loading the latest sales…', 'This takes a few seconds.');
-        pack = await fetchPack();
-        writeCache(pack);
+      const user = await whenSignedIn();
+      let pack = force ? null : await readCache(user.uid);
+      if (pack) {
+        showPack(pack);                           // saved copy first: no reads
+        if (pack.to !== today || Date.now() - pack.checkedAt > CHECK_MS) {
+          setStatus('Checking for new uploads…');
+          const result = await syncPack(pack);
+          pack = result.pack;
+          if (result.changed) showPack(pack);
+        }
+      } else {
+        showState('loading', 'Loading the latest sales…', 'The first load on this browser takes a little longer.');
+        pack = await fetchPack(user.uid);
+        showPack(pack);
       }
-      shareWithDashboard(pack);
-      const model = buildModel(pack);
-      if (!model) {
-        showState('empty', 'No sales imports yet', `Nothing was imported in the last ${DAYS_BACK} days. <a href="pos-import.html">Import a sales file</a> to see it here.`);
-        document.getElementById('sp-asof').textContent = 'No recent sales data';
-        return;
-      }
-      render(model);
-      shareWithAssistant(model);
-      // Open the rest of the page on the latest import too.
-      const dateInput = document.getElementById('snap-date');
-      if (dateInput && dateInput.value === defaultSnapDate && typeof setSnapDate === 'function') setSnapDate(model.latest);
-      if (typeof prodGate !== 'undefined' && prodGate && !prodGate.hasLoaded()) prodGate.run();
-      const updated = document.getElementById('sp-updated');
-      if (updated) updated.textContent = `Updated ${new Date(pack.at).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}`;
+      setStatus(`Up to date · checked ${clock(pack.checkedAt)}`);
     } catch (err) {
       console.error('[Sales Pulse] load failed:', err);
-      showState('error', 'Could not load the latest sales', 'Check your connection, then try again.');
+      if (shownOnce && !force) setStatus('Could not check for new uploads');
+      else showState('error', 'Could not load the latest sales', 'Check your connection, then try again.');
     } finally {
       loading = false;
       if (refresh) refresh.disabled = false;
