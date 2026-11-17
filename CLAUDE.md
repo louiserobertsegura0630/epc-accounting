@@ -32,7 +32,7 @@ The workflows deploy hosting only (the chat API runs on the Hostinger VPS, see A
 
 ## AI assistant (chatbot)
 
-A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It stays hidden until `EPC_CHAT_URL` in `assets/app.js` is set.
+A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It stays hidden if `EPC_CHAT_URL` in `assets/app.js` is empty; it is set to `https://epc-chat.187-127-124-15.sslip.io/api/chat`.
 
 The chat API runs on the **Hostinger VPS**, not Firebase (the Firebase project stays on the free Spark plan):
 - Code: `chat-server/server.js` (Node, no framework). It verifies the user's Firebase ID token with Google's public keys, allows only the portal's own web addresses (CORS: the live site and `epc-inventory-system--*.web.app` previews), limits each user to 30 questions per 10 minutes, and calls Claude (`claude-haiku-5-5`, low effort; chosen for cost) with the Anthropic SDK.

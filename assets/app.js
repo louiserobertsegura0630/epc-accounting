@@ -396,7 +396,7 @@ const EPC_CHART_PASTEL = {
 // which holds the Anthropic API key on the server; the browser only sends the
 // user's Firebase ID token. The conversation is kept for this browser tab only.
 // The button stays hidden until EPC_CHAT_URL is set.
-const EPC_CHAT_URL = '';   // e.g. 'https://chat.example.com/api/chat' (printed by chat-server/setup-vps.sh)
+const EPC_CHAT_URL = 'https://epc-chat.187-127-124-15.sslip.io/api/chat';   // printed by chat-server/setup-vps.sh
 (function initChatWidget() {
   const STORE_KEY = 'epc_chat_v1';
   const GREETING = 'Hi! I can help you use the portal, or explain accounting and tax topics. What would you like to know?';
