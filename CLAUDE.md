@@ -70,6 +70,20 @@ When a field is added to any form, wire it through end to end in the same change
 - **Other pages that list that record type one row at a time** (grep for `DB.get('<collection>')`), e.g. the EWT table in `pages/tax-monitoring.js`. Pages that only add up totals (income statement, reports) need nothing.
 - Fix hardcoded `colspan` counts, and bump the `?v=` cache tag on every changed `.js`/`.css`.
 
+## Rule: connecting a third-party app (API, service, integration)
+
+When asked to connect to an outside app or service, follow this without being asked:
+1. **Branch first.** `git pull` on `main`, then work on a new branch (`connect-<app>`). Never commit to `main` directly.
+2. **Keys and passwords only in `.env`** in the project root (already gitignored). Read them from there. Never write a key into a code file, `firebase.json`, a commit, a log line or chat. If the user pastes a key into chat, tell them to rotate it.
+3. **Never put a secret in website code** (`pages/`, `assets/`, any `.html`/`.js`/`.css` that Hosting serves). It is public: anyone can read it in their browser. Choose instead:
+   - **The website needs the data**: add an endpoint on the VPS chat server (`chat-server/`, same pattern as `/api/chat`: verify the Firebase ID token, CORS for the portal only, rate limits). The key lives on the VPS in `/etc/epc-chat.env`, added there by hand, never via git.
+   - **A one-off or scheduled job** (import, export, sync): a Node script in `scripts/` run from the owner's Mac (never deployed; reads `.env`).
+   - **The service issues a public/browser key** meant for web pages (like the Firebase web config): it may go in website code.
+4. **Mind the costs.** The Firebase project is on the free Spark plan (50,000 Firestore reads per day for everything). Don't add anything that reads whole collections or polls in a loop; estimate reads and any third-party charges and tell the owner before building.
+5. **Test locally**, then before any push run `git status` and `git diff --cached` and confirm no `.env`, key, token or credentials file or value is staged.
+6. **Pushing:** the owner pushes the branch from their Mac (`git push -u origin <branch>`), then asks the GitHub-connected Claude session to open the PR, check it and merge. Do not merge without the owner saying so.
+7. **Document it:** add the integration to this file (what it does, where the key lives: name only, never the value) and to `PROJECT-NOTES.md`.
+
 ## Secrets
 
 - Never commit or deploy the service-account keys (`serviceAccountKey*.json`, `*firebase-adminsdk*.json`) or `new-project-web-config.txt`. They exist only locally in the project root, and they are gitignored and listed in the hosting ignore list.
