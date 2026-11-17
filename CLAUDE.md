@@ -2,6 +2,8 @@
 
 Internal accounting web app for EPC Commercial Corporation. Vanilla HTML/CSS/JS (no framework, no build step) backed by Firebase (Firestore + Auth).
 
+**Also read `PROJECT-NOTES.md`**: the decisions behind this setup (free Spark plan, the chat assistant on the Hostinger VPS, the design system, limits), lessons learned, ideas agreed but not built yet, and how the owner likes to work.
+
 ## Links
 
 | What | URL |
