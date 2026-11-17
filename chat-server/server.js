@@ -12,7 +12,8 @@
 
    Environment (see setup-vps.sh):
      ANTHROPIC_API_KEY   required
-     PORT                default 8787 (Caddy proxies HTTPS to it)
+     PORT                default 8787 (the HTTPS proxy forwards to it)
+     HOST                default 127.0.0.1 (0.0.0.0 inside Docker)
      FIREBASE_PROJECT_ID default inventory-system-1fb4d
    ──────────────────────────────────────────────────────────────────────────── */
 const http = require('node:http');
@@ -20,6 +21,9 @@ const admin = require('firebase-admin');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const PORT = Number(process.env.PORT || 8787);
+// 127.0.0.1 when Caddy runs on the same machine; 0.0.0.0 inside a Docker
+// container that only a reverse proxy on the same Docker network can reach.
+const HOST = process.env.HOST || '127.0.0.1';
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'inventory-system-1fb4d';
 const MODEL = 'claude-haiku-5-5';   // fast and low-cost; fine for help-desk answers
 
@@ -226,7 +230,7 @@ if (require.main === module) {
     console.error('ANTHROPIC_API_KEY is not set (expected in /etc/epc-chat.env). Exiting.');
     process.exit(1);
   }
-  createServer().listen(PORT, '127.0.0.1', () => console.log(`EPC chat API listening on 127.0.0.1:${PORT}`));
+  createServer().listen(PORT, HOST, () => console.log(`EPC chat API listening on ${HOST}:${PORT}`));
 }
 
 module.exports = { createServer, cleanMessages };

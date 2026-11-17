@@ -37,9 +37,10 @@ A floating "EPC Assistant" chat button appears on every signed-in page (`initCha
 The chat API runs on the **Hostinger VPS**, not Firebase (the Firebase project stays on the free Spark plan):
 - Code: `chat-server/server.js` (Node, no framework). It verifies the user's Firebase ID token with Google's public keys, allows only the portal's own web addresses (CORS: the live site and `epc-inventory-system--*.web.app` previews), limits each user to 30 questions per 10 minutes, and calls Claude (`claude-haiku-5-5`, low effort; chosen for cost) with the Anthropic SDK.
 - **The Anthropic API key lives only on the VPS** in `/etc/epc-chat.env` (root-only). Never put it in the website code, git, or a chat.
-- Setup or update (as root on the VPS, from a copy of the `chat-server/` folder): `bash setup-vps.sh`. It installs Node.js and Caddy, runs the server as the `epc-chat` systemd service on 127.0.0.1:8787, puts HTTPS in front with Caddy, asks for the key without echoing it, and prints the chat API address to put in `EPC_CHAT_URL`.
+- Setup or update (as root on the VPS, from a copy of the `chat-server/` folder): `bash setup-vps.sh`. It asks for the key without echoing it and prints the chat API address to put in `EPC_CHAT_URL`.
+- **Our VPS (187.127.124.15) runs Coolify**, whose Traefik (`coolify-proxy`) owns ports 80/443 and serves other apps (Supabase, n8n, etc.). The script detects this and runs the chat server as the Docker container `epc-chat` on the `coolify` network (no public port; node:22-alpine, read-only, app mounted from `/opt/epc-chat`) and adds one route file, `/data/coolify/proxy/dynamic/epc-chat.yaml`, for `epc-chat.187-127-124-15.sslip.io` with Let's Encrypt. Nothing Coolify manages is edited. On a VPS without Coolify it uses Node + Caddy as a systemd service instead.
 - Copying the folder from a Mac: `scp -r chat-server root@<VPS-IP>:/root/`
-- Logs and status on the VPS: `journalctl -u epc-chat -f`, `systemctl status epc-chat`. Each answer logs the user id and token counts.
+- Logs on the VPS: `docker logs -f epc-chat` (Coolify mode) or `journalctl -u epc-chat -f` (plain mode). Each answer logs the user id and token counts.
 - The assistant can't see the company's records; it explains the portal and accounting/tax topics. The system prompt in `chat-server/server.js` lists the pages, so update it (and re-run `setup-vps.sh`) when pages are added or renamed.
 - `chat-server/` is kept out of Firebase Hosting by the `chat-server/**` ignore rule.
 
