@@ -66,7 +66,7 @@ async function writeRows(rows, onProgress) {
     await commitESBatch(() => {
       const batch = fsdb.batch();
       chunk.forEach(row => {
-        batch.set(fsdb.collection('eSalesRecords').doc(esDocId(row)), cleanESRow(row), { merge:true });
+        batch.set(fsdb.collection('eSalesRecords').doc(esDocId(row)), epcStamp(cleanESRow(row)), { merge:true });
       });
       return batch;
     });

@@ -7,6 +7,7 @@
   <title>Reports - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css?v=20261117-quota">
   <link rel="stylesheet" href="reports.css?v=20261117-ux5">
+  <link rel="stylesheet" href="reports-sales.css?v=20261118-analysis">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -48,6 +49,7 @@
         <label>From <input type="date" class="form-input" id="report-start"></label>
         <label>To <input type="date" class="form-input" id="report-end"></label>
         <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Generate Report</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" id="btn-reload-report-data" title="Reads every record again from the database. Use it only if a report looks out of date.">Reload all data</button>
         <span id="rep-gen-status" class="gen-status"></span>
         <div class="report-extra-filters" id="report-extra-filters"></div>
       </div>
@@ -76,6 +78,10 @@
           <button class="btn btn-outline-gray btn-sm" type="button" id="btn-export-report-excel" onclick="exportActiveReportToExcel()">Export to Excel</button>
           <button class="btn btn-outline-gray btn-sm" type="button" id="btn-export-report-pdf" onclick="exportActiveReportToPDF()">Export to PDF</button>
         </div>
+      </div>
+      <div class="tabs sales-view-switch" id="sales-view-switch" style="display:none">
+        <button class="tab-btn" type="button" data-sales-view="overview" onclick="setSalesReportView('overview')">Overview</button>
+        <button class="tab-btn" type="button" data-sales-view="analysis" onclick="setSalesReportView('analysis')">Sales analysis</button>
       </div>
       <div class="tax-summary-content" id="tax-summary-content">
         <section class="tax-report-section">
@@ -162,6 +168,7 @@
           </table>
         </div>
       </section>
+      <section class="sa" id="sales-analysis"></section>
       <section class="card" id="custom-report-controls" style="display:none">
         <h3>Custom Report Builder</h3>
         <div class="custom-grid">
@@ -197,8 +204,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20261117-quota"></script>
+<script src="../assets/app.js?v=20261118-reads"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
-<script src="reports.js?v=20261117-quota"></script>
+<script src="reports.js?v=20261118-analysis"></script>
+<script src="reports-sales.js?v=20261118-analysis"></script>
 </body>
 </html>

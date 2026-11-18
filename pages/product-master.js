@@ -660,12 +660,12 @@ async function saveProduct() {
         .get();
       const firestoreRecord = cleanFirestoreProduct(record);
       if (!pmSnap.empty) {
-        await pmSnap.docs[0].ref.update(firestoreRecord);
+        await pmSnap.docs[0].ref.update(epcStamp(firestoreRecord));
       } else {
-        await fsdb.collection('productMaster').add({
+        await fsdb.collection('productMaster').add(epcStamp({
           ...firestoreRecord,
           itemCode: String(code).trim()
-        });
+        }));
       }
     } catch (err) {
       console.error('[Product Master] Firestore upsert failed:', err);

@@ -669,7 +669,7 @@ async function saveSalesDetailChanges() {
         .limit(1)
         .get();
       if (!pmSnap.empty) {
-        await pmSnap.docs[0].ref.update({ category: values.category });
+        await pmSnap.docs[0].ref.update(epcStamp({ category: values.category }));
         savedMsg = 'Saved. Category also updated in Product Master.';
       }
     }
@@ -747,9 +747,9 @@ async function saveReviewRow(id) {
       .limit(1)
       .get();
     if (!existingPM.empty) {
-      await existingPM.docs[0].ref.set(pmDocData, { merge: true });
+      await existingPM.docs[0].ref.set(epcStamp(pmDocData), { merge: true });
     } else {
-      await db.collection('productMaster').add(pmDocData);
+      await db.collection('productMaster').add(epcStamp(pmDocData));
     }
 
     // 2. Add to salesData
@@ -1169,7 +1169,7 @@ function fetchProductMaster() { return loadProductMasterMap(); }
 async function upsertProductMaster(itemCode, productData) {
   if (!requireSalesEditAccess()) return null;
   const ref = db.collection('productMaster').doc(normalizeItemCode(itemCode));
-  await ref.set(productData, { merge:true });
+  await ref.set(epcStamp(productData), { merge:true });
   return ref;
 }
 async function deleteFromFirestore(collectionName, ids, onProgress, batchSize = 499, retries = 3) {

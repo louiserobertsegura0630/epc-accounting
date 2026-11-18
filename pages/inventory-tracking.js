@@ -590,8 +590,8 @@ async function syncInventoryDisplayFieldsToProductMaster(itemCode, description, 
     .limit(1)
     .get();
   const fields = { itemCode:code, productName, name:productName, category:productCategory };
-  if (!snapshot.empty) await snapshot.docs[0].ref.set(fields, { merge:true });
-  else await db.collection('productMaster').doc(code).set(fields, { merge:true });
+  if (!snapshot.empty) await snapshot.docs[0].ref.set(epcStamp(fields), { merge:true });
+  else await db.collection('productMaster').doc(code).set(epcStamp(fields), { merge:true });
 }
 
 function setTab(tab) {
@@ -2216,13 +2216,13 @@ async function updateReviewCost(itemCode) {
         .limit(1)
         .get();
       if (!snap.empty) {
-        await snap.docs[0].ref.update({ unitCost: row.unitCost, latestCost: row.unitCost });
+        await snap.docs[0].ref.update(epcStamp({ unitCost: row.unitCost, latestCost: row.unitCost }));
       } else {
-        await fsdb.collection('productMaster').add({
+        await fsdb.collection('productMaster').add(epcStamp({
           itemCode: String(itemCode).trim(),
           unitCost: row.unitCost,
           latestCost: row.unitCost
-        });
+        }));
       }
     } catch (err) {
       console.error('[Inventory] PM cost update failed:', err);
@@ -2261,13 +2261,13 @@ async function updateAllReviewCosts() {
           .limit(1)
           .get();
         if (!snap.empty) {
-          await snap.docs[0].ref.update({ unitCost: row.unitCost, latestCost: row.unitCost });
+          await snap.docs[0].ref.update(epcStamp({ unitCost: row.unitCost, latestCost: row.unitCost }));
         } else {
-          await fsdb.collection('productMaster').add({
+          await fsdb.collection('productMaster').add(epcStamp({
             itemCode: String(row.itemCode).trim(),
             unitCost: row.unitCost,
             latestCost: row.unitCost
-          });
+          }));
         }
       }));
     } catch (err) {

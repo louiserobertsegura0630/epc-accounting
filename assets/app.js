@@ -211,6 +211,156 @@ window.EPCQuota = window.EPCQuota || (() => {
   return { report, ok, isQuotaError, resetText, active: () => !!hit };
 })();
 
+// ─── Saved copies of whole collections (shared) ──────────────────────────────
+// Reports and the Dashboard need every record of some collections. Reading a
+// whole collection on every Generate click is what used up the free daily
+// reads. So each browser keeps a saved copy in IndexedDB (`epc-cache`, per
+// signed-in user) and EPCSaved.rows(name) only fetches what changed: records
+// stamped after the saved copy (1 read each, 1 read when there are none) plus
+// a count to catch deleted records (1 read per 1,000 records). The whole
+// collection is read again only on the first load on a browser, when the count
+// does not match, when the copy is over a week old, or with { force: true }.
+//
+// Every site write to a collection listed in SOURCES must be stamped, or other
+// browsers will not notice the change: wrap the data in epcStamp() (itemCost
+// and salesDaily already stamp `lastUpdated`).
+function epcStamp(data) {
+  return { ...data, changedAt: firebase.firestore.FieldValue.serverTimestamp() };
+}
+window.EPCSaved = window.EPCSaved || (() => {
+  const SOURCES = {
+    purchases: {}, expenses: {}, suppliesData: {}, eSalesRecords: {}, productMaster: {},
+    // Only the figures the reports use are kept from these two.
+    itemCost: { stampField: 'lastUpdated', pick: d => ({ unit_cost: Number(d.unit_cost) || 0 }) },
+    salesDayTotals: {
+      collection: 'salesDaily', stampField: 'lastUpdated',
+      pick: d => ({ revenue: Number((d.totals || {}).revenue) || 0 }),
+    },
+  };
+  const CACHE_DB = 'epc-cache';      // same IndexedDB database as the Sales Pulse
+  const CACHE_STORE = 'kv';
+  const VERSION = 1;
+  const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;   // safety net for writes that were not stamped
+  const memory = {};     // name -> saved copy, for this page view
+  const inFlight = {};   // name -> promise, so two callers share one load
+
+  function cacheStore(mode, action) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open(CACHE_DB, 1);
+      open.onupgradeneeded = () => open.result.createObjectStore(CACHE_STORE);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const idb = open.result;
+        const tx = idb.transaction(CACHE_STORE, mode);
+        const req = action(tx.objectStore(CACHE_STORE));
+        tx.oncomplete = () => { idb.close(); resolve(req.result); };
+        tx.onerror = tx.onabort = () => { idb.close(); reject(tx.error); };
+      };
+    });
+  }
+  // IndexedDB keeps a Firestore Timestamp as a plain object (no toDate()), so
+  // mark timestamps on the way in and rebuild them on the way out.
+  function encode(value) {
+    if (!value || typeof value !== 'object') return value;
+    if (typeof value.toDate === 'function' && typeof value.seconds === 'number') return { __ts: [value.seconds, value.nanoseconds || 0] };
+    if (Array.isArray(value)) return value.map(encode);
+    const out = {};
+    Object.keys(value).forEach((k) => { out[k] = encode(value[k]); });
+    return out;
+  }
+  function decode(value) {
+    if (!value || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map(decode);
+    if (Array.isArray(value.__ts)) return new firebase.firestore.Timestamp(value.__ts[0], value.__ts[1]);
+    const out = {};
+    Object.keys(value).forEach((k) => { out[k] = decode(value[k]); });
+    return out;
+  }
+  // saved = { v, uid, at, stamp:{s,n}, docs:{id:data} }. stamp is the newest
+  // change stamp seen, kept exactly so the next check asks only for later ones.
+  async function readSaved(name, uid) {
+    try {
+      const saved = await cacheStore('readonly', (store) => store.get(`saved:${name}`));
+      if (saved && saved.v === VERSION && saved.uid === uid && saved.stamp && saved.docs) {
+        return { ...saved, docs: decode(saved.docs) };
+      }
+    } catch (e) { /* storage off or blocked */ }
+    return null;
+  }
+  async function writeSaved(name, saved) {
+    try {
+      await cacheStore('readwrite', (store) => store.put({ ...saved, docs: encode(saved.docs) }, `saved:${name}`));
+    } catch (e) { console.warn('[EPCSaved] could not save', name, e); /* storage off: read again next time */ }
+  }
+  function signedIn() {
+    return new Promise((resolve, reject) => {
+      const auth = typeof getFirebaseAuth === 'function' ? getFirebaseAuth() : null;
+      if (!auth) { reject(new Error('Sign-in is not available.')); return; }
+      const off = auth.onAuthStateChanged((user) => { if (user) { off(); resolve(user); } });
+    });
+  }
+  const source = (name) => {
+    if (!SOURCES[name]) throw new Error(`EPCSaved: unknown collection "${name}"`);
+    return { collection: name, stampField: 'changedAt', pick: (d) => d, ...SOURCES[name] };
+  };
+  function addDoc(saved, src, doc) {
+    const data = doc.data() || {};
+    saved.docs[doc.id] = src.pick(data);
+    const ts = data[src.stampField];
+    if (!ts || typeof ts.seconds !== 'number') return;
+    const cur = saved.stamp;
+    if (!cur || ts.seconds > cur.s || (ts.seconds === cur.s && ts.nanoseconds > cur.n)) {
+      saved.stamp = { s: ts.seconds, n: ts.nanoseconds || 0 };
+    }
+  }
+  async function fetchAll(db, name, uid) {
+    const src = source(name);
+    const saved = { v: VERSION, uid, at: Date.now(), stamp: null, docs: {} };
+    (await db.collection(src.collection).get()).forEach((doc) => addDoc(saved, src, doc));
+    // No stamps at all (records from before stamping): start a day back, to allow for a wrong clock on this computer.
+    if (!saved.stamp) saved.stamp = { s: Math.floor(saved.at / 1000) - 86400, n: 0 };
+    await writeSaved(name, saved);
+    return saved;
+  }
+  // Bring a saved copy up to date.
+  async function sync(db, name, saved) {
+    const src = source(name);
+    const col = db.collection(src.collection);
+    const since = new firebase.firestore.Timestamp(saved.stamp.s, saved.stamp.n);
+    const changed = await col.where(src.stampField, '>', since).get();
+    changed.forEach((doc) => addDoc(saved, src, doc));
+    // Deleted records leave no trace, so compare the number of records.
+    // (firestoreCount: this SDK build has no query.count(). null = could not count; check again next time.)
+    const counted = await firestoreCount(col, `${name} count`);
+    if (counted != null && counted !== Object.keys(saved.docs).length) return fetchAll(db, name, saved.uid);
+    if (!changed.empty) await writeSaved(name, saved);
+    return saved;
+  }
+  async function load(name, force) {
+    const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
+    if (!db) throw new Error('The database is not available.');
+    const user = await signedIn();
+    let saved = null;
+    if (!force) {
+      saved = memory[name] && memory[name].uid === user.uid ? memory[name] : await readSaved(name, user.uid);
+      if (saved && Date.now() - saved.at > MAX_AGE_MS) saved = null;
+    }
+    saved = saved ? await sync(db, name, saved) : await fetchAll(db, name, user.uid);
+    memory[name] = saved;
+    // Fresh row objects each time, in document-id order like a plain .get().
+    return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
+  }
+  // Every record of a collection, as [{ _firestoreId, ...fields }].
+  function rows(name, { force = false } = {}) {
+    if (!inFlight[name]) {
+      inFlight[name] = load(name, force).finally(() => { delete inFlight[name]; });
+    }
+    return inFlight[name];
+  }
+
+  return { rows };
+})();
+
 // ─── Pastel 3D chart style (shared) ──────────────────────────────────────────
 // Turns the plain bright colours that page code passes to Chart.js into the
 // dashboard's pastel gradients: rounded bars with a soft drop shadow, pastel
@@ -402,6 +552,7 @@ const EPC_CHART_PASTEL = {
   const ATTACH = [
     '.section-subtitle', '.chart-subtitle', '.dash-sub', '.dash-caption',
     '.prod-chart-caption', '.esales-summary-subtitle', '#report-subtitle',
+    '.info-def',   // a definition: any element with this class becomes an "i" beside the label before it
   ].join(',');
   // Free-standing explanation notes: icon takes the note's place.
   const INLINE = [
@@ -1098,7 +1249,7 @@ async function replaceProductMasterInFirestore(rows) {
     rows.slice(i, i + BATCH_SIZE).forEach(row => {
       const docId = productMasterFirestoreDocId(row);
       if (docId) {
-        batch.set(db.collection('productMaster').doc(docId), cleanFirestoreProduct(row));
+        batch.set(db.collection('productMaster').doc(docId), epcStamp(cleanFirestoreProduct(row)));
         pendingWrites += 1;
       }
     });
@@ -1150,7 +1301,7 @@ async function upsertProductMasterRowsInFirestore(rows, onProgress, options = {}
         if (row._firestoreId && row._firestoreId !== docId) legacyDocIds.add(row._firestoreId);
         const ref = db.collection('productMaster').doc(docId);
         row._firestoreId = ref.id;
-        batch.set(ref, cleanFirestoreProduct(row), { merge: true });
+        batch.set(ref, epcStamp(cleanFirestoreProduct(row)), { merge: true });
         pendingWrites += 1;
       });
       if (pendingWrites > 0) {
@@ -1217,7 +1368,7 @@ async function loadPurchasesFromFirestore() {
     row.id = docId;
     const clean = { ...row };
     delete clean._firestoreId;
-    await db.collection('purchases').doc(docId).set(clean, { merge: true });
+    await db.collection('purchases').doc(docId).set(epcStamp(clean), { merge: true });
     row._firestoreId = docId;
   }
   if (localRows.length) DB.set('purchases', localRows);
@@ -1288,13 +1439,22 @@ function wordEsc(value) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// A table cell's text for exports, without the "i" info buttons.
+function exportCellText(cell) {
+  const tips = [...cell.querySelectorAll('.info-tip')];
+  tips.forEach(tip => { tip.style.display = 'none'; });
+  const text = cell.innerText.replace(/\s+/g, ' ').trim();
+  tips.forEach(tip => { tip.style.display = ''; });
+  return text;
+}
+
 // Serialize a rendered <table> to clean HTML, dropping filter/input rows.
 function serializeTableToWord(table) {
   if (!table) return '';
   const trs = [...table.rows].filter(tr => !tr.querySelector('input, select'));
   const body = trs.map(tr => `<tr>${[...tr.cells].map(cell => {
     const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
-    return `<${tag}>${wordEsc(cell.innerText.replace(/\s+/g, ' ').trim())}</${tag}>`;
+    return `<${tag}>${wordEsc(exportCellText(cell))}</${tag}>`;
   }).join('')}</tr>`).join('');
   return `<table border="1" cellspacing="0" cellpadding="4">${body}</table>`;
 }
@@ -1306,7 +1466,7 @@ function serializeTableToExcel(table) {
   const trs = [...table.rows].filter(tr => !tr.querySelector('input, select'));
   const body = trs.map(tr => `<tr>${[...tr.cells].map(cell => {
     const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
-    return `<${tag} style="mso-number-format:'\\@'">${wordEsc(cell.innerText.replace(/\s+/g, ' ').trim())}</${tag}>`;
+    return `<${tag} style="mso-number-format:'\\@'">${wordEsc(exportCellText(cell))}</${tag}>`;
   }).join('')}</tr>`).join('');
   return `<table>${body}</table>`;
 }
