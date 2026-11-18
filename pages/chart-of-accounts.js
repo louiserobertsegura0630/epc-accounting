@@ -150,7 +150,7 @@ async function reassignExpenseCategory(rows, newCategory) {
       const batch = db.batch();
       rows.slice(i, i + 400).forEach(r =>
         batch.set(db.collection('expenses').doc(r._firestoreId || r.id),
-          { category: newCategory }, { merge: true }));
+          epcStamp({ category: newCategory }), { merge: true }));
       await batch.commit();
     }
   }

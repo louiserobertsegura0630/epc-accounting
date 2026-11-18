@@ -13,7 +13,7 @@ let SNAP_DATE = defaultSnapDate;
 // ─── Data cache (filled by loadDashData from Firestore, fallback localStorage)
 const DASH_DATA = {
   pos: [], purchases: [], supplies: [], esales: [],
-  inventory: [], expenses: [], productMap: {}
+  inventory: [], expenses: []
 };
 
 // ─── Loading pop-up ───────────────────────────────────────────────────────────
@@ -138,45 +138,55 @@ async function loadSalesRange(from, to) {
   } catch (e) { console.warn('[Dashboard] salesDaily range read failed', from, to, e); return []; }
 }
 
-// ─── Firestore loader (mirrors reports.js fetchReportCollection) ──────────────
+// Raw inventory rows for the selected day only: one read per row delivered that
+// day, instead of the whole inventoryData collection. Kept per day for this page view.
+const _inventoryDayCache = new Map(); // date -> rows[]
+async function loadInventoryForDate(date) {
+  if (_inventoryDayCache.has(date)) return;
+  const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
+  if (!db) return;
+  try {
+    const snap = await db.collection('inventoryData')
+      .where('dateDelivered', '>=', date)
+      .where('dateDelivered', '<=', `${date}\uf8ff`).get();
+    _inventoryDayCache.set(date, snap.docs.map(d => ({ _firestoreId: d.id, ...d.data() })));
+  } catch (e) {
+    EPCQuota.report(e);
+    console.warn('[Dashboard] inventory read failed for', date, e);
+  }
+  DASH_DATA.inventory = [..._inventoryDayCache.values()].flat();
+}
+
+// ─── Firestore loader ─────────────────────────────────────────────────────────
+// Purchases, supplies, e-sales and expenses come from the browser's saved copy
+// (EPCSaved in app.js), which fetches only records changed since the last load.
 async function loadDashData() {
   async function fetchC(name, fallback) {
-    const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
-    if (db) {
-      try {
-        const snap = await db.collection(name).get();
-        if (!snap.empty) return snap.docs.map(d => ({ _firestoreId: d.id, ...d.data() }));
-      } catch(e) {
-        console.warn('[Dashboard] Firestore fetch failed for', name, e);
-      }
+    try {
+      const rows = await EPCSaved.rows(name);
+      if (rows.length) return rows;
+    } catch(e) {
+      EPCQuota.report(e);
+      console.warn('[Dashboard] Firestore fetch failed for', name, e);
     }
     return DB.get(fallback) || [];
   }
 
-  const [pos, purchases, supplies, esales, inventory, expenses, products] = await Promise.all([
+  _inventoryDayCache.delete(SNAP_DATE);   // Generate shows the day's latest inventory
+  const [pos, purchases, supplies, esales, expenses] = await Promise.all([
     loadSalesForDate(SNAP_DATE),   // cheap: one salesDaily/{date} read, not a full scan
     fetchC('purchases',     'purchases'),
     fetchC('suppliesData',  'supplies_movements'),
     fetchC('eSalesRecords', 'esales'),
-    fetchC('inventoryData', 'inventory_movements'),
     fetchC('expenses',      'expenses'),
-    fetchC('productMaster', 'productMaster'),
+    loadInventoryForDate(SNAP_DATE),
   ]);
 
   DASH_DATA.pos       = pos;
   DASH_DATA.purchases = purchases;
   DASH_DATA.supplies  = supplies;
   DASH_DATA.esales    = esales;
-  DASH_DATA.inventory = inventory;
   DASH_DATA.expenses  = expenses;
-
-  // Build product name map — also merge localStorage 'products' key as fallback
-  const productMap = {};
-  [...products, ...(DB.get('products') || [])].forEach(p => {
-    const code = String(p.itemCode || p.code || '').trim();
-    if (code && !productMap[code]) productMap[code] = p;
-  });
-  DASH_DATA.productMap = productMap;
 }
 
 // ─── Motion helpers (entrance, count-up, 3D tilt) ────────────────────────────
@@ -678,6 +688,7 @@ async function setSnapDate(date) {
   await withLoadingPopup('Loading daily summary…', async () => {
     DASH_DATA.pos = await loadSalesForDate(SNAP_DATE);  // one salesDaily/{date} read (cached)
     await loadWeekSales();                               // up to 6 more, for the 7-day charts
+    await loadInventoryForDate(SNAP_DATE);               // that day's inventory rows (cached)
     buildDailyOperationsSummary();
   });
 }
@@ -822,20 +833,15 @@ async function buildProductPerformance() {
   }).forEach(r => {
     const code = String(r.itemCode || '').trim();
     if (!code) return;
-    if (!byCode[code]) byCode[code] = { units:0, value:0, fallback:r.productName || code };
+    if (!byCode[code]) byCode[code] = { units:0, value:0, name:r.productName || code };   // sales days carry the names
     byCode[code].units += Number(r.unitsSold)    || 0;
     byCode[code].value += Number(r.totalRevenue) || 0;
   });
 
-  const getName = (code, fb) => {
-    const p = DASH_DATA.productMap[code];
-    return (p && (p.productName || p.name)) || fb || code;
-  };
-
   const entries = Object.entries(byCode)
     .map(([code, v]) => ({
       code,
-      name:getName(code, v.fallback),
+      name:v.name,
       units:v.units,
       value:v.value,
       metric:measure === 'pesos' ? v.value : v.units

@@ -63,7 +63,7 @@ async function upsertSupplyInFirestore(row) {
   const db = getFirestoreDB();
   if (!db) return;
   const docId = row._firestoreId || row.id;
-  await db.collection('suppliesData').doc(docId).set(cleanSupplyFirestoreRow(row), { merge: true });
+  await db.collection('suppliesData').doc(docId).set(epcStamp(cleanSupplyFirestoreRow(row)), { merge: true });
   row._firestoreId = docId;
 }
 

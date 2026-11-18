@@ -116,10 +116,11 @@
       if (doc.id >= from && doc.id <= today) { addDay(pack, doc); changed = true; } else noteStamp(pack, (doc.data() || {}).lastUpdated);
     });
     // 2) Deleted uploads leave no trace, so compare the number of days (1 read).
-    try {
-      const counted = (await windowQuery(db, from).count().get()).data().count;
-      if (counted !== Object.keys(pack.days).length) return { pack: await fetchPack(pack.uid), changed: true };
-    } catch (e) { console.warn('[Sales Pulse] day count check skipped:', e); }
+    //    firestoreCount (app.js): this SDK build has no query.count(). null = could not count.
+    const idPath = firebase.firestore.FieldPath.documentId();
+    const counted = await firestoreCount(
+      db.collection('salesDaily').where(idPath, '>=', from).where(idPath, '<=', today), 'sales pulse day count');
+    if (counted != null && counted !== Object.keys(pack.days).length) return { pack: await fetchPack(pack.uid), changed: true };
     pack.from = from; pack.to = today; pack.checkedAt = Date.now();
     if (changed) pack.at = Date.now();
     await writeCache(pack);

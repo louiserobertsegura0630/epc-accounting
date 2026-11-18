@@ -11,7 +11,7 @@ async function upsertPurchaseInFirestore(row) {
   const docId = row._firestoreId || row.id;
   const clean = { ...row };
   delete clean._firestoreId;
-  await db.collection('purchases').doc(docId).set(clean, { merge: true });
+  await db.collection('purchases').doc(docId).set(epcStamp(clean), { merge: true });
   row._firestoreId = docId;
 }
 
@@ -31,7 +31,7 @@ async function batchWritePurchasesToFirestore(rows) {
       row.id = docId;
       const clean = { ...row };
       delete clean._firestoreId;
-      batch.set(db.collection('purchases').doc(docId), clean);
+      batch.set(db.collection('purchases').doc(docId), epcStamp(clean));
       row._firestoreId = docId;
     });
     await batch.commit();
@@ -1191,7 +1191,7 @@ async function saveEditedSupplier() {
         const batch = db.batch();
         affected.slice(start, start + 400).forEach(p => {
           batch.set(db.collection('purchases').doc(String(p._firestoreId || p.id)),
-            { supplier: name }, { merge: true });
+            epcStamp({ supplier: name }), { merge: true });
         });
         await batch.commit();
       }

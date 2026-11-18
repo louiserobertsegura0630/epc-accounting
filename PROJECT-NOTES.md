@@ -2,7 +2,7 @@
 
 The *why* behind the setup. `CLAUDE.md` has the *how*: links, deploying, structure and rules. Read both before changing things.
 
-Last updated: 2026-11-17.
+Last updated: 2026-11-18.
 
 ---
 
@@ -32,10 +32,19 @@ Last updated: 2026-11-17.
 
 ### Reports and Generate buttons
 - Pages load **nothing** until **Generate Report** is clicked, because each load costs reads. Tabs and date presets never load by themselves.
-- Reports has **one** Generate Report button, next to the dates.
+- Reports has **one** Generate Report button, next to the dates. Beside it is a small **Reload all data** button for the rare case that a report looks out of date.
 - Every load shows a **loading pop-up**. The Reports pop-up shows the percentage.
 - Dates use the **local** (Philippine) date, not UTC. The old UTC code shifted every date back one day.
 - Long ranges are read month by month, side by side. The load only times out after 45s with no progress (hard cap 3 minutes).
+
+### Saved copies (cutting Firestore reads), built 2026-11-18
+- **Why:** one Generate click on the Dashboard read about 12,000 records and one on Reports about 5,000 to 10,000, because they read whole collections every time. A handful of clicks used up the day.
+- **What we chose:** each browser keeps a saved copy of those collections and only fetches records that changed since (the same idea as the Sales Pulse). After the first load, a Generate click costs a few dozen reads.
+- **Why not "load only the chosen dates":** older records store their dates in different fields and formats, and the Tax and Cash Flow tabs need records outside the chosen dates. Filtering in the database risked silently dropping records from accounting totals. A saved copy keeps every figure exactly as before.
+- **The cost of this choice:** every place the site saves a purchase, expense, supply, e-sales record or product must stamp it (`epcStamp` in `assets/app.js`). If a stamp is ever missed, other browsers show the old value until **Reload all data** is clicked or the copy turns 7 days old. Deleting a record makes each browser read that collection again once.
+- **First load per browser** still reads everything once (about the same as one old Generate click). So does a new computer, a new browser, or a different person signing in.
+- **Fixed along the way:** the Sales Pulse's check for deleted sales uploads never ran, because the Firebase build the site loads has no `count()`. It now uses the site's own `firestoreCount`, so a deleted upload disappears from the Sales Pulse at the next check instead of staying until Refresh.
+- **Fixed along the way:** Reports used the purchases list left behind by the Purchases page in that browser (only the rows that page had on screen). It now always uses all purchases, so Purchases, Tax and Cash Flow totals in Reports may be higher than before.
 
 ### Design (Design system v4)
 - Soft mint background, white rounded cards, **dark teal** accents and a light sidebar, matching the "Pharmacy" reference design. Only the **EPC logo and company name** stay as brand.
@@ -84,12 +93,12 @@ Last updated: 2026-11-17.
    - **Zero extra reads:** compare only against loaded rows; all-time ranks would be too expensive.
    - Source info exists for inventory, e-sales and uploads; older purchases and expenses may lack it.
    - The owner hasn't picked yet: all pages at once, or Sales, Inventory and Product Master first.
-2. **Cut Firestore reads in reports.** Several report tabs read **whole collections** on every Generate (all purchases, all expenses, the full Product Master, about 4,700 docs). Proposed fixes:
-   - query by the selected dates;
-   - stop loading the full Product Master just for names and categories;
-   - reuse data already loaded this session.
-
-   This is the real reason the free 50,000 reads/day run out.
+2. **Cut Firestore reads on the other pages.** Reports and the Dashboard are done (see "Saved copies" above). Still reading whole collections:
+   - **Income Statement:** all of raw `salesData` and `underReviewData` (the largest collections).
+   - **Potential Revenue:** all of raw `salesData` and the Product Master.
+   - **Inventory Tracking:** all of `itemCost` and all `salesDaily` days in the cost-matching step.
+   - **Product Master "replace all" saves** (`syncProductMasterToFirestore`): read, delete and rewrite all ~4,700 products.
+   - Expenses, Supplies, Suppliers, Chart of Accounts, Tax Monitoring and E-Sales pages read their own collection in full on open; they could switch to `EPCSaved.rows()`.
 3. Phone layout: the sidebar keeps its width on small screens on every page. This was true before the redesign and hasn't been fixed yet.
 
 ---

@@ -113,7 +113,7 @@ async function upsertExpenseInFirestore(row) {
   const db = getFirestoreDB();
   if (!db) return;
   const docId = row._firestoreId || row.id;
-  await db.collection('expenses').doc(docId).set(cleanExpenseFirestoreRow(row), { merge:true });
+  await db.collection('expenses').doc(docId).set(epcStamp(cleanExpenseFirestoreRow(row)), { merge:true });
   row._firestoreId = docId;
 }
 

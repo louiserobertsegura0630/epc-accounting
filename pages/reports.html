@@ -48,6 +48,7 @@
         <label>From <input type="date" class="form-input" id="report-start"></label>
         <label>To <input type="date" class="form-input" id="report-end"></label>
         <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Generate Report</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" id="btn-reload-report-data" title="Reads every record again from the database. Use it only if a report looks out of date.">Reload all data</button>
         <span id="rep-gen-status" class="gen-status"></span>
         <div class="report-extra-filters" id="report-extra-filters"></div>
       </div>
@@ -197,8 +198,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20261117-quota"></script>
+<script src="../assets/app.js?v=20261118-reads"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
-<script src="reports.js?v=20261117-quota"></script>
+<script src="reports.js?v=20261118-reads"></script>
 </body>
 </html>
