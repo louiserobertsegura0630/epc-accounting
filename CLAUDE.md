@@ -80,6 +80,17 @@ Reading whole collections on every Generate click is what used up the free 50,00
 - **Counting records:** the Firebase SDK build the site loads (compat 10.13.2) has no `query.count()`. Use `firestoreCount(query, label)` from `assets/app.js` (it returns `null` when it could not count). It understands `where()` filters but not `startAt`/`endAt`, so count a range of day docs with `where(documentId(), '>=', from)`.
 - New pages that need a whole collection should use `EPCSaved.rows()` instead of `db.collection(name).get()`. To cover another collection, add it to `SOURCES` in `EPCSaved` and stamp all its writes.
 
+## Reports: Sales analysis
+
+The Sales tab in Reports has two views, switched by the **Overview / Sales analysis** buttons (`setSalesReportView` in `pages/reports.js`; the choice is remembered in `localStorage` as `epc_sales_report_view`).
+
+- `pages/reports-sales.js` + `reports-sales.css` draw the analysis: 14 KPI cards (sales, units, average daily sales, offtake per day, average selling price, gross profit, margin, markup, products sold, sales per product, top 10 share, selling days, best day, sales with a cost), sales trend, day of the week, categories, ABC classes, biggest gains and drops, and a per-product offtake table (search, ABC filter, sort, CSV export).
+- **No reads of its own.** It uses the sales days Generate Report already loaded (`REPORT_DATA.sales`) plus the same number of days just before (`salesPrevious`, loaded by `loadSalesPreviousPeriod` only when Generate Report is clicked on the Sales tab: one read per day, reused like the other day docs). Reached by switching tabs instead, it still shows, without the "vs before" comparisons.
+- **It counts every sale, the Overview does not.** The Overview drops products that have no cost (`reportCostedSales`), so its Total Revenue can be lower. The analysis keeps them; profit, margin and markup use only the part with a cost, and the "Sales with a cost" card says how big that part is.
+- A range that is still running (This Month) ends at the latest day with sales, and "before" means the same number of days right before the start date.
+- **Definitions ("i" icons):** put an element with class `info-def` right after a label and `initInfoTips` in `assets/app.js` turns it into the icon. The wording lives in `DEF` at the top of `reports-sales.js`. Add a definition for every new figure.
+- Not possible from the data: anything per receipt or per customer (basket size, number of transactions, busiest hours). Sales imports keep only product totals per day.
+
 ## Daily read limit warning
 
 `EPCQuota` in `assets/app.js` shows a warning bar on every page when Firebase's free daily reads (50,000, Spark plan) run out, with the reset time (midnight US Pacific, about 4 PM Philippine time). The hit is saved in `localStorage` (`epc_quota_hit`) until the reset, so the bar shows again on each page load without spending a read; a load that works again clears it. New code that catches a Firestore load error must pass it to `EPCQuota.report(err)`. The Purchases cards mark their totals "Only the N loaded rows" when the full-range totals could not be fetched.

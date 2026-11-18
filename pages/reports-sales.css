@@ -1,0 +1,64 @@
+/* Sales analysis (Reports → Sales → "Sales analysis"). Drawn by reports-sales.js. */
+
+.sales-view-switch { margin: 0; }
+
+#sales-analysis { display: none; }
+.sales-analysis-view > #sales-analysis { display: grid; grid-template-columns: minmax(0, 1fr); gap: inherit; }
+/* The analysis takes the place of the overview's cards, charts and tables. */
+.sales-analysis-view > #report-summary,
+.sales-analysis-view > #report-top-n-control,
+.sales-analysis-view .sales-charts-grid,
+.sales-analysis-view > #report-primary-card,
+.sales-analysis-view > #report-secondary-card { display: none !important; }
+
+.sa-period { margin: 0; color: var(--text-secondary); font-size: var(--fs-sm); }
+.sa-period b { color: var(--ink); font-weight: 600; }
+
+/* Definitions live in the "i" icon beside each label (initInfoTips in app.js). */
+.sa .info-def { display: none; }
+
+/* KPI cards */
+.sa-kpis { margin-bottom: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr)); }
+.sa-kpi .info-wrap { margin-bottom: var(--space-2); }
+.sa-kpi .info-wrap .kpi-label { margin-bottom: 0; }
+.sa-kpi .kpi-sub { line-height: 1.4; }
+
+.sa-up { color: #15803d; }
+.sa-down { color: #b91c1c; }
+.sa-flat { color: var(--text-muted); }
+.sa-up b, .sa-down b { font-weight: 700; }
+
+/* Cards */
+.sa-grid { display: grid; gap: inherit; }
+.sa-grid-7-5 { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.sa-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sa-hd { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 14px; }
+.sa-hd h3 { margin: 0; }
+.sa-tools { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.sa-tools .search-input { width: 17rem; max-width: 100%; }
+.sa-tools .form-select { width: auto; }
+.sa-chart { position: relative; height: 300px; }
+
+/* Tables */
+.sa-table th.num, .sa-table td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sa-table th { white-space: nowrap; }
+.sa-table th, .sa-table td { padding: 0.6rem 0.65rem; }
+.sa-table td small { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--fs-xs); font-weight: 400; }
+.sa-name { min-width: 9rem; }
+.sa-movers .sa-name { min-width: 8rem; }
+.sa-abc-cell .sa-abc { margin-right: 0.4rem; }
+.sa-sort { cursor: pointer; user-select: none; }
+.sa-sort:hover { color: var(--teal-900); }
+.sa-abc { display: inline-grid; place-items: center; min-width: 1.75rem; height: 1.75rem; padding: 0 0.4rem; border-radius: 999px; font-weight: 700; font-size: var(--fs-sm); }
+.sa-abc-a { background: #d9f2ea; color: #0d5c4e; }
+.sa-abc-b { background: #fdecc8; color: #8a5a00; }
+.sa-abc-c { background: #eef1f0; color: #55635f; }
+.sa-chip { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; background: #e2ecfb; color: #2b4f9e; font-size: var(--fs-2xs); font-weight: 600; }
+
+@media (max-width: 1100px) {
+  .sa-grid-7-5, .sa-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .sa-tools { margin-left: 0; width: 100%; }
+}
+@media print {
+  .sales-view-switch, .sa-tools { display: none !important; }
+}

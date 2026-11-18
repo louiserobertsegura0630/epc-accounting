@@ -262,10 +262,10 @@ async function reportDaysUnchanged(db, collectionName, start, end, cached) {
   if (end) q = q.where(idPath, '<=', end);
   return (await firestoreCount(q, `${collectionName} day count`)) === cached.count;
 }
-async function fetchRollupRows(collectionName, toRows) {
+async function fetchRollupRows(collectionName, toRows, range = null) {
   const db = getFirestoreDB();
-  const start = (document.getElementById('report-start') || {}).value || '';
-  const end = (document.getElementById('report-end') || {}).value || '';
+  const start = range ? range.start : (document.getElementById('report-start') || {}).value || '';
+  const end = range ? range.end : (document.getElementById('report-end') || {}).value || '';
   const key = `${collectionName}|${start}|${end}`;
   let cached = _reportDayCache.get(key);
   if (!cached || !(await reportDaysUnchanged(db, collectionName, start, end, cached))) {
@@ -380,6 +380,30 @@ async function loadSalesPriorInflow(reloadAll = false) {
   salesPriorInflow = { before: from, total: Math.round(total * 100) / 100, earliest };
 }
 
+// The same number of days just before the report dates, for the "vs before"
+// comparisons in the sales analysis (reports-sales.js). One read per day, kept
+// and re-checked like the other day docs. A future end date (This Month) only
+// counts up to today, so both periods cover the same number of days.
+let salesPrevious = { key: null, start: '', end: '', rows: [] };
+function reportPreviousRange() {
+  const start = (document.getElementById('report-start') || {}).value || '';
+  const end = (document.getElementById('report-end') || {}).value || '';
+  if (!start) return null;
+  const today = localReportIsoDate(new Date());
+  const last = end && end < today ? end : today;
+  if (last < start) return null;
+  const shift = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return localReportIsoDate(d); };
+  const days = Math.round((new Date(`${last}T00:00:00`) - new Date(`${start}T00:00:00`)) / 86400000) + 1;
+  return { key: `${start}|${end}`, start: shift(start, -days), end: shift(start, -1) };
+}
+async function loadSalesPreviousPeriod() {
+  const range = reportPreviousRange();
+  if (!range || !getFirestoreDB()) { salesPrevious = { key: range ? range.key : null, start: '', end: '', rows: [] }; return; }
+  const rows = await fetchRollupRows('salesDaily', salesRollupRows, range);
+  backfillSalesCategories(rows);
+  salesPrevious = { ...range, rows };
+}
+
 // Whole collections the reports need in full. They come from the browser's saved
 // copy (EPCSaved in app.js), which fetches only records changed since last time.
 const REPORT_SAVED_COLLECTIONS = new Set(['purchases', 'expenses', 'suppliesData', 'eSalesRecords', 'productMaster']);
@@ -457,11 +481,11 @@ async function loadReportCollections(keys, { force = false, reloadAll = false } 
 
 // salesDaily rows carry no category (it lives in productMaster). Stamp it on once
 // both are loaded so category filters / breakdowns / the inventory matrix work.
-function backfillSalesCategories() {
-  if (!Array.isArray(REPORT_DATA.sales) || !REPORT_DATA.sales.length) return;
+function backfillSalesCategories(rows = REPORT_DATA.sales) {
+  if (!Array.isArray(rows) || !rows.length) return;
   if (!Array.isArray(REPORT_DATA.productMaster) || !REPORT_DATA.productMaster.length) return;
   const products = reportProductMap();
-  REPORT_DATA.sales.forEach(row => {
+  rows.forEach(row => {
     if (row.category) return;
     const code = String(row.itemCode || row.code || '').trim();
     const p = products[code] || products[code.toUpperCase()];
@@ -475,6 +499,11 @@ async function ensureActiveReportData({ force = false, reloadAll = false } = {})
   if (activeReportTab === 'cashflow' && needsSalesPriorInflow()) {
     reportProgressStep(84, 'Loading prior sales…');
     await loadSalesPriorInflow(reloadAll);
+  }
+  // Only on Generate while the Sales tab is open; without it the analysis just shows no comparisons.
+  if (activeReportTab === 'sales' && force) {
+    reportProgressStep(84, 'Loading the days before, to compare…');
+    await loadSalesPreviousPeriod();
   }
   reportHasGenerated = true;   // data is now loaded — renderActiveReport may paint
 }
@@ -1228,18 +1257,38 @@ function reportPurchasesData() {
   return REPORT_DATA.purchases;
 }
 
+// The Sales tab has two views: the overview below, and the sales analysis
+// (KPIs, offtake, ABC, movers) drawn by reports-sales.js from the same rows.
+let salesReportView = localStorage.getItem('epc_sales_report_view') === 'analysis' ? 'analysis' : 'overview';
+function setSalesReportView(view) {
+  salesReportView = view === 'analysis' ? 'analysis' : 'overview';
+  localStorage.setItem('epc_sales_report_view', salesReportView);
+  renderActiveReport();
+}
+function salesCategoryFilterHtml() {
+  const categories = [...new Set(REPORT_DATA.sales.map(row => row.category).filter(Boolean))].sort();
+  return `<select class="form-select" id="report-sales-category" onchange="setReportSalesCategory(this.value)">
+      <option value="">All Categories</option>${categories.map(v => `<option${v === reportSalesCategory ? ' selected' : ''}>${escReport(v)}</option>`).join('')}
+    </select>`;
+}
+
 function renderSalesReport() {
+  document.querySelectorAll('#sales-view-switch [data-sales-view]').forEach(button => {
+    button.classList.toggle('active', button.dataset.salesView === salesReportView);
+  });
+  if (salesReportView === 'analysis') {
+    document.getElementById('report-extra-filters').innerHTML = salesCategoryFilterHtml();
+    renderSalesAnalysis();
+    return;
+  }
   const rows = salesFilters(reportCostedSales(REPORT_DATA.sales.filter(inReportRange)));
   const revenue = sum(rows, 'totalRevenue');
   const units = sum(rows, 'unitsSold');
   const totals = getPOSTotals(rows);
   const profit = totals.profit;
   const flagged = rows.filter(row => salesFlag(row) !== 'Normal');
-  const categories = [...new Set(REPORT_DATA.sales.map(row => row.category).filter(Boolean))].sort();
   document.getElementById('report-extra-filters').innerHTML = `
-    <select class="form-select" id="report-sales-category" onchange="setReportSalesCategory(this.value)">
-      <option value="">All Categories</option>${categories.map(v => `<option${v === reportSalesCategory ? ' selected' : ''}>${escReport(v)}</option>`).join('')}
-    </select>
+    ${salesCategoryFilterHtml()}
     <select class="form-select" id="report-sales-flag" onchange="setReportSalesFlag(this.value)">
       <option value="">All Flags</option><option${reportSalesFlag === 'Loss' ? ' selected' : ''}>Loss</option><option${reportSalesFlag === 'High Margin' ? ' selected' : ''}>High Margin</option><option${reportSalesFlag === 'Normal' ? ' selected' : ''}>Normal</option>
     </select>`;
@@ -2300,6 +2349,9 @@ function renderActiveReport() {
   document.getElementById('report-output').classList.toggle('inventory-report-layout', activeReportTab === 'inventory');
   document.getElementById('report-output').classList.toggle('cashflow-report-layout', activeReportTab === 'cashflow');
   document.getElementById('report-output').classList.toggle('custom-report-layout', activeReportTab === 'custom');
+  document.getElementById('report-output').classList.toggle('sales-analysis-view',
+    activeReportTab === 'sales' && salesReportView === 'analysis');
+  document.getElementById('sales-view-switch').style.display = activeReportTab === 'sales' ? '' : 'none';
   document.querySelector('.report-controls').style.display = activeReportTab === 'tax' ? 'none' : '';
   document.getElementById('report-chart-card').style.height = '';
   rankedBarContainer.style.height = '';

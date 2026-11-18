@@ -46,6 +46,14 @@ Last updated: 2026-11-18.
 - **Fixed along the way:** the Sales Pulse's check for deleted sales uploads never ran, because the Firebase build the site loads has no `count()`. It now uses the site's own `firestoreCount`, so a deleted upload disappears from the Sales Pulse at the next check instead of staying until Refresh.
 - **Fixed along the way:** Reports used the purchases list left behind by the Purchases page in that browser (only the rows that page had on screen). It now always uses all purchases, so Purchases, Tax and Cash Flow totals in Reports may be higher than before.
 
+### Sales analysis in Reports, built 2026-11-18
+- The owner liked the Sales Pulse and asked for more sales statistics under Reports (KPIs, offtake), each with an "i" that explains it.
+- It sits in **Reports → Sales → Sales analysis**, beside the old view (now called Overview), so nothing the team already uses moved.
+- **Plain-word definitions** are part of the feature: every card, chart, table and non-obvious column has an "i".
+- **Its sales total can be higher than the Overview's.** The Overview leaves out products with no cost; the analysis counts every sale and says what share has a cost. Decide later whether the Overview should count every sale too.
+- Comparisons are against the same number of days just before the chosen dates. This costs one extra read per day, only on Generate Report in the Sales tab.
+- "AK" was never identified (the owner may have misheard it). Not built: stock-based figures (days of stock left, sell-through), because stock on hand is not loaded by Reports; and anything per receipt or customer, which the sales files do not contain.
+
 ### Design (Design system v4)
 - Soft mint background, white rounded cards, **dark teal** accents and a light sidebar, matching the "Pharmacy" reference design. Only the **EPC logo and company name** stay as brand.
 - Font **Figtree** everywhere. All sizes are rem tokens in `assets/style.css` ("Design system v4"):

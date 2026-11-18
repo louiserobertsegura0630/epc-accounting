@@ -552,6 +552,7 @@ const EPC_CHART_PASTEL = {
   const ATTACH = [
     '.section-subtitle', '.chart-subtitle', '.dash-sub', '.dash-caption',
     '.prod-chart-caption', '.esales-summary-subtitle', '#report-subtitle',
+    '.info-def',   // a definition: any element with this class becomes an "i" beside the label before it
   ].join(',');
   // Free-standing explanation notes: icon takes the note's place.
   const INLINE = [
@@ -1438,13 +1439,22 @@ function wordEsc(value) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// A table cell's text for exports, without the "i" info buttons.
+function exportCellText(cell) {
+  const tips = [...cell.querySelectorAll('.info-tip')];
+  tips.forEach(tip => { tip.style.display = 'none'; });
+  const text = cell.innerText.replace(/\s+/g, ' ').trim();
+  tips.forEach(tip => { tip.style.display = ''; });
+  return text;
+}
+
 // Serialize a rendered <table> to clean HTML, dropping filter/input rows.
 function serializeTableToWord(table) {
   if (!table) return '';
   const trs = [...table.rows].filter(tr => !tr.querySelector('input, select'));
   const body = trs.map(tr => `<tr>${[...tr.cells].map(cell => {
     const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
-    return `<${tag}>${wordEsc(cell.innerText.replace(/\s+/g, ' ').trim())}</${tag}>`;
+    return `<${tag}>${wordEsc(exportCellText(cell))}</${tag}>`;
   }).join('')}</tr>`).join('');
   return `<table border="1" cellspacing="0" cellpadding="4">${body}</table>`;
 }
@@ -1456,7 +1466,7 @@ function serializeTableToExcel(table) {
   const trs = [...table.rows].filter(tr => !tr.querySelector('input, select'));
   const body = trs.map(tr => `<tr>${[...tr.cells].map(cell => {
     const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
-    return `<${tag} style="mso-number-format:'\\@'">${wordEsc(cell.innerText.replace(/\s+/g, ' ').trim())}</${tag}>`;
+    return `<${tag} style="mso-number-format:'\\@'">${wordEsc(exportCellText(cell))}</${tag}>`;
   }).join('')}</tr>`).join('');
   return `<table>${body}</table>`;
 }
