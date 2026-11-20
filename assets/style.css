@@ -1662,3 +1662,10 @@ body.has-offline-banner { padding-top: 40px; }
 body.has-offline-banner .sidebar { top: 40px; }
 body.has-offline-banner .epc-quota { top: calc(40px + var(--space-3)); }
 @media print { .epc-offline-banner, .btn-offline { display: none !important; } }
+/* Confirm and dates pop-ups: never taller than the window; the card scrolls inside. */
+.epc-confirm { align-items: flex-start; overflow-y: auto; padding: 24px 16px; }
+.epc-confirm-card { max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); overflow-y: auto; margin: auto 0; }
+.epc-confirm-list li { padding: 3px 0; }
+.epc-confirm-list li em { font-size: 0.72rem; }
+.epc-confirm-actions { position: sticky; bottom: 0; padding-top: 10px; background: var(--card-bg, #fff); }
+html[data-offline] .epc-confirm-actions { background: var(--card-bg); }
