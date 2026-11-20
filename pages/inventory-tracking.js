@@ -2131,7 +2131,7 @@ async function updateReviewCost(itemCode) {
       const snap = await fsdb.collection('productMaster')
         .where('itemCode', '==', String(itemCode).trim())
         .limit(1)
-        .get();
+        .get({ source: 'server' });   // never the cache: a miss would create a duplicate
       if (!snap.empty) {
         await snap.docs[0].ref.update(epcStamp({ unitCost: row.unitCost, latestCost: row.unitCost }));
       } else {
@@ -2176,7 +2176,7 @@ async function updateAllReviewCosts() {
         const snap = await fsdb.collection('productMaster')
           .where('itemCode', '==', String(row.itemCode).trim())
           .limit(1)
-          .get();
+          .get({ source: 'server' });   // never the cache: a miss would create a duplicate
         if (!snap.empty) {
           await snap.docs[0].ref.update(epcStamp({ unitCost: row.unitCost, latestCost: row.unitCost }));
         } else {

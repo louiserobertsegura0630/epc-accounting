@@ -108,13 +108,21 @@
   }
   // Read the chosen days (and the saved copies) once so the file is complete.
   // Returns false on "Not now".
-  async function loadEverything(range) {
+  // force: read every record again (fills Firebase's local cache for Offline
+  // mode, which answers pages that read Firebase directly). The cost shown is
+  // then the full size of each list, not the usual 2-read check.
+  async function loadEverything(range, { force = false } = {}) {
     if (global.EPC_OFFLINE) return true;
     const sources = Object.keys(global.EPCSaved.SOURCES || {});
-    if (!(await global.EPCReads.confirm(fullLoadParts(sources, range.from, range.to)))) return false;
-    for (const name of sources) await global.EPCSaved.rows(name);
-    await global.EPCDays.docs('salesDaily', range.from, range.to);
-    await global.EPCDays.docs('inventoryDaily', range.from, range.to);
+    const parts = force
+      ? [...sources.map((name) => ({ fixed: (global.EPCReads.knownCounts()[name] ?? global.EPCReads.FALLBACK[name] ?? 1000), label: name, note: 'read in full for offline use' })),
+         { fixed: global.EPCReads.daysBetween(range.from, range.to).length, label: 'salesDaily', note: 'read in full for offline use' },
+         { fixed: global.EPCReads.daysBetween(range.from, range.to).length, label: 'inventoryDaily', note: 'read in full for offline use' }]
+      : fullLoadParts(sources, range.from, range.to);
+    if (!(await global.EPCReads.confirm(parts))) return false;
+    for (const name of sources) await global.EPCSaved.rows(name, { force });
+    await global.EPCDays.docs('salesDaily', range.from, range.to, { force });
+    await global.EPCDays.docs('inventoryDaily', range.from, range.to, { force });
     return true;
   }
   // Stage 1 of "Switch to offline mode": ask the dates, show the cost, read
@@ -122,7 +130,9 @@
   async function fill() {
     const range = await askRange();
     if (!range) return false;
-    return loadEverything(range);
+    const ok = await loadEverything(range, { force: true });
+    if (ok && global.EPCOffline && global.EPCOffline.markPrimed) global.EPCOffline.markPrimed(currentUid());
+    return ok;
   }
   async function download() {
     const range = await askRange();
