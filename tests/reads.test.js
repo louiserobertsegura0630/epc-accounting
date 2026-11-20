@@ -12,7 +12,7 @@ function fakeStorage() {
 }
 function fresh() {
   now = DAY_END - 3600_000;
-  EPCReads._init({ now: () => now, storage: fakeStorage(), nextReset: () => DAY_END });
+  EPCReads._init({ now: () => now, storage: fakeStorage(), nextReset: (ms) => (ms < DAY_END ? DAY_END : DAY_END + 86400_000) });
 }
 
 test('spent accumulates and used reads it back', () => {
@@ -160,4 +160,22 @@ test('paidPart says how many reads of a load fall beyond the free allowance', ()
   assert.equal(EPCReads.paidPart(300, 49900), 200);
   assert.equal(EPCReads.paidPart(300, 10), 0);
   assert.equal(EPCReads.paidPart(300, 60000), 300);
+});
+
+test('the paid-reads bar writes its lines into its own text slots, not the icon', () => {
+  const src = require('fs').readFileSync(require.resolve('../assets/reads.js'), 'utf8');
+  assert.match(src, /epc-quota-msg/);
+  assert.doesNotMatch(src, /paidBar\.querySelector\('span'\)/);
+});
+
+test('the paid-reads bar shows once per quota day', () => {
+  fresh();
+  EPCReads.spent(60000, 'a');                       // past the free 50,000
+  assert.equal(EPCReads.paidBarDue(), true);        // first time today
+  EPCReads.markPaidBarSeen();
+  assert.equal(EPCReads.paidBarDue(), false);       // seen: not again today
+  now = DAY_END + 1;                                // next day, count starts at 0
+  assert.equal(EPCReads.paidBarDue(), false);
+  EPCReads.spent(60000, 'b');
+  assert.equal(EPCReads.paidBarDue(), true);        // a new day: once more
 });

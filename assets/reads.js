@@ -137,6 +137,19 @@
   const PESOS_PER_READ = 0.35 / 10000;
   function pesos(reads) { return `₱${(Math.max(0, reads) * PESOS_PER_READ).toFixed(2)}`; }
   function paidPart(reads, usedToday) { return Math.max(0, Math.min(reads, usedToday + reads - LIMIT)); }
+  // The paid-reads bar is a one-time notice per quota day: due the first time the
+  // count passes the free reads, not again once seen (or hidden) that day.
+  const SEEN_KEY = 'epc_paid_seen';
+  function paidBarDue() {
+    if (used() <= LIMIT) return false;
+    const s = storage();
+    const seen = s ? Number(s.getItem(SEEN_KEY) || 0) : 0;
+    return seen !== readState().day;
+  }
+  function markPaidBarSeen() {
+    const s = storage();
+    try { if (s) s.setItem(SEEN_KEY, String(readState().day)); } catch (e) { /* storage off */ }
+  }
   const fmt = n => Number(n || 0).toLocaleString('en-US');
   function format(reads, usedToday, opts = {}) {
     if (opts.offline) return '0 reads (offline)';
@@ -267,17 +280,19 @@
     if (!doc || !doc.body) return;
     const over = used() - LIMIT;
     if (over <= 0) { if (paidBar) paidBar.hidden = true; return; }
+    if (!paidBar && !paidBarDue()) return;       // already shown today on this browser
     if (!paidBar) {
       paidBar = doc.createElement('div');
       paidBar.className = 'epc-quota epc-paid';
-      paidBar.innerHTML = '<span class="epc-quota-icon">💸</span><div class="epc-quota-text"><strong></strong><span></span></div><button type="button" class="epc-quota-hide">Hide</button>';
-      paidBar.querySelector('.epc-quota-hide').addEventListener('click', () => { paidBar.hidden = true; paidBar.dataset.hidden = '1'; });
+      paidBar.innerHTML = '<span class="epc-quota-icon">💸</span><div class="epc-quota-text"><strong class="epc-quota-title"></strong><span class="epc-quota-msg"></span></div><button type="button" class="epc-quota-hide">Hide</button>';
+      paidBar.querySelector('.epc-quota-hide').addEventListener('click', () => { paidBar.hidden = true; paidBar.dataset.hidden = '1'; markPaidBarSeen(); });
       doc.body.appendChild(paidBar);
+      markPaidBarSeen();                          // counts as shown for the rest of the day
     }
     if (paidBar.dataset.hidden) return;
     const resetText = global.EPCQuota && global.EPCQuota.resetText ? global.EPCQuota.resetText() : 'the next reset';
-    paidBar.querySelector('strong').textContent = `This browser has passed today's free 50,000 reads (about ${fmt(over)} over, about ${pesos(over)} on the pay-as-you-go plan)`;
-    paidBar.querySelector('span').textContent = `Reads now cost money until ${resetText} (or fail on the free plan). Tick Offline on Reports to work from the saved copy, or Download all data once and load the file.`;
+    paidBar.querySelector('.epc-quota-title').textContent = `Past today's free reads: ${fmt(over)} over, about ${pesos(over)} so far`;
+    paidBar.querySelector('.epc-quota-msg').textContent = `Reads are billed until ${resetText}. Tip: tick Offline on Reports to work from the saved copy, or Download all data once and load the file.`;
     paidBar.hidden = false;
   }
   if (typeof global.addEventListener === 'function') {
@@ -298,7 +313,7 @@
   const api = {
     LIMIT, CONFIRM_ABOVE, FALLBACK, MAX_AGE_MS,
     spent, countSnap, used, byLabel, rememberCount, knownCounts,
-    daysBetween, estimate, shouldConfirm, format, pesos, paidPart, _init,
+    daysBetween, estimate, shouldConfirm, format, pesos, paidPart, paidBarDue, markPaidBarSeen, _init,
     watchGet, watchFirestore, state, line, confirm, humanLabel,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

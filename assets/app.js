@@ -138,9 +138,10 @@ window.EPCLoading = window.EPCLoading || (() => {
 // without spending a read. A load that works again clears it (EPCQuota.ok()).
 window.EPCQuota = window.EPCQuota || (() => {
   const KEY = 'epc_quota_hit';
+  const HIDE_KEY = 'epc_quota_hidden';   // the reset time the user hid the bar for
   let el = null;
   let hit = null;        // { at, reset } in ms, or null
-  let hidden = false;    // "Hide" lasts for this page view only
+  let hidden = false;    // "Hide" lasts until the reset (remembered on this browser)
   let timer = null;
 
   function isQuotaError(err) {
@@ -188,7 +189,11 @@ window.EPCQuota = window.EPCQuota || (() => {
         '<div class="epc-quota-text"><strong>Firebase’s free daily read limit is used up</strong>' +
         '<span class="epc-quota-msg"></span></div>' +
         '<button type="button" class="epc-quota-hide">Hide</button>';
-      el.querySelector('.epc-quota-hide').addEventListener('click', () => { hidden = true; paint(); });
+      el.querySelector('.epc-quota-hide').addEventListener('click', () => {
+        hidden = true;
+        try { localStorage.setItem(HIDE_KEY, String(hit ? hit.reset : 0)); } catch (e) { /* storage off */ }
+        paint();
+      });
       document.body.appendChild(el);
     }
     el.querySelector('.epc-quota-msg').textContent =
@@ -228,6 +233,8 @@ window.EPCQuota = window.EPCQuota || (() => {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (saved && saved.reset > Date.now()) hit = { at: saved.at, reset: saved.reset, seen: 0 };
     else if (saved) localStorage.removeItem(KEY);
+    // Hidden earlier today: stay hidden until the reset.
+    if (hit && Number(localStorage.getItem(HIDE_KEY) || 0) === hit.reset) hidden = true;
   } catch (e) { /* storage off */ }
   if (hit) paint();
   // Loads that nobody catches still raise the bar.
