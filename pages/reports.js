@@ -555,6 +555,7 @@ async function setReportPreset(preset) {
   }
   document.getElementById('report-start').value = localReportIsoDate(start);
   document.getElementById('report-end').value = localReportIsoDate(end);
+  window.dispatchEvent(new Event('epc-cost-change'));
   // Only fill in the dates. The loaded data is for the old dates, so mark it as
   // stale and show the prompt; Generate Report (or Apply) loads the new range.
   markReportDataStale();
@@ -581,7 +582,12 @@ async function setReportTab(tab) {
   // shows the "Click Generate Report" prompt and waits for the button.
   reportLoadError = null;
   renderActiveReport();
+  window.dispatchEvent(new Event('epc-cost-change'));
 }
+['report-start', 'report-end'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => window.dispatchEvent(new Event('epc-cost-change')));
+});
 
 // True when the active tab still needs data that hasn't been loaded yet.
 function activeTabNeedsLoad() {
@@ -2443,11 +2449,28 @@ initReports();
 // since the last load. "Reload all data" beside it reads every record again,
 // for the rare case that a report looks out of date.
 const REPORT_LOAD_BUTTONS = ['btn-apply-report-range', 'btn-reload-report-data'];
+// What the next click will read, for the cost line beside the buttons:
+// saved copies for the tab's whole collections, one read per day for day docs.
+function reportEstimateParts(reloadAll) {
+  const from = (document.getElementById('report-start') || {}).value || '';
+  const to = (document.getElementById('report-end') || {}).value || '';
+  const parts = [];
+  (REPORT_TAB_COLLECTIONS[activeReportTab] || []).forEach((key) => {
+    const cfg = REPORT_COLLECTIONS[key];
+    if (!cfg) return;
+    if (cfg.rollup) parts.push({ days: cfg.collection, from, to });
+    else if (reloadAll) parts.push({ fixed: (EPCReads.knownCounts()[cfg.collection] || EPCReads.FALLBACK[cfg.collection] || 1000), label: cfg.collection, note: 'reload all' });
+    else parts.push({ saved: cfg.collection });
+  });
+  return parts;
+}
 function wireReportLoadButton(button, label, reloadAll) {
   EPCReportGate.wire({
     button,
     popup: false,   // this page shows its own loader
     status: 'rep-gen-status',
+    costLine: 'rep-cost-line',
+    estimate: () => reportEstimateParts(reloadAll),
     idleLabel: label,
     refreshLabel: label,
     load: async () => {

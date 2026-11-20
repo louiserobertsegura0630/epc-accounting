@@ -854,6 +854,7 @@ async function buildProductPerformance() {
 }
 
 function setProdWindow(win) {
+  setTimeout(() => window.dispatchEvent(new Event('epc-cost-change')), 0);
   let previous = {};
   try { previous = JSON.parse(localStorage.getItem(PROD_PERF_KEY) || '{}'); } catch(e) {}
   const st = { ...previous, window:win };
@@ -907,6 +908,13 @@ dailyGate = EPCReportGate.wire({
   button: 'dash-generate-btn',
   popup: false,   // this page shows its own loader
   status: 'dash-gen-status',
+  costLine: 'dash-cost-line',
+  // One sales day, the day's inventory rows and the saved copies of the rest.
+  estimate: () => [
+    { fixed: 1, label: 'salesDaily', note: 'the chosen day' },
+    { fixed: 1, label: 'inventoryData', note: 'the chosen day' },
+    { saved: 'purchases' }, { saved: 'suppliesData' }, { saved: 'eSalesRecords' }, { saved: 'expenses' },
+  ],
   refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading daily summary…', async () => {
     try {
@@ -928,6 +936,18 @@ prodGate = EPCReportGate.wire({
   button: 'prod-generate-btn',
   popup: false,   // this page shows its own loader
   status: 'prod-gen-status',
+  costLine: 'prod-cost-line',
+  estimate: () => {
+    let st = {};
+    try { st = JSON.parse(localStorage.getItem(PROD_PERF_KEY) || '{}'); } catch (e) {}
+    const range = prodWindowRange(st.window || 'month', st.from, st.to);
+    // Days the Sales Pulse already handed over cost nothing.
+    const have = EPCReads.daysBetween(range.from, range.to).filter(d => _salesDailyCache.has(d)).length;
+    const all = EPCReads.daysBetween(range.from, range.to).length;
+    return all - have > 0
+      ? [{ fixed: all - have, label: 'salesDaily', note: `${all - have} day${all - have === 1 ? '' : 's'} not loaded yet` }]
+      : [{ fixed: 0, label: 'salesDaily', note: 'already loaded' }];
+  },
   refreshLabel: 'Generate Report',
   load: () => withLoadingPopup('Loading product performance…', async () => {
     // Show the grid first so Chart.js can measure the canvas size.

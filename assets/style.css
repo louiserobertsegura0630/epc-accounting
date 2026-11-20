@@ -1583,3 +1583,14 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
 .epc-quota-hide:focus-visible { outline: 3px solid #f59e0b; outline-offset: 2px; }
 .kpi-sub.kpi-partial { color: var(--warning-text); font-weight: 600; }
 @media print { .epc-quota { display: none !important; } }
+
+/* ─── Read cost line and confirm pop-up (EPCReads, assets/reads.js) ──────── */
+.epc-cost-line { font-size: 0.8125rem; color: var(--text-muted); white-space: nowrap; margin-left: 8px; cursor: help; }
+.epc-cost-line:empty { display: none; }
+.epc-confirm-card { max-width: 420px; text-align: left; }
+.epc-confirm-card .epc-loading-msg { text-align: center; margin-bottom: 10px; }
+.epc-confirm-sum, .epc-confirm-reset { font-size: 0.9rem; color: var(--text-secondary); margin: 0 0 10px; line-height: 1.45; }
+.epc-confirm-list { list-style: none; margin: 0 0 12px; padding: 0; font-size: 0.85rem; }
+.epc-confirm-list li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 5px 0; border-top: 1px solid #eef2f1; }
+.epc-confirm-list li em { grid-column: 1 / -1; font-style: normal; color: var(--text-muted); font-size: 0.78rem; }
+.epc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }

@@ -5,7 +5,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Reports - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261117-quota">
+  <link rel="stylesheet" href="../assets/style.css?v=20261120-reads">
   <link rel="stylesheet" href="reports.css?v=20261117-ux5">
   <link rel="stylesheet" href="reports-sales.css?v=20261118-analysis">
 </head>
@@ -51,6 +51,7 @@
         <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Generate Report</button>
         <button class="btn btn-outline-gray btn-sm" type="button" id="btn-reload-report-data" title="Reads every record again from the database. Use it only if a report looks out of date.">Reload all data</button>
         <span id="rep-gen-status" class="gen-status"></span>
+        <span id="rep-cost-line" class="epc-cost-line" title="How many database reads the next Generate will cost, and how many this browser has used today"></span>
         <div class="report-extra-filters" id="report-extra-filters"></div>
       </div>
       <div class="report-loading" id="report-loading" aria-live="polite">
@@ -204,7 +205,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20261118-reads"></script>
+<script src="../assets/reads.js?v=20261120-reads"></script>
+
+<script src="../assets/app.js?v=20261120-reads"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
 <script src="reports.js?v=20261118-analysis"></script>
 <script src="reports-sales.js?v=20261118-analysis"></script>

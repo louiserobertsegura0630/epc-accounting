@@ -26,11 +26,27 @@ window.EPCReportGate = window.EPCReportGate || (() => {
     // Loading pop-up (bouncing bars) while the report loads. Pages that show
     // their own loader (dashboard, reports progress bar) pass popup: false.
     const popupLabel = opts.popup === false ? null : (opts.popupLabel || 'Loading report…');
+    // Cost line ("≈ 2 reads · 1,240 used today on this browser") beside the button,
+    // and a confirm pop-up before big loads. opts.estimate() returns the parts
+    // EPCReads.estimate understands; opts.costLine is the element (or id) to write.
+    const estimate = typeof opts.estimate === 'function' ? opts.estimate : null;
+    const costLine = opts.costLine
+      ? (typeof opts.costLine === 'string' ? document.getElementById(opts.costLine) : opts.costLine)
+      : null;
+    function paintCost() {
+      if (costLine && estimate && window.EPCReads) EPCReads.line(costLine, estimate);
+    }
+    if (costLine && estimate) {
+      paintCost();
+      window.addEventListener('epc-cost-change', paintCost);
+      window.addEventListener('epc-reads-change', paintCost);
+    }
 
     if (btn.textContent.trim() === '') btn.textContent = idleLabel;
 
     async function run() {
       if (running) return;              // guard against double-clicks (paid reads)
+      if (estimate && window.EPCReads && !(await EPCReads.confirm(estimate))) return;   // "Not now"
       running = true;
       const prevLabel = btn.textContent;
       btn.disabled = true;
@@ -44,6 +60,7 @@ window.EPCReportGate = window.EPCReportGate || (() => {
         btn.textContent = refreshLabel;
         if (status) status.textContent = '';
         EPCQuota.ok(startedAt);
+        paintCost();
       } catch (err) {
         console.error('[EPCReportGate] load failed:', err);
         btn.textContent = loaded ? refreshLabel : (prevLabel || idleLabel);
@@ -320,6 +337,7 @@ window.EPCSaved = window.EPCSaved || (() => {
     // No stamps at all (records from before stamping): start a day back, to allow for a wrong clock on this computer.
     if (!saved.stamp) saved.stamp = { s: Math.floor(saved.at / 1000) - 86400, n: 0 };
     await writeSaved(name, saved);
+    if (window.EPCReads) EPCReads.rememberCount(name, Object.keys(saved.docs).length);
     return saved;
   }
   // Bring a saved copy up to date.
@@ -332,6 +350,7 @@ window.EPCSaved = window.EPCSaved || (() => {
     // Deleted records leave no trace, so compare the number of records.
     // (firestoreCount: this SDK build has no query.count(). null = could not count; check again next time.)
     const counted = await firestoreCount(col, `${name} count`);
+    if (counted != null && window.EPCReads) EPCReads.rememberCount(name, counted);
     if (counted != null && counted !== Object.keys(saved.docs).length) return fetchAll(db, name, saved.uid);
     if (!changed.empty) await writeSaved(name, saved);
     return saved;
@@ -358,7 +377,20 @@ window.EPCSaved = window.EPCSaved || (() => {
     return inFlight[name];
   }
 
-  return { rows };
+  // What is saved on this browser, for the cost estimate: { name: { uid, at, count } }.
+  async function meta() {
+    const out = {};
+    for (const name of Object.keys(SOURCES)) {
+      let saved = memory[name];
+      if (!saved) {
+        try { saved = await cacheStore('readonly', (store) => store.get(`saved:${name}`)); } catch (e) { saved = null; }
+      }
+      if (saved && saved.v === VERSION && saved.docs) out[name] = { uid: saved.uid, at: saved.at, count: Object.keys(saved.docs).length };
+    }
+    return out;
+  }
+
+  return { rows, meta, SOURCES, _codec: { encode, decode }, _cacheStore: cacheStore };
 })();
 
 // ─── Pastel 3D chart style (shared) ──────────────────────────────────────────
@@ -1121,7 +1153,14 @@ async function _runAggregationRest(query, aggregations, label) {
     throw new Error(`[Firestore REST] ${label} HTTP ${res.status}: ${txt}`);
   }
   EPCQuota.ok();
-  return await res.json();
+  const rows = await res.json();
+  if (window.EPCReads) {
+    const first = Array.isArray(rows) ? rows[0] : null;
+    const c = first && first.result && first.result.aggregateFields && first.result.aggregateFields.c;
+    const counted = c ? Number(c.integerValue ?? c.doubleValue) : 0;
+    EPCReads.spent(Math.max(1, Math.ceil((counted || 0) / 1000)), `${label || 'aggregate'}`);
+  }
+  return rows;
 }
 
 async function firestoreCount(query, label = 'count') {
@@ -1162,6 +1201,9 @@ if (typeof firebase !== 'undefined' && !firebase.apps.length) {
 if (typeof firebase !== 'undefined' && typeof firebase.firestore === 'function') {
   configureFirestoreDB(firebase.firestore());
 }
+// Count every Firestore read this browser makes (EPCReads, assets/reads.js):
+// the SDK's Query / DocumentReference / AggregateQuery .get() are wrapped once.
+if (typeof firebase !== 'undefined' && window.EPCReads) EPCReads.watchFirestore(firebase);
 let _productMasterWriteQueue = Promise.resolve();
 
 function getFirestoreDB() {

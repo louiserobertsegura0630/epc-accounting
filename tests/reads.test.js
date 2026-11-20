@@ -96,3 +96,52 @@ test('format wording', () => {
 test('daysBetween is inclusive and zero-padded', () => {
   assert.deepEqual(EPCReads.daysBetween('2026-01-30', '2026-02-02'), ['2026-01-30', '2026-01-31', '2026-02-01', '2026-02-02']);
 });
+
+test('watchGet counts every successful get() on a prototype', async () => {
+  fresh();
+  class FakeQuery { constructor(path) { this.path = path; } async get() { return { size: 3 }; } }
+  EPCReads.watchGet(FakeQuery.prototype, q => q.path);
+  const snap = await new FakeQuery('purchases').get();
+  assert.equal(snap.size, 3);
+  assert.equal(EPCReads.used(), 3);
+  assert.deepEqual(EPCReads.byLabel(), { purchases: 3 });
+});
+
+test('watchGet does not count a get() that fails', async () => {
+  fresh();
+  class FakeQuery { async get() { throw new Error('offline'); } }
+  EPCReads.watchGet(FakeQuery.prototype, () => 'x');
+  await assert.rejects(() => new FakeQuery().get(), /offline/);
+  assert.equal(EPCReads.used(), 0);
+});
+
+test('watchGet counts a single document read as 1', async () => {
+  fresh();
+  class FakeDoc { async get() { return { exists: true }; } }   // no .size on a document snapshot
+  EPCReads.watchGet(FakeDoc.prototype, () => 'doc');
+  await new FakeDoc().get();
+  assert.equal(EPCReads.used(), 1);
+});
+
+test('line() writes the cost text into the element using the saved-copy metadata', async () => {
+  fresh();
+  const g = globalThis;
+  g.EPCSaved = { meta: async () => ({ purchases: { uid: 'me', at: now, count: 10 } }) };
+  g.firebase = { auth: () => ({ currentUser: { uid: 'me' } }) };
+  const el = { textContent: '', title: '' };
+  EPCReads.spent(7, 'earlier');
+  await EPCReads.line(el, () => [{ saved: 'purchases' }, { saved: 'expenses' }]);
+  assert.equal(el.textContent, `≈ ${(2 + EPCReads.FALLBACK.expenses).toLocaleString('en-US')} reads · 7 used today on this browser`);
+  assert.match(el.title, /purchases: 2 \(change check\)/);
+  delete g.EPCSaved; delete g.firebase;
+});
+
+test('confirm() resolves true without a pop-up for a small load', async () => {
+  fresh();
+  const g = globalThis;
+  g.EPCSaved = { meta: async () => ({}) };
+  g.firebase = { auth: () => ({ currentUser: { uid: 'me' } }) };
+  g.document = { createElement: () => { throw new Error('no pop-up expected'); } };
+  assert.equal(await EPCReads.confirm([{ fixed: 5, label: 'x' }]), true);
+  delete g.EPCSaved; delete g.firebase; delete g.document;
+});
