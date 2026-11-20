@@ -87,15 +87,10 @@
 
   // ── DOM: the sidebar button and the banner ───────────────────────────────
   function labelFor(btn) {
-    // Only write when the text differs: this runs from a MutationObserver, and
-    // setting textContent is itself a change, so writing it every time loops
-    // forever and freezes the page.
-    const text = isOn() ? 'Switch back online' : 'Switch to offline mode';
-    const title = isOn()
+    btn.textContent = isOn() ? 'Switch back online' : 'Switch to offline mode';
+    btn.title = isOn()
       ? 'Go back to reading from the database.'
       : 'Read everything from the copy on this browser: 0 database reads. If the copy is not complete yet, it is filled first (you see the read cost).';
-    if (btn.textContent !== text) btn.textContent = text;
-    if (btn.title !== title) btn.title = title;
   }
   async function onClick(btn) {
     btn.disabled = true;
