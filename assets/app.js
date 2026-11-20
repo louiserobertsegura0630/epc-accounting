@@ -2150,6 +2150,7 @@ function buildSidebar(activeKey) {
         </div>
       </div>
       <div class="sidebar-footer-actions">
+        <button class="btn-offline" id="epc-offline-btn" type="button">Switch to offline mode</button>
         <button class="btn-logout" onclick="logoutEPCUser()">Logout</button>
       </div>
     </div>
