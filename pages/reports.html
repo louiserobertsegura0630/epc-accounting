@@ -51,7 +51,7 @@
         <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Generate Report</button>
         <button class="btn btn-outline-gray btn-sm" type="button" id="btn-reload-report-data" title="Reads every record again from the database. Use it only if a report looks out of date.">Reload all data</button>
         <label class="epc-switch" title="Use only the copy saved on this browser. No database reads; days never loaded here are listed as missing."><input type="checkbox" id="rep-offline"> Offline (saved copy only)</label>
-        <button class="btn btn-outline-gray btn-sm" type="button" data-epc-download title="Save everything this browser has loaded into one file (no database reads).">Download all data</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" data-epc-download title="Reads everything from the database once (all sales days and records; the cost is shown first), then saves it as one file. In Offline mode it saves what this browser has.">Download all data</button>
         <button class="btn btn-outline-gray btn-sm" type="button" data-epc-load title="Fill this browser's saved copy from a downloaded file instead of reading everything from the database.">Load from file</button>
         <span class="gen-status" data-epc-datafile-status></span>
         <span id="rep-gen-status" class="gen-status"></span>

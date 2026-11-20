@@ -50,3 +50,12 @@ test('importInto writes the saved copies and the day store for the right user', 
   assert.deepEqual(Object.keys(writes.saved), ['purchases', 'expenses']);
   assert.deepEqual(Object.keys(writes.days), ['salesDaily', 'inventoryDaily']);
 });
+
+test('fullLoadParts prices every saved copy and every sales and inventory day', () => {
+  const parts = EPCDataFile.fullLoadParts(['purchases', 'expenses'], (c) => [{ days: c, from: '2026-01-01', to: '2026-01-03' }]);
+  assert.deepEqual(parts, [
+    { saved: 'purchases' }, { saved: 'expenses' },
+    { days: 'salesDaily', from: '2026-01-01', to: '2026-01-03' },
+    { days: 'inventoryDaily', from: '2026-01-01', to: '2026-01-03' },
+  ]);
+});

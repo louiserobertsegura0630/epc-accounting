@@ -1,6 +1,8 @@
 /* ─── EPC Accounting Portal — data file (EPCDataFile) ─────────────────────────
- * "Download all data" writes one file with every saved copy (EPCSaved) and
- * every day already read (EPCDays) on this browser: epc-data-<yyyy-mm-dd>.json.
+ * "Download all data" first reads everything from the database (every saved
+ * copy, every sales day and inventory day since the first upload; the cost is
+ * shown and confirmed first), then writes it all as one file:
+ * epc-data-<yyyy-mm-dd>.json. In Offline mode it saves what the browser has.
  * "Load from file" fills another browser's saved copies from it, so a new
  * laptop or colleague does not pay a full first load. The file holds real
  * business data: it is never uploaded anywhere by the site, and the repo and
@@ -55,7 +57,28 @@
     const p = (n) => String(n).padStart(2, '0');
     return `epc-data-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.json`;
   }
+  // What a full download will read: every saved copy, every sales and inventory day.
+  function fullLoadParts(sourceNames, allParts) {
+    return [
+      ...sourceNames.map((name) => ({ saved: name })),
+      ...allParts('salesDaily'),
+      ...allParts('inventoryDaily'),
+    ];
+  }
+  // Read everything once so the file is complete (one read per day the first
+  // time on a browser, about 2 per collection after that). Returns false on "Not now".
+  async function loadEverything() {
+    if (global.EPC_OFFLINE) return true;
+    const sources = Object.keys(global.EPCSaved.SOURCES || {});
+    const parts = fullLoadParts(sources, (c) => global.EPCDays.allParts(c));
+    if (!(await global.EPCReads.confirm(parts))) return false;
+    for (const name of sources) await global.EPCSaved.rows(name);
+    await global.EPCDays.all('salesDaily');
+    await global.EPCDays.all('inventoryDaily');
+    return true;
+  }
   async function download() {
+    if (!(await loadEverything())) return null;
     const file = await gather();
     const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -114,9 +137,12 @@
       tooltip().then((t) => { if (t) btn.title = t; });
       btn.addEventListener('click', async () => {
         btn.disabled = true;
+        say(global.EPC_OFFLINE ? 'Saving the copy on this browser…' : 'Reading everything from the database first…');
         try {
           const d = await download();
-          say(`Downloaded ${d.records.toLocaleString()} records and ${d.days.toLocaleString()} sales days.`);
+          if (d) say(`Downloaded ${d.records.toLocaleString()} records and ${d.days.toLocaleString()} sales days.`);
+          else say('');
+          if (d) global.dispatchEvent(new Event('epc-cost-change'));
         } catch (e) { say(e.message || 'Could not download.'); } finally { btn.disabled = false; }
       });
     });
@@ -142,7 +168,7 @@
     else wire();
   }
 
-  const api = { VERSION, build, describe, validate, importInto, download, load, wire };
+  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, download, load, wire };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.EPCDataFile = api;
 })(typeof window !== 'undefined' ? window : globalThis);
