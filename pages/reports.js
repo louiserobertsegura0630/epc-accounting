@@ -89,39 +89,6 @@ async function withReportLoadTimeout(promise) {
   }
 }
 
-// Read daily rollup docs (salesDaily / inventoryDaily, id = YYYY-MM-DD) for a date
-// range. Long ranges are split into one query per month and run side by side:
-// a whole year downloads much faster than one giant query, and each finished
-// month counts as progress for the timeout above. Same documents, same reads.
-async function readDailyRollupDocs(db, collectionName, start, end) {
-  const idPath = firebase.firestore.FieldPath.documentId();
-  const base = () => db.collection(collectionName).orderBy(idPath);
-  if (!start || !end || start > end) {
-    let q = base();
-    if (start) q = q.startAt(start);
-    if (end) q = q.endAt(end);
-    return (await q.get()).docs;
-  }
-  const parts = [];
-  let y = Number(start.slice(0, 4));
-  let m = Number(start.slice(5, 7));
-  for (;;) {
-    const ym = `${y}-${String(m).padStart(2, '0')}`;
-    if (ym > end.slice(0, 7)) break;
-    const from = ym === start.slice(0, 7) ? start : `${ym}-01`;
-    const to = ym === end.slice(0, 7) ? end : `${ym}-31`;   // ids are strings; -31 covers any month
-    parts.push([from, to]);
-    m += 1;
-    if (m > 12) { m = 1; y += 1; }
-  }
-  const snaps = await Promise.all(parts.map(async ([from, to]) => {
-    const snap = await base().startAt(from).endAt(to).get();
-    touchReportProgress();
-    return snap;
-  }));
-  return snaps.flatMap(snap => snap.docs);
-}
-
 // Run a report load, capturing any failure into reportLoadError so the render
 // layer can show a notice instead of zeros. Returns true on success.
 async function runReportLoad(loadFn) {
@@ -238,113 +205,35 @@ function escReport(value) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Day docs (salesDaily, inventoryDaily) already loaded in this page view, keyed
-// by collection and dates: { rows, count, stamp }. Generate reads the days again
-// only when one of them was written, added or removed since (a 2-read check);
-// both importers stamp lastUpdated on every day they write.
-const _reportDayCache = new Map();
-const reportStampNewer = (a, b) => !!a && typeof a.seconds === 'number' &&
-  (!b || a.seconds > b.seconds || (a.seconds === b.seconds && a.nanoseconds > b.nanoseconds));
-async function reportDaysUnchanged(db, collectionName, start, end, cached) {
-  if (!cached.stamp) return false;
-  const changed = await db.collection(collectionName).where('lastUpdated', '>', cached.stamp).get();
-  let touched = false;
-  changed.forEach(doc => {
-    if ((!start || doc.id >= start) && (!end || doc.id <= end)) touched = true;
-    const ts = (doc.data() || {}).lastUpdated;
-    if (reportStampNewer(ts, cached.stamp)) cached.stamp = ts;   // days outside the dates: don't ask again
-  });
-  if (touched) return false;
-  // A deleted upload leaves no trace, so compare the number of days (1 read).
-  const idPath = firebase.firestore.FieldPath.documentId();
-  let q = db.collection(collectionName);
-  if (start) q = q.where(idPath, '>=', start);
-  if (end) q = q.where(idPath, '<=', end);
-  return (await firestoreCount(q, `${collectionName} day count`)) === cached.count;
-}
-async function fetchRollupRows(collectionName, toRows, range = null) {
-  const db = getFirestoreDB();
+// Day docs (salesDaily, inventoryDaily) come from EPCDays (assets/days.js): a
+// saved day store per browser. A range read before costs a 2-read check (days
+// changed since, plus a day count that catches deleted uploads); days never
+// read cost one read each. "Reload all data" (reloadAll) reads the range again.
+// Offline mode (window.EPC_OFFLINE) uses the store only and lists missing days.
+let _reportReloadDays = false;
+let reportMissingDays = { salesDaily: [], inventoryDaily: [] };
+async function fetchRollupRows(collectionName, range = null) {
   const start = range ? range.start : (document.getElementById('report-start') || {}).value || '';
   const end = range ? range.end : (document.getElementById('report-end') || {}).value || '';
-  const key = `${collectionName}|${start}|${end}`;
-  let cached = _reportDayCache.get(key);
-  if (!cached || !(await reportDaysUnchanged(db, collectionName, start, end, cached))) {
-    // Newest stamp first (1 read), so a day written during the load is caught next time.
-    const newest = await db.collection(collectionName).orderBy('lastUpdated', 'desc').limit(1).get();
-    const stamp = newest.empty ? null : newest.docs[0].data().lastUpdated;
-    const docs = await readDailyRollupDocs(db, collectionName, start, end);
-    cached = { rows: toRows(docs), count: docs.length, stamp: reportStampNewer(stamp, null) ? stamp : null };
-    _reportDayCache.set(key, cached);
-  }
+  const result = await EPCDays.docs(collectionName, start, end, { offline: !!window.EPC_OFFLINE, force: _reportReloadDays });
+  if (!range) reportMissingDays[collectionName] = result.missing || [];
   touchReportProgress();
-  return cached.rows.map(row => ({ ...row }));   // the report edits its rows (categories), so hand out copies
+  return collectionName === 'salesDaily' ? EPCDays.salesRows(result.days) : EPCDays.inventoryRows(result.days);
 }
 
 // Expand salesDaily/{date} rollup docs into per-line rows matching the shape the
 // report pipeline expects (one row per item per day). Range-scoped by the report's
 // start/end dates so we only read the days in view (cheap: one read per day).
 async function fetchSalesRollupRows() {
-  if (!getFirestoreDB()) return DB.get('pos_sales') || [];
-  return fetchRollupRows('salesDaily', salesRollupRows);
-}
-function salesRollupRows(docs) {
-  const rows = [];
-  docs.forEach(doc => {
-    const data = doc.data() || {};
-    const products = data.products || {};
-    const date = doc.id;
-    Object.keys(products).forEach(code => {
-      const p = products[code] || {};
-      const units = Number(p.units) || 0;
-      const revenue = Number(p.revenue) || 0;
-      const unitCost = Number(p.unit_cost) || 0;
-      rows.push({
-        _firestoreId: `${date}__${code}`,
-        date,
-        itemCode: code,
-        productName: p.name || code,
-        category: p.category || '',
-        unitsSold: units,
-        totalRevenue: revenue,
-        sellingPrice: units > 0 ? Math.round((revenue / units) * 10000) / 10000 : 0,
-        unitCost,
-        totalCost: (p.cost != null ? Number(p.cost) : unitCost * units) || 0,
-      });
-    });
-  });
-  return rows;
+  if (!getFirestoreDB() && !window.EPC_OFFLINE) return DB.get('pos_sales') || [];
+  return fetchRollupRows('salesDaily');
 }
 
 // Expand inventoryDaily/{date} rollup docs into per-item-day rows (Incoming) for
-// the report pipeline. Range-scoped: one read per day in view instead of scanning
-// the tens-of-thousands-of-row raw inventoryData collection.
+// the report pipeline. Range-scoped: one read per day in view.
 async function fetchInventoryRollupRows() {
-  if (!getFirestoreDB()) return DB.get('inventory_movements') || [];
-  return fetchRollupRows('inventoryDaily', inventoryRollupRows);
-}
-function inventoryRollupRows(docs) {
-  const rows = [];
-  docs.forEach(doc => {
-    const items = (doc.data() || {}).items || {};
-    const date = doc.id;
-    Object.keys(items).forEach(code => {
-      const it = items[code] || {};
-      rows.push({
-        _firestoreId: `${date}__${code}`,
-        dateDelivered: date,
-        date,
-        type: 'Incoming',
-        itemCode: code,
-        description: it.name || '',
-        category: '',
-        supplier: it.supplier || '',
-        unitCost: Number(it.unit_cost) || 0,
-        qty: Number(it.qty) || 0,
-        totalCost: Number(it.total_cost) || 0,
-      });
-    });
-  });
-  return rows;
+  if (!getFirestoreDB() && !window.EPC_OFFLINE) return DB.get('inventory_movements') || [];
+  return fetchRollupRows('inventoryDaily');
 }
 
 // Latest unit cost per item from the itemCost/{code} rollup, served from the
@@ -399,7 +288,7 @@ function reportPreviousRange() {
 async function loadSalesPreviousPeriod() {
   const range = reportPreviousRange();
   if (!range || !getFirestoreDB()) { salesPrevious = { key: range ? range.key : null, start: '', end: '', rows: [] }; return; }
-  const rows = await fetchRollupRows('salesDaily', salesRollupRows, range);
+  const rows = await fetchRollupRows('salesDaily', range);
   backfillSalesCategories(rows);
   salesPrevious = { ...range, rows };
 }
@@ -441,7 +330,7 @@ function reportCacheKey(collectionName) {
 }
 function clearReportRowCache(reloadAll = false) {
   _reportRowCache.clear();
-  if (reloadAll) _reportDayCache.clear();
+  _reportReloadDays = !!reloadAll;   // EPCDays reads the range again on Reload all data
   _reportItemCostMap = null;
   salesPriorInflow = { before: null, total: 0 };
 }
