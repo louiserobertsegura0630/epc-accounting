@@ -17,15 +17,31 @@
     fill: null,         // () => Promise<boolean>  false = cancelled / not now
     setFlag: null,      // (on) => void
     reload: null,       // () => void
+    uid: null, cachedDates: null, meta: null, storage: null,   // for tests
   };
   function _init(overrides) { deps = { ...deps, ...overrides }; }
+  const storage = () => { if (deps.storage) return deps.storage; try { return global.localStorage; } catch (e) { return null; } };
+  async function currentUid() {
+    if (deps.uid) return deps.uid();
+    try { return global.firebase.auth().currentUser ? global.firebase.auth().currentUser.uid : null; } catch (e) { return null; }
+  }
+  // Stage 1 filled Firebase's local cache on this browser for this user (every
+  // list and the chosen days read in full). Pages that read Firebase directly
+  // answer from that cache offline, so the switch must not skip the fill
+  // until it has happened once per user per browser.
+  const PRIMED_KEY = 'epc_fs_primed';
+  function markPrimed(uid) { const s = storage(); try { if (s) s.setItem(PRIMED_KEY, String(uid || '')); } catch (e) { /* storage off */ } }
+  function isPrimed(uid) { const s = storage(); return !!uid && !!s && s.getItem(PRIMED_KEY) === String(uid); }
 
   // Browser defaults.
   async function isCompleteDefault() {
     try {
-      const days = global.EPCDays ? await global.EPCDays.cachedDates('salesDaily') : [];
-      const meta = global.EPCSaved && global.EPCSaved.meta ? await global.EPCSaved.meta() : {};
-      return days.length > 0 && !!meta.purchases && !!meta.productMaster;
+      const uid = await currentUid();
+      if (!isPrimed(uid)) return false;
+      const days = deps.cachedDates ? await deps.cachedDates('salesDaily') : (global.EPCDays ? await global.EPCDays.cachedDates('salesDaily') : []);
+      const meta = deps.meta ? await deps.meta() : (global.EPCSaved && global.EPCSaved.meta ? await global.EPCSaved.meta() : {});
+      const mine = (m) => !!m && m.uid === uid;
+      return days.length > 0 && mine(meta.purchases) && mine(meta.productMaster);
     } catch (e) { return false; }
   }
   function fillDefault() {
@@ -81,9 +97,21 @@
   function wireButton() {
     const doc = global.document;
     const btn = doc.getElementById('epc-offline-btn');
-    if (!btn) return;
-    labelFor(btn);
-    btn.addEventListener('click', () => onClick(btn));
+    if (btn) labelFor(btn);
+  }
+  let delegated = false;
+  function delegateClicks() {
+    if (delegated || !global.document) return;
+    delegated = true;
+    // One listener on the document: the sidebar can be rebuilt (Settings does) and the button with it.
+    global.document.addEventListener('click', (ev) => {
+      const btn = ev.target && ev.target.closest ? ev.target.closest('#epc-offline-btn') : null;
+      if (btn) onClick(btn);
+    });
+    // Another tab switched: follow it.
+    global.addEventListener('storage', (ev) => {
+      if (ev.key === 'epc_offline' && (ev.newValue === '1') !== isOn()) global.location.reload();
+    });
   }
   function paintBanner() {
     const doc = global.document;
@@ -95,20 +123,24 @@
     const limited = global.EPC_PERSISTENCE === false;
     bar.innerHTML = `<span class="epc-offline-dot" aria-hidden="true"></span><span class="epc-offline-text"></span>` +
       `<button type="button" class="epc-offline-back">Switch back online</button>`;
-    bar.querySelector('.epc-offline-text').textContent = BANNER_TEXT + (limited ? ' This browser could not keep Firebase’s local storage, so only Reports and the Dashboard have a copy.' : '');
+    const LIMITED = ' This browser could not keep Firebase’s local storage, so only Reports and the Dashboard have a copy.';
+    const text = bar.querySelector('.epc-offline-text');
+    text.textContent = BANNER_TEXT + (limited ? LIMITED : '');
+    // Persistence settles after load: update the wording when it does.
+    if (global.EPC_PERSISTENCE_READY && typeof global.EPC_PERSISTENCE_READY.then === 'function') {
+      global.EPC_PERSISTENCE_READY.then((ok) => { text.textContent = BANNER_TEXT + (ok ? '' : LIMITED); });
+    }
     bar.querySelector('.epc-offline-back').addEventListener('click', (ev) => onClick(ev.currentTarget));
     doc.body.appendChild(bar);
     doc.body.classList.add('has-offline-banner');
   }
   function start() {
+    delegateClicks();
     wireButton();
     paintBanner();
-    // The sidebar is rendered by initSidebar after load on some pages: watch for the button.
-    if (global.MutationObserver && global.document.body && !global.document.getElementById('epc-offline-btn')) {
-      const mo = new MutationObserver(() => {
-        if (global.document.getElementById('epc-offline-btn')) { mo.disconnect(); wireButton(); }
-      });
-      mo.observe(global.document.body, { childList: true, subtree: true });
+    // The sidebar is rendered (and sometimes rebuilt) after load: keep the label right.
+    if (global.MutationObserver && global.document.body) {
+      new MutationObserver(wireButton).observe(global.document.body, { childList: true, subtree: true });
     }
   }
   if (global.document) {
@@ -116,7 +148,7 @@
     else start();
   }
 
-  const api = { BANNER_TEXT, isOn, switchOn, switchOff, _init };
+  const api = { BANNER_TEXT, isOn, isComplete, markPrimed, switchOn, switchOff, _init };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.EPCOffline = api;
 })(typeof window !== 'undefined' ? window : globalThis);

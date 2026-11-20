@@ -381,7 +381,7 @@ window.EPCSaved = window.EPCSaved || (() => {
     }
     // Offline mode (Reports): the saved copy as it is, or a plain message.
     if (offline) {
-      if (!saved) throw new Error(`No saved copy of ${name} on this browser. Turn Offline off, or Load from file.`);
+      if (!saved) throw new Error(`No saved copy of ${name} on this browser. Switch back online (sidebar), or Load from file on Settings.`);
       memory[name] = saved;
       return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
     }
@@ -1059,13 +1059,14 @@ function configureFirestoreDB(db) {
     const cacheSizeBytes = (firebase.firestore && firebase.firestore.CACHE_SIZE_UNLIMITED) || 1073741824;
     db.settings({ experimentalAutoDetectLongPolling: true, cacheSizeBytes, merge: true });
     _firestoreSettingsApplied = true;
+    connectFirestoreEmulatorIfLocal(db);   // must come before persistence: it changes the settings
     // Keep the cache on disk between visits (shared across tabs). If the browser
     // refuses (private window, old browser), the site still works online and
     // Offline mode is limited to the saved copies.
     if (typeof db.enablePersistence === 'function') {
-      db.enablePersistence({ synchronizeTabs: true })
-        .then(() => { window.EPC_PERSISTENCE = true; })
-        .catch((err) => { window.EPC_PERSISTENCE = false; console.warn('[Firestore] offline storage unavailable:', err && err.code); });
+      window.EPC_PERSISTENCE_READY = db.enablePersistence({ synchronizeTabs: true })
+        .then(() => { window.EPC_PERSISTENCE = true; return true; })
+        .catch((err) => { window.EPC_PERSISTENCE = false; console.warn('[Firestore] offline storage unavailable:', err && err.code); return false; });
     }
   }
   connectFirestoreEmulatorIfLocal(db);
@@ -2058,6 +2059,7 @@ function hasEPCSession() {
 function logoutEPCUser() {
   logAudit('Logout', 'User Session', `${currentUserFullName()} logged out`);
   _currentEPCUser = null;
+  if (window.EPCReads && window.EPC_OFFLINE) EPCReads.setOffline(false);   // the next person starts online
   sessionStorage.setItem('epc_signed_out_at', String(Date.now()));
   const auth = getFirebaseAuth();
   const doRedirect = () => { location.replace('login.html'); };

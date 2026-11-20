@@ -100,7 +100,7 @@
     (await windowQuery(db, from).get()).forEach((doc) => addDay(pack, doc));
     // No stamps at all (old records): start from five minutes ago to allow for clock differences.
     if (!pack.stamp) pack.stamp = { s: Math.floor(Date.now() / 1000) - 300, n: 0 };
-    await writeCache(pack);
+    if (!window.EPC_OFFLINE) await writeCache(pack);   // offline: a cache answer may be partial; keep the saved pack
     return pack;
   }
   // Bring a saved pack up to date. Returns { pack, changed }.
@@ -543,6 +543,7 @@
   }
 
   const refreshBtn = document.getElementById('sp-refresh');
+  if (refreshBtn && window.EPC_OFFLINE) { refreshBtn.disabled = true; refreshBtn.title = 'Switch back online (sidebar) to refresh.'; }
   if (refreshBtn) refreshBtn.addEventListener('click', () => load(true));
   load(false);
 })();

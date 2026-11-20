@@ -745,7 +745,7 @@ async function saveReviewRow(id) {
     const existingPM = await db.collection('productMaster')
       .where('itemCode', '==', pmDocData.itemCode)
       .limit(1)
-      .get();
+      .get({ source: 'server' });   // never the cache: a miss would create a duplicate
     if (!existingPM.empty) {
       await existingPM.docs[0].ref.set(epcStamp(pmDocData), { merge: true });
     } else {
