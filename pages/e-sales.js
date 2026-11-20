@@ -91,8 +91,8 @@ async function deleteRows(rows, onProgress) {
   }
 }
 async function loadESRows() {
-  const snap = await getFirestoreDB().collection('eSalesRecords').get();
-  esRows = snap.docs.map(doc => ({ id:doc.id, _firestoreId:doc.id, ...doc.data() }));
+  // Saved copy (EPCSaved): about 2 reads after the first load on this browser.
+  esRows = (await EPCSaved.rows('eSalesRecords')).map(row => ({ id: row._firestoreId, ...row }));
 }
 function filteredRows() {
   const query = esFilters.query.toLowerCase().trim();
@@ -347,6 +347,8 @@ async function initESalesPage() {
 EPCReportGate.wire({
   button: 'es-generate-btn',
   status: 'es-gen-status',
+  costLine: 'es-cost-line',
+  estimate: () => [{ saved: 'eSalesRecords' }],
   load: async () => {
     await initESalesPage();
     const empty = document.getElementById('es-empty-state');

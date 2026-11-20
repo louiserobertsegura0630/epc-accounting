@@ -388,9 +388,9 @@
   // Load inventory cost history: itemCode -> sorted [{d, cost}].
   async function loadInventoryCostMap(db) {
     const map = new Map();
-    const snap = await db.collection('inventoryData').get();
-    snap.forEach((doc) => {
-      const r = doc.data();
+    // Saved copy (EPCSaved): about 2 reads after the first load on this browser.
+    const rows = global.EPCSaved ? await global.EPCSaved.rows('inventoryData') : [];
+    rows.forEach((r) => {
       const code = String(r.itemCode || '').trim();
       const cost = Number(r.unitCost);
       if (!code || !Number.isFinite(cost)) return;

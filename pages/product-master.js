@@ -346,12 +346,13 @@ async function deleteProductMasterRows(ids, onProgress) {
   const db = getFirestoreDB();
   if (!db) throw new Error('Database unavailable.');
 
-  const snapshot = await db.collection('productMaster').get();
-  const documents = snapshot.docs.filter(doc => {
-    const data = doc.data();
-    const code = String(data.itemCode || data.code || '').trim().toLowerCase();
-    return firestoreIds.has(doc.id) || codes.has(code);
-  });
+  // Find the documents in the saved copy (no read) instead of re-reading every product.
+  const documents = (await EPCSaved.rows('productMaster'))
+    .filter(row => {
+      const code = String(row.itemCode || row.code || '').trim().toLowerCase();
+      return firestoreIds.has(row._firestoreId) || codes.has(code);
+    })
+    .map(row => ({ ref: db.collection('productMaster').doc(row._firestoreId) }));
   if (!documents.length) {
     onProgress(100);
     return;
@@ -557,25 +558,6 @@ function exportProductsCSV() {
   alert(`${rows.length.toLocaleString()} product records exported to CSV.`);
 }
 
-// After a PM category update, push the new category to every matching salesData doc in the background.
-// Matches on salesData.itemCode === itemCode (exact string, no normalization).
-async function syncSalesDataCategoryInBackground(itemCode, category) {
-  const fsdb = getFirestoreDB();
-  if (!fsdb || !itemCode) return;
-  try {
-    const snap = await fsdb.collection('salesData').where('itemCode', '==', itemCode).get();
-    if (snap.empty) return;
-    const BATCH_SIZE = 200;
-    for (let i = 0; i < snap.docs.length; i += BATCH_SIZE) {
-      const batch = fsdb.batch();
-      snap.docs.slice(i, i + BATCH_SIZE).forEach(doc => batch.update(doc.ref, { category }));
-      await batch.commit();
-    }
-  } catch (err) {
-    console.error('[PM] salesData category sync failed:', err);
-  }
-}
-
 async function syncInventoryAssignmentInBackground(itemCode, supplier, category) {
   const code = String(itemCode || '').trim();
   if (!code) return;
@@ -593,7 +575,7 @@ async function syncInventoryAssignmentInBackground(itemCode, supplier, category)
   for (let start = 0; start < snap.docs.length; start += BATCH_SIZE) {
     const batch = fsdb.batch();
     snap.docs.slice(start, start + BATCH_SIZE)
-      .forEach(doc => batch.update(doc.ref, { supplier, category }));
+      .forEach(doc => batch.update(doc.ref, epcStamp({ supplier, category })));
     await batch.commit();
   }
 }
@@ -614,7 +596,6 @@ async function saveProduct() {
   if (codeConflict) { alert(`Item code "${code}" already exists.`); return; }
 
   const oldCategory = existing ? productCategory(existing) : null;
-  const categoryChanged = editId && cat !== oldCategory;
   const changedFields = [];
   if (existing && productName(existing) !== name) {
     changedFields.push(`name: ${productName(existing)} -> ${name}`);
@@ -672,10 +653,6 @@ async function saveProduct() {
     }
   }
 
-  // Background: push the new category to all matching salesData docs
-  if (categoryChanged && code && cat) {
-    syncSalesDataCategoryInBackground(code, cat);
-  }
   try {
     await syncInventoryAssignmentInBackground(code, supplier, cat);
   } catch (err) {
@@ -685,19 +662,8 @@ async function saveProduct() {
   logAudit(editId ? 'Edit' : 'Create', 'Product Master',
     `${editId ? 'Edited' : 'Added'} product ${code}${changedFields.length ? ' - ' + changedFields.join(', ') : ''}`);
 
-  // For new products only: re-match any Under Review items that now have a PM record
-  if (!editId) {
-    rematchUnderReview()
-      .then(({ moved }) => {
-        if (moved > 0) {
-          showPMToast(
-            `✅ ${moved} Under Review item${moved > 1 ? 's' : ''} matched and moved to Sales Data!`,
-            'success'
-          );
-        }
-      })
-      .catch(err => console.error('[rematchUnderReview] Error:', err));
-  }
+  // Under Review is legacy (see CLAUDE.md): no automatic re-match here, it read
+  // every product and every under-review record. The Sales page keeps its button.
 }
 
 function editProd(id) {
@@ -894,29 +860,38 @@ cleanupProductMasterData(false);
 rebuildProductStockIndex();
 renderTable();
 checkMissingCategories();
-Promise.all([
-  loadSuppliersFromFirestore(),
-  loadProductMasterFromFirestore('productName'),
-  loadInventoryFromFirestore().then(rows => {
-    _pmInventoryRows = rows || [];
-  }),
-  (async () => {
-    const fsdb = getFirestoreDB();
-    if (!fsdb) return;
-    try {
-      const snap = await fsdb.collection('salesData').get();
-      if (!snap.empty) _pmSalesRows = snap.docs.map(d => ({ _firestoreId: d.id, ...d.data() }));
-    } catch (e) {
-      console.warn('[Product Master] salesData load failed:', e);
-    }
-  })()
-])
-  .then(() => {
-    cleanupProductMasterData();
-    rebuildProductStockIndex();
-    populateProductSupplierSelect();
-    renderTable();
-    checkMissingCategories();
-    openProductFromURL();
-  })
-  .catch(err => console.error('[Product Master] Firestore load failed:', err));
+
+// Nothing is read on page open. Generate loads products, inventory and suppliers
+// from the browser's saved copies (about 2 reads each after the first load) and
+// units sold from every salesDaily day (one read per day the first time on a
+// browser, then about 2). The cost line beside the button says the price first.
+async function loadProductMasterPage() {
+  const [, , inventoryRows, sales] = await Promise.all([
+    loadSuppliersFromFirestore(),
+    loadProductMasterFromFirestore('productName'),
+    loadInventoryFromFirestore(),
+    EPCDays.all('salesDaily'),
+  ]);
+  _pmInventoryRows = inventoryRows || [];
+  _pmSalesRows = EPCDays.salesRows(sales.days);
+  cleanupProductMasterData();
+  rebuildProductStockIndex();
+  populateProductSupplierSelect();
+  document.body.classList.add('pm-loaded');
+  renderTable();
+  checkMissingCategories();
+  openProductFromURL();
+}
+const pmGate = EPCReportGate.wire({
+  button: 'pm-generate-btn',
+  popupLabel: 'Loading products…',
+  refreshLabel: 'Refresh',
+  costLine: 'pm-cost-line',
+  estimate: () => [
+    { saved: 'suppliers' }, { saved: 'productMaster' }, { saved: 'inventoryData' },
+    ...EPCDays.allParts('salesDaily'),
+  ],
+  load: loadProductMasterPage,
+});
+// A link from another page (?itemCode=...) means the user wants that product now.
+if (new URLSearchParams(window.location.search).get('itemCode')) pmGate.run();

@@ -5,7 +5,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventory Tracking - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261117-quota">
+  <link rel="stylesheet" href="../assets/style.css?v=20261120-reads">
   <link rel="stylesheet" href="../assets/import-mapper.css?v=20261117-ds4d">
   <link rel="stylesheet" href="inventory-tracking.css?v=20261117-ds4d">
 </head>
@@ -32,6 +32,7 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
           Import from MIS
         </button>
+        <span id="inv-cost-line" class="epc-cost-line" title="What Match Sales Costs will read"></span>
         <button class="btn btn-outline-gray" id="btn-match-costs" title="Apply recorded item costs to sales days that were uploaded before their inventory">Match Sales Costs</button>
         <button class="btn btn-outline-gray" id="btn-export-inv">Export as CSV</button>
         <button class="btn btn-primary" id="btn-add-inv">
@@ -543,9 +544,13 @@ self.onmessage = function(e) {
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/app.js?v=20261118-reads"></script>
+<script src="../assets/reads.js?v=20261120-reads"></script>
+
+<script src="../assets/app.js?v=20261120-reads"></script>
+
+<script src="../assets/days.js?v=20261120-reads"></script>
 <script src="../assets/shared-utils.js"></script>
-<script src="../assets/import-mapper.js?v=20260821-uploads-list"></script>
-<script src="inventory-tracking.js?v=20261118-reads"></script>
+<script src="../assets/import-mapper.js?v=20261120-reads"></script>
+<script src="inventory-tracking.js?v=20261120-reads"></script>
 </body>
 </html>

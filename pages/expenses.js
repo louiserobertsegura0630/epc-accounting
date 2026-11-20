@@ -21,13 +21,13 @@ async function loadExpenseAccounts() {
   const db = getFirestoreDB();
   if (!db) return DB.get('expenseAccounts');
   try {
-    const snap = await db.collection('expenseAccounts').get();
+    const saved = await EPCSaved.rows('expenseAccounts');   // saved copy: ~2 reads after the first load
     // The seeded marker is bookkeeping, not an account — keep it out of the list,
     // but note it so we stop showing the built-in defaults.
-    if (snap.docs.some(doc => isSeededMarkerId(doc.id))) coaIsAuthoritative = true;
-    const rows = snap.docs
-      .filter(doc => !isSeededMarkerId(doc.id))
-      .map(doc => ({ id: doc.id, ...doc.data() }));
+    if (saved.some(row => isSeededMarkerId(row._firestoreId))) coaIsAuthoritative = true;
+    const rows = saved
+      .filter(row => !isSeededMarkerId(row._firestoreId))
+      .map(({ _firestoreId, ...row }) => ({ id: _firestoreId, ...row }));
     if (rows.length) coaIsAuthoritative = true;
     DB.set('expenseAccounts', rows);
     return rows;
@@ -79,7 +79,7 @@ async function createExpenseAccount() {
   const acc = { id: genId(), name };
   try {
     const db = getFirestoreDB();
-    if (db) await db.collection('expenseAccounts').doc(acc.id).set(acc, { merge: true });
+    if (db) await db.collection('expenseAccounts').doc(acc.id).set(epcStamp(acc), { merge: true });
     DB.push('expenseAccounts', acc);
     logAudit('Create', 'Chart of Accounts', `Added account ${name} (from Expenses)`);
     return name;
@@ -126,8 +126,7 @@ async function deleteExpenseFromFirestore(row) {
 async function loadExpensesFromFirestore() {
   const db = getFirestoreDB();
   if (!db) return DB.get('expenses');
-  const snapshot = await db.collection('expenses').get();
-  const firestoreRows = snapshot.docs.map(doc => ({ _firestoreId:doc.id, ...doc.data() }));
+  const firestoreRows = await EPCSaved.rows('expenses');   // saved copy: ~2 reads after the first load
   DB.set('expenses', firestoreRows);
   return firestoreRows;
 }
@@ -615,6 +614,8 @@ loadExpenseAccounts().then(() => {
 EPCReportGate.wire({
   button: 'exp-generate-btn',
   status: 'exp-gen-status',
+  costLine: 'exp-cost-line',
+  estimate: () => [{ saved: 'expenses' }, { saved: 'expenseAccounts' }],
   load: async () => {
     await loadExpensesFromFirestore();
     renderSummary();

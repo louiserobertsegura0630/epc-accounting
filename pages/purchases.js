@@ -1430,6 +1430,8 @@ loadSupplierListFromFirestore('purchaseSuppliers')
 EPCReportGate.wire({
   button: 'pur-generate-btn',
   status: 'pur-gen-status',
+  costLine: 'pur-cost-line',
+  estimate: () => [{ fixed: purchaseLoadLimit() + 2, label: 'purchases', note: 'the latest records shown, plus the totals' }],
   load: async () => {
     await loadPurchasesBatch({ append: false });
     populatePurchasesFilterSuppliers();

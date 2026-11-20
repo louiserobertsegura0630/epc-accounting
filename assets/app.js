@@ -26,12 +26,36 @@ window.EPCReportGate = window.EPCReportGate || (() => {
     // Loading pop-up (bouncing bars) while the report loads. Pages that show
     // their own loader (dashboard, reports progress bar) pass popup: false.
     const popupLabel = opts.popup === false ? null : (opts.popupLabel || 'Loading report…');
+    // Cost line ("≈ 2 reads · 1,240 used today on this browser") beside the button,
+    // and a confirm pop-up before big loads. opts.estimate() returns the parts
+    // EPCReads.estimate understands; opts.costLine is the element (or id) to write.
+    const estimate = typeof opts.estimate === 'function' ? opts.estimate : null;
+    const costLine = opts.costLine
+      ? (typeof opts.costLine === 'string' ? document.getElementById(opts.costLine) : opts.costLine)
+      : null;
+    let paintTimer = null;
+    function paintCost() {   // debounced: every counted read fires epc-reads-change
+      if (!(costLine && estimate && window.EPCReads)) return;
+      clearTimeout(paintTimer);
+      paintTimer = setTimeout(() => EPCReads.line(costLine, estimate), 300);
+    }
+    if (costLine && estimate) {
+      paintCost();
+      window.addEventListener('epc-cost-change', paintCost);
+      window.addEventListener('epc-reads-change', paintCost);
+    }
 
     if (btn.textContent.trim() === '') btn.textContent = idleLabel;
 
     async function run() {
       if (running) return;              // guard against double-clicks (paid reads)
       running = true;
+      btn.disabled = true;
+      if (estimate && window.EPCReads && !(await EPCReads.confirm(estimate))) {   // "Not now"
+        running = false;
+        btn.disabled = false;
+        return;
+      }
       const prevLabel = btn.textContent;
       btn.disabled = true;
       btn.textContent = loadingLabel;
@@ -43,7 +67,8 @@ window.EPCReportGate = window.EPCReportGate || (() => {
         loaded = true;
         btn.textContent = refreshLabel;
         if (status) status.textContent = '';
-        EPCQuota.ok(startedAt);
+        if (!window.EPC_OFFLINE) EPCQuota.ok(startedAt);   // an offline load says nothing about the quota
+        paintCost();
       } catch (err) {
         console.error('[EPCReportGate] load failed:', err);
         btn.textContent = loaded ? refreshLabel : (prevLabel || idleLabel);
@@ -208,7 +233,7 @@ window.EPCQuota = window.EPCQuota || (() => {
   // Loads that nobody catches still raise the bar.
   window.addEventListener('unhandledrejection', e => { report(e.reason); });
 
-  return { report, ok, isQuotaError, resetText, active: () => !!hit };
+  return { report, ok, isQuotaError, resetText, nextReset, active: () => !!hit };
 })();
 
 // ─── Saved copies of whole collections (shared) ──────────────────────────────
@@ -230,6 +255,7 @@ function epcStamp(data) {
 window.EPCSaved = window.EPCSaved || (() => {
   const SOURCES = {
     purchases: {}, expenses: {}, suppliesData: {}, eSalesRecords: {}, productMaster: {},
+    inventoryData: {}, suppliers: {}, expenseAccounts: {},
     // Only the figures the reports use are kept from these two.
     itemCost: { stampField: 'lastUpdated', pick: d => ({ unit_cost: Number(d.unit_cost) || 0 }) },
     salesDayTotals: {
@@ -290,6 +316,7 @@ window.EPCSaved = window.EPCSaved || (() => {
   async function writeSaved(name, saved) {
     try {
       await cacheStore('readwrite', (store) => store.put({ ...saved, docs: encode(saved.docs) }, `saved:${name}`));
+      metaCache[name] = { uid: saved.uid, at: saved.at, count: Object.keys(saved.docs).length };
     } catch (e) { console.warn('[EPCSaved] could not save', name, e); /* storage off: read again next time */ }
   }
   function signedIn() {
@@ -320,6 +347,7 @@ window.EPCSaved = window.EPCSaved || (() => {
     // No stamps at all (records from before stamping): start a day back, to allow for a wrong clock on this computer.
     if (!saved.stamp) saved.stamp = { s: Math.floor(saved.at / 1000) - 86400, n: 0 };
     await writeSaved(name, saved);
+    if (window.EPCReads) EPCReads.rememberCount(name, Object.keys(saved.docs).length);
     return saved;
   }
   // Bring a saved copy up to date.
@@ -332,33 +360,81 @@ window.EPCSaved = window.EPCSaved || (() => {
     // Deleted records leave no trace, so compare the number of records.
     // (firestoreCount: this SDK build has no query.count(). null = could not count; check again next time.)
     const counted = await firestoreCount(col, `${name} count`);
+    if (counted != null && window.EPCReads) EPCReads.rememberCount(name, counted);
     if (counted != null && counted !== Object.keys(saved.docs).length) return fetchAll(db, name, saved.uid);
     if (!changed.empty) await writeSaved(name, saved);
     return saved;
   }
-  async function load(name, force) {
-    const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
-    if (!db) throw new Error('The database is not available.');
+  async function load(name, force, offline) {
     const user = await signedIn();
     let saved = null;
     if (!force) {
       saved = memory[name] && memory[name].uid === user.uid ? memory[name] : await readSaved(name, user.uid);
-      if (saved && Date.now() - saved.at > MAX_AGE_MS) saved = null;
+      if (saved && !offline && Date.now() - saved.at > MAX_AGE_MS) saved = null;
     }
+    // Offline mode (Reports): the saved copy as it is, or a plain message.
+    if (offline) {
+      if (!saved) throw new Error(`No saved copy of ${name} on this browser. Turn Offline off, or Load from file.`);
+      memory[name] = saved;
+      return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
+    }
+    const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
+    if (!db) throw new Error('The database is not available.');
     saved = saved ? await sync(db, name, saved) : await fetchAll(db, name, user.uid);
     memory[name] = saved;
     // Fresh row objects each time, in document-id order like a plain .get().
     return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
   }
   // Every record of a collection, as [{ _firestoreId, ...fields }].
-  function rows(name, { force = false } = {}) {
-    if (!inFlight[name]) {
-      inFlight[name] = load(name, force).finally(() => { delete inFlight[name]; });
+  function rows(name, { force = false, offline = false } = {}) {
+    const key = offline ? `${name}|offline` : name;
+    if (!inFlight[key]) {
+      inFlight[key] = load(name, force, offline).finally(() => { delete inFlight[key]; });
     }
-    return inFlight[name];
+    return inFlight[key];
   }
 
-  return { rows };
+  // What is saved on this browser, for the cost estimate: { name: { uid, at, count } }.
+  // Read from IndexedDB once per page view (the copies can be large); kept
+  // current by writeSaved / importAll.
+  const metaCache = {};
+  async function meta() {
+    const out = {};
+    for (const name of Object.keys(SOURCES)) {
+      if (!(name in metaCache)) {
+        let saved = memory[name];
+        if (!saved) {
+          try { saved = await cacheStore('readonly', (store) => store.get(`saved:${name}`)); } catch (e) { saved = null; }
+        }
+        metaCache[name] = saved && saved.v === VERSION && saved.docs ? { uid: saved.uid, at: saved.at, count: Object.keys(saved.docs).length } : null;
+      }
+      if (metaCache[name]) out[name] = metaCache[name];
+    }
+    return out;
+  }
+
+  // Data file (assets/datafile.js): every saved copy as stored, and back.
+  async function exportAll() {
+    const out = {};
+    for (const name of Object.keys(SOURCES)) {
+      let saved = memory[name] ? { ...memory[name], docs: encode(memory[name].docs) } : null;
+      if (!saved) { try { saved = await cacheStore('readonly', (store) => store.get(`saved:${name}`)); } catch (e) { saved = null; } }
+      if (saved && saved.v === VERSION && saved.docs) out[name] = saved;
+    }
+    return out;
+  }
+  async function importAll(obj) {
+    const user = await signedIn();
+    for (const name of Object.keys(obj || {})) {
+      if (!SOURCES[name]) continue;
+      const saved = { ...obj[name], v: VERSION, uid: user.uid };
+      await cacheStore('readwrite', (store) => store.put(saved, `saved:${name}`));
+      delete memory[name];
+      delete metaCache[name];
+    }
+  }
+
+  return { rows, meta, exportAll, importAll, SOURCES, _codec: { encode, decode }, _cacheStore: cacheStore };
 })();
 
 // ─── Pastel 3D chart style (shared) ──────────────────────────────────────────
@@ -1121,7 +1197,14 @@ async function _runAggregationRest(query, aggregations, label) {
     throw new Error(`[Firestore REST] ${label} HTTP ${res.status}: ${txt}`);
   }
   EPCQuota.ok();
-  return await res.json();
+  const rows = await res.json();
+  if (window.EPCReads) {
+    const first = Array.isArray(rows) ? rows[0] : null;
+    const c = first && first.result && first.result.aggregateFields && first.result.aggregateFields.c;
+    const counted = c ? Number(c.integerValue ?? c.doubleValue) : 0;
+    EPCReads.spent(Math.max(1, Math.ceil((counted || 0) / 1000)), `${label || 'aggregate'}`);
+  }
+  return rows;
 }
 
 async function firestoreCount(query, label = 'count') {
@@ -1162,6 +1245,9 @@ if (typeof firebase !== 'undefined' && !firebase.apps.length) {
 if (typeof firebase !== 'undefined' && typeof firebase.firestore === 'function') {
   configureFirestoreDB(firebase.firestore());
 }
+// Count every Firestore read this browser makes (EPCReads, assets/reads.js):
+// the SDK's Query / DocumentReference / AggregateQuery .get() are wrapped once.
+if (typeof firebase !== 'undefined' && window.EPCReads) EPCReads.watchFirestore(firebase);
 let _productMasterWriteQueue = Promise.resolve();
 
 function getFirestoreDB() {
@@ -1266,17 +1352,17 @@ function syncProductMasterToFirestore(rows) {
   return _productMasterWriteQueue;
 }
 
-async function loadProductMasterFromFirestore(orderByField = '', seedIfEmpty = true) {
+// From the browser's saved copy (EPCSaved): about 2 reads after the first load.
+async function loadProductMasterFromFirestore(orderByField = '', seedIfEmpty = true, opts = {}) {
   const db = getFirestoreDB();
   if (!db) return getCachedProductMasterRows();
-  let query = db.collection('productMaster');
-  if (orderByField) query = query.orderBy(orderByField);
-  const snap = await query.get();
-  if (snap.empty) {
+  const saved = await EPCSaved.rows('productMaster', opts);
+  if (!saved.length) {
     cacheProductMasterRows([]);
     return [];
   }
-  const rows = snap.docs.map(doc => normalizeProductCostData({ _firestoreId: doc.id, ...doc.data() }));
+  const rows = saved.map(row => normalizeProductCostData(row));
+  if (orderByField) rows.sort((a, b) => String(a[orderByField] ?? '').localeCompare(String(b[orderByField] ?? ''), undefined, { sensitivity: 'base' }));
   cacheProductMasterRows(rows);
   return rows;
 }
@@ -1332,20 +1418,18 @@ async function upsertProductMasterRowsInFirestore(rows, onProgress, options = {}
   return normalizedRows;
 }
 
-async function loadSuppliersFromFirestore() {
+async function loadSuppliersFromFirestore(opts = {}) {
   const db = getFirestoreDB();
   if (!db) return DB.get('suppliers');
-  const snap = await db.collection('suppliers').get();
-  const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  const rows = await EPCSaved.rows('suppliers', opts);   // saved copy: ~2 reads after the first load
   DB.set('suppliers', rows);
   return rows;
 }
 
-async function loadInventoryFromFirestore() {
+async function loadInventoryFromFirestore(opts = {}) {
   const db = getFirestoreDB();
   if (!db) return DB.get('inventory_movements');
-  const snap = await db.collection('inventoryData').get();
-  const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  const rows = await EPCSaved.rows('inventoryData', opts);   // saved copy: ~2 reads after the first load
   DB.set('inventory_movements', rows);
   return rows;
 }
@@ -1719,7 +1803,7 @@ async function ensureSharedSupplier(name, storeKey = 'suppliers') {
 
   const supplier = { id:genId(), name:cleanName, category:'', status:'Active' };
   const db = getFirestoreDB();
-  if (db) await db.collection(storeKey).doc(supplier.id).set(supplier, { merge:true });
+  if (db) await db.collection(storeKey).doc(supplier.id).set(epcStamp(supplier), { merge:true });
   DB.push(storeKey, supplier);
   logAudit('Create', storeKey === 'suppliers' ? 'Supplier' : 'Purchase Supplier', `Added supplier ${cleanName}`);
   return supplier;
@@ -1731,8 +1815,13 @@ async function loadSupplierListFromFirestore(storeKey = 'suppliers') {
   const db = getFirestoreDB();
   if (!db) return DB.get(storeKey);
   try {
-    const snap = await db.collection(storeKey).get();
-    const rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let rows;
+    if (storeKey === 'suppliers') {
+      rows = (await EPCSaved.rows('suppliers')).map(({ _firestoreId, ...row }) => ({ id: _firestoreId, ...row }));
+    } else {
+      const snap = await db.collection(storeKey).get();
+      rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
     DB.set(storeKey, rows);
     return rows;
   } catch (err) {

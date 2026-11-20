@@ -18,8 +18,6 @@ let inventoryLastDocSnapshot = null;
 let inventoryDailyCursor = null;   // last date loaded for the rollup-based movements table
 let inventoryHasMoreRecords = false;
 let inventoryHasGenerated = false;   // KPIs/table stay blank until Generate is run
-let inventorySalesRematchRunning = false;
-const INVENTORY_SALES_REMATCH_PAGE_SIZE = 500;
 
 // ─── Virtual Scroll State ─────────────────────────────────────────────────────
 const INV_VS_ROW_H    = 38;
@@ -308,112 +306,6 @@ function applySalesOutgoing(sales) {
   DB.set('inventory_movements', [...real, ...derived]);
   invTable.render();
   renderSummary();
-}
-
-function setInventorySalesRematchProgress(processed = 0, total = 0, label = 'Re-matching Sales...') {
-  const wrap = document.getElementById('inventory-sales-rematch-progress');
-  const fill = document.getElementById('inventory-sales-rematch-fill');
-  const text = document.getElementById('inventory-sales-rematch-text');
-  if (!wrap || !fill || !text) return;
-  const done = Math.max(0, Number(processed) || 0);
-  const all = Math.max(0, Number(total) || 0);
-  const pct = all > 0 ? Math.min(100, Math.floor(done / all * 100)) : 0;
-  wrap.style.display = '';
-  fill.style.width = `${pct}%`;
-  text.textContent = all > 0
-    ? `${label} ${pct}% (${done.toLocaleString()} / ${all.toLocaleString()})`
-    : `${label} ${done.toLocaleString()} processed`;
-}
-
-function hideInventorySalesRematchProgress() {
-  const wrap = document.getElementById('inventory-sales-rematch-progress');
-  const fill = document.getElementById('inventory-sales-rematch-fill');
-  const text = document.getElementById('inventory-sales-rematch-text');
-  if (fill) fill.style.width = '0%';
-  if (text) text.textContent = '';
-  if (wrap) wrap.style.display = 'none';
-}
-
-async function countInventorySalesRows(db) {
-  const query = db.collection('salesData');
-  if (typeof firestoreCount === 'function') return firestoreCount(query, 'salesData inventory re-match count');
-  if (typeof query.count !== 'function') return null;
-  const snap = await query.count().get();
-  return Number(snap.data().count) || 0;
-}
-
-async function fetchSalesRowsForInventoryRematch(db, total) {
-  const sales = [];
-  let cursor = null;
-  let processed = 0;
-  while (true) {
-    let query = db.collection('salesData')
-      .orderBy(firebase.firestore.FieldPath.documentId())
-      .limit(INVENTORY_SALES_REMATCH_PAGE_SIZE);
-    if (cursor) query = query.startAfter(cursor);
-    const snap = await query.get();
-    snap.docs.forEach(doc => sales.push({ _firestoreId: doc.id, ...doc.data() }));
-    processed += snap.docs.length;
-    setInventorySalesRematchProgress(processed, total, 'Re-matching Sales...');
-    if (snap.docs.length < INVENTORY_SALES_REMATCH_PAGE_SIZE) break;
-    cursor = snap.docs[snap.docs.length - 1];
-  }
-  return sales;
-}
-
-async function rematchInventoryAgainstSales({ silent = false } = {}) {
-  const db = getFirestoreDB();
-  const btn = document.getElementById('btn-rematch-sales-inv');
-  if (inventorySalesRematchRunning) return;
-  inventorySalesRematchRunning = true;
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Re-matching...';
-  }
-
-  try {
-    if (!db) {
-      const localSales = DB.get('pos_sales');
-      setInventorySalesRematchProgress(localSales.length, localSales.length, 'Re-matching Sales...');
-      applySalesOutgoing(localSales);
-      if (!silent) showToast(`Re-matched ${localSales.length.toLocaleString()} sales rows against inventory item codes.`, 'success');
-      return;
-    }
-
-    const total = await countInventorySalesRows(db);
-    setInventorySalesRematchProgress(0, total, 'Re-matching Sales...');
-    const sales = await fetchSalesRowsForInventoryRematch(db, total);
-    const derived = sales.map(saleToOutgoingRow).filter(Boolean);
-    console.info(`[Inventory] salesData re-match: ${sales.length} sales docs -> ${derived.length} outgoing rows.`);
-    applySalesOutgoing(sales);
-    if (!silent) {
-      showToast(
-        `Re-matched ${sales.length.toLocaleString()} sales row${sales.length === 1 ? '' : 's'} against inventory item codes.`,
-        'success'
-      );
-    }
-  } catch (err) {
-    console.error('[Inventory] salesData re-match failed:', err);
-    const indexUrl = typeof firestoreIndexUrlFromError === 'function' ? firestoreIndexUrlFromError(err) : '';
-    if (indexUrl) {
-      alert(`Firestore needs an index for this inventory/sales re-match. Open this link to create it:\n\n${indexUrl}`);
-    } else if (!silent) {
-      alert(`Could not re-match inventory against Sales: ${err.message || err}`);
-    }
-  } finally {
-    inventorySalesRematchRunning = false;
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = 'Re-match Sales';
-    }
-    setTimeout(hideInventorySalesRematchProgress, 900);
-  }
-}
-
-// Live source of truth: the Sales page writes to the 'salesData' collection.
-// Each POS sale becomes a read-only Outgoing movement here.
-function watchSalesOutgoing() {
-  rematchInventoryAgainstSales({ silent: true });
 }
 
 function outgoingProductCost(product) {
@@ -769,6 +661,7 @@ async function generateInventory() {
   const to = dateF.to || '';
   if (!from && !to) { if (status) status.textContent = 'Set the Date filter (From / To) first.'; return; }
   if (from && to && from > to) { if (status) status.textContent = 'From date is after To date.'; return; }
+  if (!(await EPCReads.confirm(inventoryGenerateParts))) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (status) status.textContent = 'Loading…';
   try {
@@ -793,8 +686,25 @@ async function generateInventory() {
     if (status) status.textContent = 'Load failed: ' + (e && e.message ? e.message : 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
+    paintInventoryCost();
   }
 }
+// What Generate will read: one inventory day per day in the Date window, plus the
+// saved copies of suppliers and products the first time. Shown in the status
+// line beside the button until a load replaces it with the result.
+function inventoryGenerateParts() {
+  const dateF = (invTable.filters && invTable.filters.dateDelivered) || {};
+  const parts = [];
+  if (!_invReferenceLoaded) parts.push({ saved: 'suppliers' }, { saved: 'productMaster' });
+  const n = dateF.from && dateF.to ? EPCReads.daysBetween(dateF.from, dateF.to).length : 0;
+  parts.push({ fixed: n, label: 'inventoryDaily', note: `${n} day${n === 1 ? '' : 's'} in the Date window` });
+  return parts;
+}
+function paintInventoryCost() {
+  const status = document.getElementById('inv-query-status');
+  if (status && !inventoryHasGenerated) EPCReads.line(status, inventoryGenerateParts);
+}
+window.addEventListener('epc-cost-change', paintInventoryCost);
 
 // KPI totals computed from the currently-loaded rows (no history scan).
 function computeInventoryKpisFromLoaded() {
@@ -895,7 +805,7 @@ async function saveInv() {
     const firestoreId = savedRow._firestoreId || inventoryFirestoreDocId(savedRow);
     const firestoreRow = { ...savedRow };
     delete firestoreRow._firestoreId;
-    await db.collection('inventoryData').doc(firestoreId).set(firestoreRow, { merge: true });
+    await db.collection('inventoryData').doc(firestoreId).set(epcStamp(firestoreRow), { merge: true });
     savedRow._firestoreId = firestoreId;
     await syncInventoryDisplayFieldsToProductMaster(code, desc, cat);
   } catch (err) {
@@ -1215,7 +1125,7 @@ async function saveBulkOutgoing() {
       await commitFreshBatchWithRetry(() => {
         const batch = fsdb.batch();
         chunk.forEach(row => {
-          batch.set(fsdb.collection('inventoryData').doc(inventoryFirestoreDocId(row)), row);
+          batch.set(fsdb.collection('inventoryData').doc(inventoryFirestoreDocId(row)), epcStamp(row));
         });
         return batch;
       }, start + chunk.length);
@@ -1891,12 +1801,18 @@ document.getElementById('inv-product-search-results').addEventListener('click', 
   const result = event.target.closest('[data-item-code]');
   if (result) selectOutgoingProduct(result.dataset.itemCode);
 });
-document.getElementById('btn-rematch-sales-inv')?.addEventListener('click', () => rematchInventoryAgainstSales({ silent: false }));
 document.getElementById('btn-export-inv').addEventListener('click', exportInventoryCSV);
 
+// What Match Sales Costs will read: the saved item costs plus one read per day still awaiting a cost.
+const matchCostsParts = () => [
+  { saved: 'itemCost' },
+  { fixed: EPCReads.knownCounts().awaitingDays ?? 50, label: 'salesDaily', note: 'days still waiting for a cost' },
+];
+EPCReads.line('inv-cost-line', matchCostsParts);
 document.getElementById('btn-match-costs').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
   if (btn.disabled) return;
+  if (!(await EPCReads.confirm(matchCostsParts))) return;
   const label = btn.textContent;
   btn.disabled = true;
   try {
@@ -1912,6 +1828,7 @@ document.getElementById('btn-match-costs').addEventListener('click', async (e) =
   } finally {
     btn.disabled = false;
     btn.textContent = label;
+    EPCReads.line('inv-cost-line', matchCostsParts);
   }
 });
 document.getElementById('btn-save-inv').addEventListener('click', saveInv);
@@ -2728,7 +2645,7 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
           const firestoreId = row._firestoreId || inventoryFirestoreDocId(row);
           const firestoreRow = { ...row };
           delete firestoreRow._firestoreId;
-          batch.set(db.collection('inventoryData').doc(firestoreId), firestoreRow, { merge: true });
+          batch.set(db.collection('inventoryData').doc(firestoreId), epcStamp(firestoreRow), { merge: true });
         });
         return batch;
       }, Math.min(start + chunk.length, rows.length));
@@ -2881,7 +2798,7 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
         chunk.forEach(supplier => {
           batch.set(
             db.collection('suppliers').doc(supplierFirestoreDocId(supplier.name)),
-            supplier,
+            epcStamp(supplier),
             { merge: true }
           );
         });
@@ -2921,17 +2838,6 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
           showToast(msg, 'warning', 9000);
         } else { showToast(msg, 'success'); }
 
-        // Re-match any Under Review items that now have PM records from this import
-        rematchUnderReview()
-          .then(({ moved }) => {
-            if (moved > 0) {
-              showToast(
-                `✅ ${moved} Under Review item${moved > 1 ? 's' : ''} matched and moved to Sales Data!`,
-                'success'
-              );
-            }
-          })
-          .catch(err => console.error('[rematchUnderReview] Error:', err));
       } catch (err) {
         console.error('INCOMING import error:', err);
         const currentRow = Number(err.currentRow) || 0;
@@ -3069,7 +2975,7 @@ async function misImportMappedRows(mappedRows, onProgress) {
     const chunk = toSave.slice(s, s + FS_BATCH);
     await commitFreshBatchWithRetry(() => {
       const batch = db.batch();
-      chunk.forEach((r) => { const fr = { ...r }; delete fr._firestoreId; batch.set(db.collection('inventoryData').doc(r._firestoreId || inventoryFirestoreDocId(r)), fr, { merge: true }); });
+      chunk.forEach((r) => { const fr = { ...r }; delete fr._firestoreId; batch.set(db.collection('inventoryData').doc(r._firestoreId || inventoryFirestoreDocId(r)), epcStamp(fr), { merge: true }); });
       return batch;
     }, Math.min(s + chunk.length, toSave.length));
     inserted += chunk.length;
@@ -3088,7 +2994,7 @@ async function misImportMappedRows(mappedRows, onProgress) {
     await commitFreshBatchWithRetry(() => {
       const batch = db.batch();
       chunk.forEach((name) => batch.set(db.collection('suppliers').doc(supplierFirestoreDocId(name)),
-        { id: supplierFirestoreDocId(name), name, category: '', address: '', contactPerson: '', phone: '', email: '', notes: '', status: 'Active' }, { merge: true }));
+        epcStamp({ id: supplierFirestoreDocId(name), name, category: '', address: '', contactPerson: '', phone: '', email: '', notes: '', status: 'Active' }), { merge: true }));
       return batch;
     }, Math.min(s + chunk.length, supList.length));
     supSaved += chunk.length;
@@ -3251,7 +3157,6 @@ async function misImportMappedRows(mappedRows, onProgress) {
   try { logAudit('Import', 'MIS Inventory', `Imported ${inserted} raw rows, ${itemDays} item-days across ${importDates.length} dates, ${productsUpdated} products, ${supList.length} suppliers`); } catch (e) {}
   if (onProgress) onProgress(1, 1, 'Finishing up…');
   invTable.render(); renderSummary(); refreshInventoryAggregates();
-  try { rematchUnderReview().then(({ moved }) => { if (moved > 0) showToast(`✅ ${moved} Under Review item(s) matched and moved to Sales Data!`, 'success'); }); } catch (e) {}
 
   return { inserted, summary: `${mappedRows.length.toLocaleString()} file rows → ${itemDays.toLocaleString()} item-days across ${importDates.length} date(s); ${supList.length.toLocaleString()} new suppliers.${zeroCost ? ` (${zeroCost} zero-cost skipped)` : ''}` };
 }
@@ -3270,18 +3175,19 @@ async function matchSalesCostsFromInventory(onProgress = null) {
   const report = (d, t, m) => { if (onProgress) onProgress(d, t, m); };
   const num = (v) => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
 
-  // 1) Costs first — itemCost is one small doc per item.
+  // 1) Costs first, from the browser's saved copy of itemCost (about 2 reads
+  //    after the first load; the inventory importer stamps lastUpdated).
   report(0, 1, 'Loading item costs…');
   const costMap = new Map();
-  const costSnap = await db.collection('itemCost').get();
-  costSnap.forEach((d) => { const c = d.data() || {}; if (num(c.unit_cost) > 0) costMap.set(d.id, num(c.unit_cost)); });
+  (await EPCSaved.rows('itemCost')).forEach((row) => { if (num(row.unit_cost) > 0) costMap.set(row._firestoreId, num(row.unit_cost)); });
   if (!costMap.size) return { matched: 0, scanned: 0 };
 
-  // 2) Only days that still await costs are worth downloading.
+  // 2) Only days that still await costs are read (one read per such day).
   report(0, 1, 'Finding sales days that need costs…');
   const candidates = [];
-  const metaSnap = await db.collection('salesDaily').get();
-  metaSnap.forEach((d) => { if (Number((d.data() || {}).awaitingCostItemCount) > 0) candidates.push(d); });
+  const metaSnap = await db.collection('salesDaily').where('awaitingCostItemCount', '>', 0).get();
+  metaSnap.forEach((d) => candidates.push(d));
+  EPCReads.rememberCount('awaitingDays', candidates.length);   // for next time's cost line
 
   // 3) Apply costs and write back, one page of days at a time.
   const updates = [];
@@ -3370,9 +3276,7 @@ async function watchInventoryProductMaster() {
   const db = getFirestoreDB();
   if (!db) return;
   try {
-    const snapshot = await db.collection('productMaster').get();
-    const rows = snapshot.docs.map(doc => normalizeProductCostData({ _firestoreId:doc.id, ...doc.data() }));
-    cacheProductMasterRows(rows);
+    // Already loaded from the saved copy by ensureInventoryReferenceData: no second read.
     invalidateInvSupplierMap();
     // Re-resolve supplier on already-loaded rollup rows now that PM is available.
     const movs = DB.get('inventory_movements') || [];
@@ -3438,5 +3342,6 @@ DB.set('inventory_movements', []);   // start empty; Generate fills it
 invTable.render();          // builds header + filter row + Generate button
 seedInventoryDateFilter();  // default the Date window to the current month
 renderSummary();            // shows blank KPIs until Generate
+paintInventoryCost();       // "≈ N reads · …" in the status line before the first Generate
 
 // (end of MIS import section)

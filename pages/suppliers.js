@@ -42,7 +42,7 @@ async function saveSupplierToFirestore(supplier) {
   if (!docId) throw new Error('Supplier ID is missing.');
   const clean = { ...supplier };
   delete clean._firestoreId;
-  await db.collection('suppliers').doc(docId).set(clean, { merge: true });
+  await db.collection('suppliers').doc(docId).set(epcStamp(clean), { merge: true });
   supplier._firestoreId = docId;
 }
 
@@ -395,15 +395,15 @@ async function deleteSuppliersFromFirestore(ids, deleteAll, onProgress) {
     .filter(supplier => selectedIds.has(String(supplier.id)))
     .map(supplier => String(supplier.name || '').trim().toLowerCase())
     .filter(Boolean));
-  const snapshot = await db.collection('suppliers').get();
-  const documents = deleteAll
-    ? snapshot.docs
-    : snapshot.docs.filter(doc => {
-        const data = doc.data();
-        return selectedIds.has(String(doc.id)) ||
-          selectedIds.has(String(data.id)) ||
-          selectedNames.has(String(data.name || '').trim().toLowerCase());
-      });
+  // Find the documents in the saved copy (no read) instead of re-reading every supplier.
+  const saved = await EPCSaved.rows('suppliers');
+  const documents = (deleteAll
+    ? saved
+    : saved.filter(data =>
+        selectedIds.has(String(data._firestoreId)) ||
+        selectedIds.has(String(data.id)) ||
+        selectedNames.has(String(data.name || '').trim().toLowerCase())))
+    .map(data => ({ ref: db.collection('suppliers').doc(data._firestoreId) }));
   if (!documents.length) {
     onProgress(100);
     return;
@@ -1024,9 +1024,12 @@ document.getElementById('btn-confirm-assign-products').addEventListener('click',
 renderSummary();
 renderCatFilter();
 supRender();
+// Both come from the browser's saved copies (about 2 reads each after the first load).
+const supplierCostParts = () => [{ saved: 'suppliers' }, { saved: 'productMaster' }];
+EPCReads.line('suppliers-cost-line', supplierCostParts);
 Promise.all([
   loadSuppliersFromFirestore(),
   loadProductMasterFromFirestore()
 ])
-  .then(() => { renderSummary(); renderCatFilter(); supRender(); })
+  .then(() => { renderSummary(); renderCatFilter(); supRender(); EPCReads.line('suppliers-cost-line', supplierCostParts); })
   .catch(err => console.error('[Suppliers] Firestore load failed:', err));
