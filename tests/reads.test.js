@@ -213,15 +213,3 @@ test('offline get rejects like the SDK and counts nothing', async () => {
   assert.equal(EPCReads.used(), 0);
   EPCReads._init({ offline: null });
 });
-
-test('offline get keeps a caller\'s explicit source (server lookups before a write)', async () => {
-  fresh();
-  EPCReads._init({ offline: () => true });
-  const calls = [];
-  class FakeQuery { async get(...args) { calls.push(args); return { size: 1 }; } }
-  EPCReads.watchGet(FakeQuery.prototype, () => 'q');
-  await new FakeQuery().get({ source: 'server' });
-  assert.deepEqual(calls, [[{ source: 'server' }]]);
-  assert.equal(EPCReads.used(), 1);                 // a server read is a real read
-  EPCReads._init({ offline: null });
-});

@@ -32,8 +32,6 @@ Last updated: 2026-11-18.
 
 ### Offline mode (site-wide, 2026-11-20)
 - One sidebar button, **Switch to offline mode**, chosen by the owner over a per-page tick: it fills the browser's copy first if needed (dates box + read cost), then every page reads from Firebase's local cache (0 reads) and the site turns dark grey with a banner, "like incognito", so nobody forgets. Download all data / Load from file live on Settings only. See CLAUDE.md "Offline mode, site-wide".
-- Firebase's on-disk cache (persistence) is on for every browser, not only offline ones: it is what lets every page answer offline. Cost: more disk use per browser and slightly slower first loads. The first switch on a browser reads every list and the chosen days in full (about 21,000 reads) to fill that cache, once per user per browser (`epc_fs_primed`).
-- Lookups right before a write (product by item code, on Product Master, the Sales page and Inventory Tracking) always read the server, even offline, so a cache miss cannot create a duplicate product.
 
 ### Reports and Generate buttons
 - Pages load **nothing** until **Generate Report** is clicked, because each load costs reads. Tabs and date presets never load by themselves.

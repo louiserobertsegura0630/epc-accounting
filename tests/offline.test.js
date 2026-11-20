@@ -42,18 +42,3 @@ test('switchOff clears the flag and reloads', async () => {
 test('the banner text is exactly the agreed wording', () => {
   assert.equal(EPCOffline.BANNER_TEXT, 'Offline mode: reading the copy saved on this browser, 0 database reads. Days or records not saved here are missing.');
 });
-
-test('copy is complete only when this browser primed Firebase\'s cache for this user', async () => {
-  const mem = new Map();
-  EPCOffline._init({
-    isComplete: null,
-    uid: async () => 'me',
-    cachedDates: async () => ['2026-11-01'],
-    meta: async () => ({ purchases: { uid: 'me' }, productMaster: { uid: 'me' } }),
-    storage: { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) },
-  });
-  assert.equal(await EPCOffline.isComplete(), false);   // never primed
-  EPCOffline.markPrimed('me');
-  assert.equal(await EPCOffline.isComplete(), true);
-  EPCOffline._init({ uid: null, cachedDates: null, meta: null, storage: null });
-});

@@ -184,12 +184,10 @@
     if (!proto || typeof proto.get !== 'function' || proto.get.__epcWatched) return;
     const original = proto.get;
     const wrapped = async function (...args) {
-      const given = args[0] && typeof args[0] === 'object' ? args[0] : null;
-      if (offline() && !(given && given.source)) {
+      if (offline()) {
         // Offline mode: answer from Firebase's local cache on this computer. 0 reads.
-        // A caller that asks for the server on purpose (a lookup right before a
-        // write) gets the server, and that read is counted below.
-        return original.call(this, { ...(given || {}), source: 'cache' });
+        const opts = { ...(args[0] && typeof args[0] === 'object' ? args[0] : {}), source: 'cache' };
+        return original.call(this, opts);
       }
       const snap = await original.apply(this, args);
       let label = 'query';
