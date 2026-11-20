@@ -77,8 +77,7 @@ async function loadSuppliesFromFirestore() {
   const localRows = DB.get('supplies_movements');
   const db = getFirestoreDB();
   if (!db) return localRows;
-  const snapshot = await db.collection('suppliesData').get();
-  const firestoreRows = snapshot.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  const firestoreRows = await EPCSaved.rows('suppliesData');   // saved copy: ~2 reads after the first load
   if (firestoreRows.length) {
     DB.set('supplies_movements', firestoreRows);
     return firestoreRows;
@@ -272,10 +271,9 @@ async function loadSupplyItemCodes({ force = false } = {}) {
     supplyItemCodeIndex = buildSupplyItemCodeIndex(DB.get('supplies_movements'));
     return supplyItemCodeIndex;
   }
-  supplyItemCodeLoad = db.collection('suppliesData').get()
-    .then(snapshot => {
-      supplyItemCodeIndex = buildSupplyItemCodeIndex(
-        snapshot.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() })));
+  supplyItemCodeLoad = EPCSaved.rows('suppliesData')   // saved copy, not a whole-collection read
+    .then(rows => {
+      supplyItemCodeIndex = buildSupplyItemCodeIndex(rows);
       return supplyItemCodeIndex;
     })
     .catch(err => {
@@ -886,6 +884,8 @@ document.getElementById('sup-load-limit')?.addEventListener('blur', () => clampR
 EPCReportGate.wire({
   button: 'sup-generate-btn',
   status: 'sup-gen-status',
+  costLine: 'sup-cost-line',
+  estimate: () => [{ fixed: suppliesLoadLimit() + 1, label: 'suppliesData', note: 'the latest records shown, plus a count' }],
   load: async () => {
     await loadSuppliesBatch({ append: false });
     supTable.render();

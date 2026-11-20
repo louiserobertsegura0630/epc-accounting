@@ -350,8 +350,8 @@ async function loadTaxESalesRecords() {
   }
 
   try {
-    const snap = await db.collection('eSalesRecords').get();
-    const rows = snap.docs.map(doc => ({ id:doc.id, _firestoreId:doc.id, ...doc.data() }));
+    // Saved copy (EPCSaved): about 2 reads after the first load on this browser.
+    const rows = (await EPCSaved.rows('eSalesRecords')).map(row => ({ id: row._firestoreId, ...row }));
     DB.set('eSalesRecords', rows);
     return rows;
   } catch (error) {
@@ -544,6 +544,8 @@ populateFiscalControls();
 EPCReportGate.wire({
   button: 'tax-generate-btn',
   status: 'tax-gen-status',
+  costLine: 'tax-cost-line',
+  estimate: () => [{ saved: 'eSalesRecords' }],
   idleLabel: 'Generate Report',
   load: async () => {
     await loadTaxESalesRecords();

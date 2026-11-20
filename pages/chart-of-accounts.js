@@ -38,8 +38,7 @@ async function collectExistingAccountNames(db) {
 
   // Account names used on saved expense records.
   try {
-    const expSnap = await db.collection('expenses').get();
-    expSnap.docs.forEach(d => { const c = String(d.data().category || '').trim(); if (c) names.add(c); });
+    (await EPCSaved.rows('expenses')).forEach(d => { const c = String(d.category || '').trim(); if (c) names.add(c); });
   } catch (err) { console.warn('[Chart of Accounts] expense-record merge skipped:', err); }
 
   return [...names];
@@ -48,11 +47,11 @@ async function collectExistingAccountNames(db) {
 async function loadAccountsFromFirestore() {
   const db = getFirestoreDB();
   if (!db) return DB.get('expenseAccounts');
-  const snap = await db.collection('expenseAccounts').get();
+  const saved = await EPCSaved.rows('expenseAccounts');   // saved copy: ~2 reads after the first load
   // The seeded-marker doc is bookkeeping, not an account — keep it out of the list.
-  const seeded = snap.docs.some(doc => isSeededMarkerId(doc.id));
-  let rows = snap.docs.filter(doc => !isSeededMarkerId(doc.id))
-    .map(doc => ({ id: doc.id, ...doc.data() }));
+  const seeded = saved.some(row => isSeededMarkerId(row._firestoreId));
+  let rows = saved.filter(row => !isSeededMarkerId(row._firestoreId))
+    .map(({ _firestoreId, ...row }) => ({ id: _firestoreId, ...row }));
 
   // First-time population: seed from ALL existing expense categories (defaults +
   // custom "+ Add Category" list + names used on expense records). This runs
@@ -92,12 +91,12 @@ async function ensureSeededMarker() {
 async function deleteAllAccountsFromFirestore() {
   const db = getFirestoreDB();
   if (!db) return;
-  const snap = await db.collection('expenseAccounts').get();
   // Delete every real account doc (leave the marker out of the delete set),
-  // chunked to stay under Firestore's 500-writes-per-batch cap.
-  const refs = snap.docs
-    .filter(doc => !isSeededMarkerId(doc.id))
-    .map(doc => doc.ref);
+  // chunked to stay under Firestore's 500-writes-per-batch cap. The ids come
+  // from the saved copy, so this costs no read.
+  const refs = (await EPCSaved.rows('expenseAccounts'))
+    .filter(row => !isSeededMarkerId(row._firestoreId))
+    .map(row => db.collection('expenseAccounts').doc(row._firestoreId));
   for (let i = 0; i < refs.length; i += 400) {
     const batch = db.batch();
     refs.slice(i, i + 400).forEach(ref => batch.delete(ref));
@@ -127,8 +126,7 @@ async function loadExpensesForCoa() {
   const db = getFirestoreDB();
   if (!db) return DB.get('expenses');
   try {
-    const snap = await db.collection('expenses').get();
-    const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+    const rows = await EPCSaved.rows('expenses');   // saved copy: ~2 reads after the first load
     DB.set('expenses', rows);
     return rows;
   } catch (err) {
@@ -418,8 +416,10 @@ document.getElementById('account-tbody').addEventListener('change', (e) => {
 });
 
 renderAccounts();
+const coaCostParts = () => [{ saved: 'expenseAccounts' }, { saved: 'expenses' }];
+EPCReads.line('coa-cost-line', coaCostParts);
 loadAccountsFromFirestore()
-  .then(renderAccounts)
+  .then(() => { renderAccounts(); EPCReads.line('coa-cost-line', coaCostParts); })
   .catch(err => console.error('[Chart of Accounts] Firestore load failed:', err));
 // Load expense records too, so account deletion can detect (and resolve) any
 // expenses still tied to an account being removed.
