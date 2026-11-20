@@ -14,6 +14,7 @@
  */
 (function (global) {
   const VERSION = 1;
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const NOT_A_FILE = 'This is not an EPC data file.';
   const OTHER_ACCOUNT = 'This file was downloaded by another account.';
 
