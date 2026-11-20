@@ -208,7 +208,7 @@ window.EPCQuota = window.EPCQuota || (() => {
   // Loads that nobody catches still raise the bar.
   window.addEventListener('unhandledrejection', e => { report(e.reason); });
 
-  return { report, ok, isQuotaError, resetText, active: () => !!hit };
+  return { report, ok, isQuotaError, resetText, nextReset, active: () => !!hit };
 })();
 
 // ─── Saved copies of whole collections (shared) ──────────────────────────────
