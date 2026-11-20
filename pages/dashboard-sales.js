@@ -501,7 +501,8 @@
     shownOnce = true;
     // Open the rest of the page on the latest import too.
     const dateInput = document.getElementById('snap-date');
-    if (dateInput && dateInput.value === defaultSnapDate && typeof setSnapDate === 'function') setSnapDate(model.latest);
+    const touched = typeof window.EPC_SNAP_TOUCHED === 'function' && window.EPC_SNAP_TOUCHED();
+    if (dateInput && !touched && dateInput.value === defaultSnapDate && typeof setSnapDate === 'function') setSnapDate(model.latest);
     if (typeof prodGate !== 'undefined' && prodGate && !prodGate.hasLoaded()) prodGate.run();
   }
   const clock = (ms) => new Date(ms).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
