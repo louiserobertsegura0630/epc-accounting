@@ -46,6 +46,21 @@
   function currentUid() {
     try { return global.firebase.auth().currentUser ? global.firebase.auth().currentUser.uid : null; } catch (e) { return null; }
   }
+  // Does this browser hold a usable copy for this user? Pure: meta is
+  // EPCSaved.meta() and days the sales days in the day store.
+  function isComplete(uid, meta, days) {
+    if (!uid) return false;
+    const mine = (m) => !!m && m.uid === uid;
+    return (days || []).length > 0 && mine((meta || {}).purchases) && mine((meta || {}).productMaster);
+  }
+  async function hasCopy() {
+    try {
+      const uid = currentUid();
+      const meta = global.EPCSaved && global.EPCSaved.meta ? await global.EPCSaved.meta() : {};
+      const days = global.EPCDays && global.EPCDays.cachedDates ? await global.EPCDays.cachedDates('salesDaily') : [];
+      return isComplete(uid, meta, days);
+    } catch (e) { return false; }
+  }
   async function gather() {
     const uid = currentUid();
     if (!uid) throw new Error('Please sign in first.');
@@ -211,7 +226,7 @@
     else wire();
   }
 
-  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, restrictDays, download, load, wire };
+  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, restrictDays, isComplete, hasCopy, download, load, wire };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.EPCDataFile = api;
 })(typeof window !== 'undefined' ? window : globalThis);

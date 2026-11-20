@@ -496,11 +496,45 @@ function applyOfflineSwitch() {
   }
   window.dispatchEvent(new Event('epc-cost-change'));
 }
-document.getElementById('rep-offline')?.addEventListener('change', (e) => {
-  window.EPC_OFFLINE = !!e.target.checked;
+function setOffline(on) {
+  window.EPC_OFFLINE = !!on;
   try { localStorage.setItem(OFFLINE_KEY, window.EPC_OFFLINE ? '1' : '0'); } catch (err) { /* storage off */ }
   applyOfflineSwitch();
   markReportDataStale();   // the next Generate must load again, from the other source
+}
+// Ticking Offline on a browser without a complete copy would only show empty
+// reports, so it first offers the download (same as Download all data: dates
+// box, read cost, one file) and switches only once that has finished.
+let offlineSwitching = false;
+document.getElementById('rep-offline')?.addEventListener('change', async (e) => {
+  const box = e.target;
+  if (!box.checked) { setOffline(false); return; }
+  if (offlineSwitching) { box.checked = false; return; }
+  offlineSwitching = true;
+  box.disabled = true;
+  const status = document.querySelector('[data-epc-datafile-status]');
+  const say = (t) => { if (status) status.textContent = t; };
+  try {
+    const ready = window.EPCDataFile && EPCDataFile.hasCopy ? await EPCDataFile.hasCopy() : false;
+    if (!ready) {
+      const go = confirm('Offline uses only the copy saved on this browser, and this browser has no complete copy yet.\n\n' +
+        'Download the data first? It reads everything from the database once (the cost is shown first) and saves one file. ' +
+        'Reports will then be generated from that copy.\n\nOK = download now, Cancel = stay online.');
+      if (!go) { box.checked = false; say(''); return; }
+      say('Reading everything from the database first…');
+      const d = await EPCDataFile.download();
+      if (!d) { box.checked = false; say(''); return; }   // "Not now" in the dates box or the cost pop-up
+      say(`Downloaded ${d.records.toLocaleString()} records and ${d.days.toLocaleString()} sales days. Offline is on.`);
+    }
+    setOffline(true);
+  } catch (err) {
+    console.error('[Reports] offline switch failed:', err);
+    box.checked = false;
+    say(err.message || 'Could not download the data.');
+  } finally {
+    box.disabled = false;
+    offlineSwitching = false;
+  }
 });
 applyOfflineSwitch();
 function shortDay(iso) {

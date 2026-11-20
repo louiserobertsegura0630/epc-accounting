@@ -72,3 +72,12 @@ test('the module defines every helper its dialogs use (esc)', () => {
   const src = require('fs').readFileSync(require.resolve('../assets/datafile.js'), 'utf8');
   assert.match(src, /const esc = /);
 });
+
+test('isComplete needs sales days and this user\'s purchases and products', () => {
+  const meta = { purchases: { uid: 'me', at: 1, count: 2 }, productMaster: { uid: 'me', at: 1, count: 9 } };
+  assert.equal(EPCDataFile.isComplete('me', meta, ['2026-11-01']), true);
+  assert.equal(EPCDataFile.isComplete('me', meta, []), false);                       // no sales days saved
+  assert.equal(EPCDataFile.isComplete('me', { purchases: meta.purchases }, ['2026-11-01']), false);   // no products
+  assert.equal(EPCDataFile.isComplete('other', meta, ['2026-11-01']), false);        // another user's copy
+  assert.equal(EPCDataFile.isComplete(null, meta, ['2026-11-01']), false);           // not signed in
+});
