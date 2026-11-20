@@ -247,6 +247,7 @@ function epcStamp(data) {
 window.EPCSaved = window.EPCSaved || (() => {
   const SOURCES = {
     purchases: {}, expenses: {}, suppliesData: {}, eSalesRecords: {}, productMaster: {},
+    inventoryData: {}, suppliers: {}, expenseAccounts: {},
     // Only the figures the reports use are kept from these two.
     itemCost: { stampField: 'lastUpdated', pick: d => ({ unit_cost: Number(d.unit_cost) || 0 }) },
     salesDayTotals: {
@@ -1308,17 +1309,17 @@ function syncProductMasterToFirestore(rows) {
   return _productMasterWriteQueue;
 }
 
-async function loadProductMasterFromFirestore(orderByField = '', seedIfEmpty = true) {
+// From the browser's saved copy (EPCSaved): about 2 reads after the first load.
+async function loadProductMasterFromFirestore(orderByField = '', seedIfEmpty = true, opts = {}) {
   const db = getFirestoreDB();
   if (!db) return getCachedProductMasterRows();
-  let query = db.collection('productMaster');
-  if (orderByField) query = query.orderBy(orderByField);
-  const snap = await query.get();
-  if (snap.empty) {
+  const saved = await EPCSaved.rows('productMaster', opts);
+  if (!saved.length) {
     cacheProductMasterRows([]);
     return [];
   }
-  const rows = snap.docs.map(doc => normalizeProductCostData({ _firestoreId: doc.id, ...doc.data() }));
+  const rows = saved.map(row => normalizeProductCostData(row));
+  if (orderByField) rows.sort((a, b) => String(a[orderByField] ?? '').localeCompare(String(b[orderByField] ?? ''), undefined, { sensitivity: 'base' }));
   cacheProductMasterRows(rows);
   return rows;
 }
@@ -1374,20 +1375,18 @@ async function upsertProductMasterRowsInFirestore(rows, onProgress, options = {}
   return normalizedRows;
 }
 
-async function loadSuppliersFromFirestore() {
+async function loadSuppliersFromFirestore(opts = {}) {
   const db = getFirestoreDB();
   if (!db) return DB.get('suppliers');
-  const snap = await db.collection('suppliers').get();
-  const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  const rows = await EPCSaved.rows('suppliers', opts);   // saved copy: ~2 reads after the first load
   DB.set('suppliers', rows);
   return rows;
 }
 
-async function loadInventoryFromFirestore() {
+async function loadInventoryFromFirestore(opts = {}) {
   const db = getFirestoreDB();
   if (!db) return DB.get('inventory_movements');
-  const snap = await db.collection('inventoryData').get();
-  const rows = snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+  const rows = await EPCSaved.rows('inventoryData', opts);   // saved copy: ~2 reads after the first load
   DB.set('inventory_movements', rows);
   return rows;
 }
@@ -1773,8 +1772,13 @@ async function loadSupplierListFromFirestore(storeKey = 'suppliers') {
   const db = getFirestoreDB();
   if (!db) return DB.get(storeKey);
   try {
-    const snap = await db.collection(storeKey).get();
-    const rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let rows;
+    if (storeKey === 'suppliers') {
+      rows = (await EPCSaved.rows('suppliers')).map(({ _firestoreId, ...row }) => ({ id: _firestoreId, ...row }));
+    } else {
+      const snap = await db.collection(storeKey).get();
+      rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
     DB.set(storeKey, rows);
     return rows;
   } catch (err) {

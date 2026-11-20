@@ -593,7 +593,7 @@ async function syncInventoryAssignmentInBackground(itemCode, supplier, category)
   for (let start = 0; start < snap.docs.length; start += BATCH_SIZE) {
     const batch = fsdb.batch();
     snap.docs.slice(start, start + BATCH_SIZE)
-      .forEach(doc => batch.update(doc.ref, { supplier, category }));
+      .forEach(doc => batch.update(doc.ref, epcStamp({ supplier, category })));
     await batch.commit();
   }
 }

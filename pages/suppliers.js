@@ -42,7 +42,7 @@ async function saveSupplierToFirestore(supplier) {
   if (!docId) throw new Error('Supplier ID is missing.');
   const clean = { ...supplier };
   delete clean._firestoreId;
-  await db.collection('suppliers').doc(docId).set(clean, { merge: true });
+  await db.collection('suppliers').doc(docId).set(epcStamp(clean), { merge: true });
   supplier._firestoreId = docId;
 }
 

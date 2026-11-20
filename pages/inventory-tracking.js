@@ -895,7 +895,7 @@ async function saveInv() {
     const firestoreId = savedRow._firestoreId || inventoryFirestoreDocId(savedRow);
     const firestoreRow = { ...savedRow };
     delete firestoreRow._firestoreId;
-    await db.collection('inventoryData').doc(firestoreId).set(firestoreRow, { merge: true });
+    await db.collection('inventoryData').doc(firestoreId).set(epcStamp(firestoreRow), { merge: true });
     savedRow._firestoreId = firestoreId;
     await syncInventoryDisplayFieldsToProductMaster(code, desc, cat);
   } catch (err) {
@@ -1215,7 +1215,7 @@ async function saveBulkOutgoing() {
       await commitFreshBatchWithRetry(() => {
         const batch = fsdb.batch();
         chunk.forEach(row => {
-          batch.set(fsdb.collection('inventoryData').doc(inventoryFirestoreDocId(row)), row);
+          batch.set(fsdb.collection('inventoryData').doc(inventoryFirestoreDocId(row)), epcStamp(row));
         });
         return batch;
       }, start + chunk.length);
@@ -2728,7 +2728,7 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
           const firestoreId = row._firestoreId || inventoryFirestoreDocId(row);
           const firestoreRow = { ...row };
           delete firestoreRow._firestoreId;
-          batch.set(db.collection('inventoryData').doc(firestoreId), firestoreRow, { merge: true });
+          batch.set(db.collection('inventoryData').doc(firestoreId), epcStamp(firestoreRow), { merge: true });
         });
         return batch;
       }, Math.min(start + chunk.length, rows.length));
@@ -3069,7 +3069,7 @@ async function misImportMappedRows(mappedRows, onProgress) {
     const chunk = toSave.slice(s, s + FS_BATCH);
     await commitFreshBatchWithRetry(() => {
       const batch = db.batch();
-      chunk.forEach((r) => { const fr = { ...r }; delete fr._firestoreId; batch.set(db.collection('inventoryData').doc(r._firestoreId || inventoryFirestoreDocId(r)), fr, { merge: true }); });
+      chunk.forEach((r) => { const fr = { ...r }; delete fr._firestoreId; batch.set(db.collection('inventoryData').doc(r._firestoreId || inventoryFirestoreDocId(r)), epcStamp(fr), { merge: true }); });
       return batch;
     }, Math.min(s + chunk.length, toSave.length));
     inserted += chunk.length;
@@ -3088,7 +3088,7 @@ async function misImportMappedRows(mappedRows, onProgress) {
     await commitFreshBatchWithRetry(() => {
       const batch = db.batch();
       chunk.forEach((name) => batch.set(db.collection('suppliers').doc(supplierFirestoreDocId(name)),
-        { id: supplierFirestoreDocId(name), name, category: '', address: '', contactPerson: '', phone: '', email: '', notes: '', status: 'Active' }, { merge: true }));
+        epcStamp({ id: supplierFirestoreDocId(name), name, category: '', address: '', contactPerson: '', phone: '', email: '', notes: '', status: 'Active' }), { merge: true }));
       return batch;
     }, Math.min(s + chunk.length, supList.length));
     supSaved += chunk.length;

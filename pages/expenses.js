@@ -79,7 +79,7 @@ async function createExpenseAccount() {
   const acc = { id: genId(), name };
   try {
     const db = getFirestoreDB();
-    if (db) await db.collection('expenseAccounts').doc(acc.id).set(acc, { merge: true });
+    if (db) await db.collection('expenseAccounts').doc(acc.id).set(epcStamp(acc), { merge: true });
     DB.push('expenseAccounts', acc);
     logAudit('Create', 'Chart of Accounts', `Added account ${name} (from Expenses)`);
     return name;

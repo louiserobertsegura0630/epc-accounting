@@ -62,9 +62,9 @@ async function loadAccountsFromFirestore() {
     const seedNames = await collectExistingAccountNames(db);
     rows = seedNames.map(name => ({ id: genId(), name }));
     for (const acc of rows) {
-      await db.collection('expenseAccounts').doc(acc.id).set(acc, { merge: true });
+      await db.collection('expenseAccounts').doc(acc.id).set(epcStamp(acc), { merge: true });
     }
-    await db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID).set({ seeded: true });
+    await db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID).set(epcStamp({ seeded: true }));
   }
 
   rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
@@ -74,7 +74,7 @@ async function loadAccountsFromFirestore() {
 
 async function saveAccountToFirestore(account) {
   const db = getFirestoreDB();
-  if (db) await db.collection('expenseAccounts').doc(account.id).set(account, { merge: true });
+  if (db) await db.collection('expenseAccounts').doc(account.id).set(epcStamp(account), { merge: true });
 }
 
 async function deleteAccountFromFirestore(id) {
@@ -86,7 +86,7 @@ async function deleteAccountFromFirestore(id) {
 // never re-populated with the built-in defaults after accounts are removed.
 async function ensureSeededMarker() {
   const db = getFirestoreDB();
-  if (db) await db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID).set({ seeded: true });
+  if (db) await db.collection('expenseAccounts').doc(COA_SEEDED_FLAG_ID).set(epcStamp({ seeded: true }));
 }
 
 async function deleteAllAccountsFromFirestore() {
