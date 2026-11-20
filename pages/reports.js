@@ -481,28 +481,16 @@ async function setReportTab(tab) {
   if (el) el.addEventListener('change', () => window.dispatchEvent(new Event('epc-cost-change')));
 });
 
-// Offline mode: a switch beside Reload all data. While on, Generate makes no
-// Firebase call (saved copies and the day store only) and days never loaded on
-// this browser are listed above the report. Remembered in localStorage.
-const OFFLINE_KEY = 'epc_offline';
-window.EPC_OFFLINE = localStorage.getItem(OFFLINE_KEY) === '1';
-function applyOfflineSwitch() {
-  const box = document.getElementById('rep-offline');
-  if (box) box.checked = !!window.EPC_OFFLINE;
+// Offline mode is site-wide (the sidebar button; flag window.EPC_OFFLINE set by
+// reads.js). Here it only disables Reload all data, and the notice above the
+// report lists the days not in the saved copy.
+(function applyOfflineToReports() {
   const reload = document.getElementById('btn-reload-report-data');
-  if (reload) {
-    reload.disabled = !!window.EPC_OFFLINE;
-    reload.title = window.EPC_OFFLINE ? 'Turn Offline off to read from the database.' : 'Reads every record again from the database. Use it only if a report looks out of date.';
+  if (reload && window.EPC_OFFLINE) {
+    reload.disabled = true;
+    reload.title = 'Switch back online (sidebar) to read from the database.';
   }
-  window.dispatchEvent(new Event('epc-cost-change'));
-}
-document.getElementById('rep-offline')?.addEventListener('change', (e) => {
-  window.EPC_OFFLINE = !!e.target.checked;
-  try { localStorage.setItem(OFFLINE_KEY, window.EPC_OFFLINE ? '1' : '0'); } catch (err) { /* storage off */ }
-  applyOfflineSwitch();
-  markReportDataStale();   // the next Generate must load again, from the other source
-});
-applyOfflineSwitch();
+})();
 function shortDay(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 }

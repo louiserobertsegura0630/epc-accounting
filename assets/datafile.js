@@ -117,6 +117,13 @@
     await global.EPCDays.docs('inventoryDaily', range.from, range.to);
     return true;
   }
+  // Stage 1 of "Switch to offline mode": ask the dates, show the cost, read
+  // everything into the copy on this browser. No file. False when cancelled.
+  async function fill() {
+    const range = await askRange();
+    if (!range) return false;
+    return loadEverything(range);
+  }
   async function download() {
     const range = await askRange();
     if (!range) return null;
@@ -211,7 +218,7 @@
     else wire();
   }
 
-  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, restrictDays, download, load, wire };
+  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, restrictDays, fill, download, load, wire };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.EPCDataFile = api;
 })(typeof window !== 'undefined' ? window : globalThis);

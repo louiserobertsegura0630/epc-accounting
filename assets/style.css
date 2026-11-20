@@ -1606,3 +1606,59 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
 /* Paid-reads bar: same look as the quota bar, below it when both show. */
 .epc-paid { background: #fff7ed; border-color: #fdba74; }
 .epc-quota:not([hidden]) ~ .epc-paid .epc-quota-msg { display: block; }
+
+/* ─── Offline mode (EPCOffline, assets/offline.js) ─────────────────────────
+   html[data-offline] is set by reads.js before paint. Incognito-style look:
+   dark neutral greys, no teal, a banner at the top. A working mode, so text
+   stays readable. */
+.btn-offline {
+  width: 100%; margin-bottom: 8px; padding: 9px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.28); background: transparent; color: var(--sidebar-text);
+  font: 600 0.8125rem 'Figtree', sans-serif;
+}
+.btn-offline:hover { background: rgba(255,255,255,.08); }
+.btn-offline:disabled { opacity: .6; cursor: default; }
+html[data-offline] .btn-offline { border-color: #9ca3af; color: #f3f4f6; background: #374151; }
+html[data-offline] {
+  --page-bg: #1f2326; --card-bg: #2a2f33; --card-border: #3a4046;
+  --sidebar-bg: #121416; --sidebar-active: #374151; --sidebar-text: #d1d5db;
+  --primary: #4b5563; --teal-900: #e5e7eb; --teal-800: #4b5563; --teal-700: #6b7280;
+  --t-ink: #e5e7eb; --t-ink-2: #9ca3af; --t-panel: rgba(42,47,51,.92); --t-line: rgba(255,255,255,.08);
+  --text-primary: #e5e7eb; --text-secondary: #b4bcc6; --text-muted: #8b95a3;
+  --warning-bg: #3b3420;
+  color-scheme: dark;
+}
+html[data-offline] body { background: var(--page-bg); color: #e5e7eb; }
+html[data-offline] .card, html[data-offline] .table-container, html[data-offline] .summary-card,
+html[data-offline] .report-controls, html[data-offline] .report-tabs, html[data-offline] .modal-card,
+html[data-offline] .epc-loading-card, html[data-offline] .is-document {
+  background: var(--card-bg) !important; color: #e5e7eb; border-color: var(--card-border);
+}
+html[data-offline] table { color: #e5e7eb; }
+html[data-offline] th, html[data-offline] td { border-color: #3a4046; }
+html[data-offline] tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+html[data-offline] .form-input, html[data-offline] .search-input, html[data-offline] select, html[data-offline] input[type="date"] {
+  background: #1f2326; color: #e5e7eb; border-color: #4b5563;
+}
+html[data-offline] .btn-primary { background: #4b5563; border-color: #4b5563; color: #f9fafb; }
+html[data-offline] .btn-outline-gray { background: transparent; color: #d1d5db; border-color: #6b7280; }
+html[data-offline] .summary-card { filter: saturate(.25) brightness(.55); }
+html[data-offline] .summary-card .kpi-label, html[data-offline] .summary-card .kpi-value { color: #f3f4f6; }
+html[data-offline] canvas { filter: saturate(.3); }
+html[data-offline] .epc-cost-line { color: #9ca3af; }
+.epc-offline-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1950;
+  display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+  background: #111827; color: #f9fafb; border-bottom: 1px solid #374151;
+  font: 500 0.8125rem/1.4 'Figtree', sans-serif;
+}
+.epc-offline-dot { width: 10px; height: 10px; border-radius: 50%; background: #9ca3af; box-shadow: 0 0 0 3px rgba(156,163,175,.25); flex-shrink: 0; }
+.epc-offline-text { flex: 1; min-width: 0; }
+.epc-offline-back {
+  flex-shrink: 0; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid #9ca3af; background: #374151; color: #f9fafb; font: 600 0.8125rem 'Figtree', sans-serif;
+}
+body.has-offline-banner { padding-top: 40px; }
+body.has-offline-banner .sidebar { top: 40px; }
+body.has-offline-banner .epc-quota { top: calc(40px + var(--space-3)); }
+@media print { .epc-offline-banner, .btn-offline { display: none !important; } }
