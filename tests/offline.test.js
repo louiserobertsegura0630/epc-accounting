@@ -11,8 +11,6 @@ function setup({ complete, fillResult = true }) {
     fill: async () => { log.push('fill'); return fillResult; },
     setFlag: (on) => log.push(`flag:${on}`),
     reload: () => log.push('reload'),
-    persistenceOn: () => true,          // Firebase's local storage already on (stage 0 done)
-    wantPersistence: () => log.push('want'),
   });
   return log;
 }
@@ -58,28 +56,4 @@ test('copy is complete only when this browser primed Firebase\'s cache for this 
   EPCOffline.markPrimed('me');
   assert.equal(await EPCOffline.isComplete(), true);
   EPCOffline._init({ uid: null, cachedDates: null, meta: null, storage: null });
-});
-
-test('switchOn first turns Firebase local storage on and reloads when it is not on yet', async () => {
-  const log = [];
-  EPCOffline._init({
-    isComplete: async () => true, fill: async () => true,
-    setFlag: (on) => log.push(`flag:${on}`), reload: () => log.push('reload'),
-    persistenceOn: () => false, wantPersistence: () => log.push('want'),
-  });
-  assert.equal(await EPCOffline.switchOn(), true);
-  assert.deepEqual(log, ['want', 'reload']);            // no flag yet: continues after the reload
-  EPCOffline._init({ persistenceOn: null, wantPersistence: null });
-});
-
-test('switchOn continues normally once Firebase local storage is on', async () => {
-  const log = [];
-  EPCOffline._init({
-    isComplete: async () => true, fill: async () => true,
-    setFlag: (on) => log.push(`flag:${on}`), reload: () => log.push('reload'),
-    persistenceOn: () => true, wantPersistence: () => log.push('want'),
-  });
-  assert.equal(await EPCOffline.switchOn(), true);
-  assert.deepEqual(log, ['flag:true', 'reload']);
-  EPCOffline._init({ persistenceOn: null, wantPersistence: null });
 });

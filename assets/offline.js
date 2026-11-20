@@ -18,11 +18,7 @@
     setFlag: null,      // (on) => void
     reload: null,       // () => void
     uid: null, cachedDates: null, meta: null, storage: null,   // for tests
-    persistenceOn: null, wantPersistence: null,
   };
-  const PENDING_KEY = 'epc_offline_pending';
-  const persistenceOn = () => (deps.persistenceOn ? !!deps.persistenceOn() : !!global.EPC_PERSISTENCE_ON);
-  const wantPersistence = () => (deps.wantPersistence ? deps.wantPersistence() : (global.EPCReads && global.EPCReads.wantPersistence()));
   function _init(overrides) { deps = { ...deps, ...overrides }; }
   const storage = () => { if (deps.storage) return deps.storage; try { return global.localStorage; } catch (e) { return null; } };
   async function currentUid() {
@@ -62,16 +58,8 @@
 
   function isOn() { return !!global.EPC_OFFLINE; }
 
-  // Stage 0 (turn Firebase's local storage on, which needs a reload), stage 1
-  // (fill if needed), stage 2 (switch). Resolves false when stopped.
+  // Stage 1 (fill if needed), stage 2 (switch). Resolves false when stopped.
   async function switchOn() {
-    if (!persistenceOn()) {
-      wantPersistence();
-      const s = storage();
-      try { if (s) s.setItem(PENDING_KEY, '1'); } catch (e) { /* storage off */ }
-      reload();                       // continues from start() after the reload
-      return true;
-    }
     if (!(await isComplete())) {
       const ok = await fill();
       if (!ok) return false;
@@ -146,22 +134,10 @@
     doc.body.appendChild(bar);
     doc.body.classList.add('has-offline-banner');
   }
-  function continuePending() {
-    const s = storage();
-    let pending = false;
-    try { pending = !!s && s.getItem(PENDING_KEY) === '1'; } catch (e) { pending = false; }
-    if (!pending || !persistenceOn() || isOn()) { try { if (s) s.removeItem(PENDING_KEY); } catch (e) { /* ignore */ } return; }
-    try { s.removeItem(PENDING_KEY); } catch (e) { /* ignore */ }
-    // Wait for sign-in, then carry on with the fill and the switch.
-    const go = () => { const btn = global.document.getElementById('epc-offline-btn'); if (btn) onClick(btn); else switchOn().catch(() => {}); };
-    if (global.document.getElementById('sidebar-container') && global.document.getElementById('sidebar-container').dataset.built) go();
-    else global.document.addEventListener('epc-auth-ready', go, { once: true });
-  }
   function start() {
     delegateClicks();
     wireButton();
     paintBanner();
-    continuePending();
     // The sidebar is rendered (and sometimes rebuilt) after load: keep the label right.
     if (global.MutationObserver && global.document.body) {
       new MutationObserver(wireButton).observe(global.document.body, { childList: true, subtree: true });
