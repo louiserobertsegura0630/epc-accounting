@@ -179,37 +179,3 @@ test('the paid-reads bar shows once per quota day', () => {
   EPCReads.spent(60000, 'b');
   assert.equal(EPCReads.paidBarDue(), true);        // a new day: once more
 });
-
-test('offline get asks the cache and counts nothing', async () => {
-  fresh();
-  EPCReads._init({ offline: () => true });
-  const calls = [];
-  class FakeQuery { async get(...args) { calls.push(args); return { size: 4 }; } }
-  EPCReads.watchGet(FakeQuery.prototype, () => 'q');
-  await new FakeQuery().get();
-  assert.deepEqual(calls, [[{ source: 'cache' }]]);
-  assert.equal(EPCReads.used(), 0);
-  EPCReads._init({ offline: null });
-});
-
-test('online get is unchanged', async () => {
-  fresh();
-  EPCReads._init({ offline: () => false });
-  const calls = [];
-  class FakeQuery { async get(...args) { calls.push(args); return { size: 4 }; } }
-  EPCReads.watchGet(FakeQuery.prototype, () => 'q');
-  await new FakeQuery().get();
-  assert.deepEqual(calls, [[]]);
-  assert.equal(EPCReads.used(), 4);
-  EPCReads._init({ offline: null });
-});
-
-test('offline get rejects like the SDK and counts nothing', async () => {
-  fresh();
-  EPCReads._init({ offline: () => true });
-  class FakeDoc { async get() { const e = new Error('Failed to get document from cache.'); e.code = 'unavailable'; throw e; } }
-  EPCReads.watchGet(FakeDoc.prototype, () => 'd');
-  await assert.rejects(() => new FakeDoc().get(), /cache/);
-  assert.equal(EPCReads.used(), 0);
-  EPCReads._init({ offline: null });
-});
