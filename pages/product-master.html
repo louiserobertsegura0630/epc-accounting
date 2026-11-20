@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Product Master - EPC Commercial Corporation</title>
   <link rel="stylesheet" href="../assets/style.css?v=20261120-reads">
-  <link rel="stylesheet" href="product-master.css?v=20261117-ds4d">
+  <link rel="stylesheet" href="product-master.css?v=20261120-reads">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -27,6 +27,8 @@
         <span class="section-subtitle">Manage all product codes, pricing, and supplier assignments.</span>
       </div>
       <div class="page-title-actions">
+        <span id="pm-cost-line" class="epc-cost-line" title="How many database reads Generate will cost, and how many this browser has used today"></span>
+        <button class="btn btn-primary" id="pm-generate-btn" type="button">Generate</button>
         <button class="btn btn-outline-gray" id="btn-export-products" type="button">Export CSV</button>
         <button class="btn btn-primary" id="btn-add-product">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -48,6 +50,9 @@
       <button class="pm-view-tab active" type="button" id="pm-tab-catalog" onclick="showProductCatalogView()">Product Catalog</button>
       <button class="pm-view-tab" type="button" id="pm-tab-detail">Product Detail</button>
     </div>
+
+    <!-- Nothing is read on page open: Generate loads the products (saved copy) and units sold (sales days). -->
+    <div class="report-empty-state" id="pm-empty-state">Click <strong>Generate</strong> to load the products.</div>
 
     <!-- Table -->
     <div class="table-container" id="product-catalog-view">
@@ -183,6 +188,6 @@
 
 <script src="../assets/days.js?v=20261120-reads"></script>
 <script src="../assets/shared-utils.js"></script>
-<script src="product-master.js?v=20261118-reads"></script>
+<script src="product-master.js?v=20261120-reads"></script>
 </body>
 </html>
