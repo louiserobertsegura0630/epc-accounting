@@ -57,29 +57,71 @@
     const p = (n) => String(n).padStart(2, '0');
     return `epc-data-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.json`;
   }
-  // What a full download will read: every saved copy, every sales and inventory day.
-  function fullLoadParts(sourceNames, allParts) {
+  // What a download will read: every saved copy, and the chosen dates of sales and inventory days.
+  function fullLoadParts(sourceNames, from, to) {
     return [
       ...sourceNames.map((name) => ({ saved: name })),
-      ...allParts('salesDaily'),
-      ...allParts('inventoryDaily'),
+      { days: 'salesDaily', from, to },
+      { days: 'inventoryDaily', from, to },
     ];
   }
-  // Read everything once so the file is complete (one read per day the first
-  // time on a browser, about 2 per collection after that). Returns false on "Not now".
-  async function loadEverything() {
+  // Only the chosen dates go into the file (the saved copies are whole collections).
+  function restrictDays(daysExport, from, to) {
+    const out = {};
+    Object.keys(daysExport || {}).forEach((c) => {
+      const v = daysExport[c] || {};
+      const days = {};
+      Object.keys(v.days || {}).forEach((d) => { if (d >= from && d <= to) days[d] = v.days[d]; });
+      out[c] = { stamp: v.stamp || null, covered: (v.covered || []).filter((d) => d >= from && d <= to), days };
+    });
+    return out;
+  }
+  // Ask for the dates first. Resolves { from, to } or null (cancel).
+  function askRange() {
+    const doc = global.document;
+    const today = global.EPCDays.isoToday();
+    const first = global.EPCDays.firstDayKnown('salesDaily') || `${today.slice(0, 4)}-01-01`;
+    return new Promise((resolve) => {
+      const overlay = doc.createElement('div');
+      overlay.className = 'epc-loading-overlay epc-confirm';
+      overlay.innerHTML = `<div class="epc-loading-card epc-confirm-card" role="dialog" aria-modal="true">
+        <div class="epc-loading-msg">Download all data</div>
+        <p class="epc-confirm-sum">Which sales and inventory days should the file hold? Every record of the other lists (purchases, expenses, products, …) is included whatever the dates.${global.EPC_OFFLINE ? ' Offline is on: only days already saved on this browser can go in.' : ' Days not yet saved on this browser are read from the database first (one read per day).'}</p>
+        <div class="epc-range-row"><label>From <input type="date" id="epc-dl-from" class="form-input" value="${esc(first)}"></label>
+        <label>To <input type="date" id="epc-dl-to" class="form-input" value="${esc(today)}"></label></div>
+        <div class="epc-confirm-actions">
+          <button type="button" class="btn btn-outline-gray" data-act="no">Cancel</button>
+          <button type="button" class="btn btn-primary" data-act="yes">Next</button>
+        </div></div>`;
+      overlay.addEventListener('click', (ev) => {
+        const act = ev.target && ev.target.dataset ? ev.target.dataset.act : null;
+        if (!act) return;
+        const from = overlay.querySelector('#epc-dl-from').value;
+        const to = overlay.querySelector('#epc-dl-to').value;
+        if (act === 'yes' && (!from || !to || from > to)) { overlay.querySelector('.epc-confirm-sum').textContent = 'Please pick a From date that is not after the To date.'; return; }
+        overlay.remove();
+        resolve(act === 'yes' ? { from, to } : null);
+      });
+      doc.body.appendChild(overlay);
+    });
+  }
+  // Read the chosen days (and the saved copies) once so the file is complete.
+  // Returns false on "Not now".
+  async function loadEverything(range) {
     if (global.EPC_OFFLINE) return true;
     const sources = Object.keys(global.EPCSaved.SOURCES || {});
-    const parts = fullLoadParts(sources, (c) => global.EPCDays.allParts(c));
-    if (!(await global.EPCReads.confirm(parts))) return false;
+    if (!(await global.EPCReads.confirm(fullLoadParts(sources, range.from, range.to)))) return false;
     for (const name of sources) await global.EPCSaved.rows(name);
-    await global.EPCDays.all('salesDaily');
-    await global.EPCDays.all('inventoryDaily');
+    await global.EPCDays.docs('salesDaily', range.from, range.to);
+    await global.EPCDays.docs('inventoryDaily', range.from, range.to);
     return true;
   }
   async function download() {
-    if (!(await loadEverything())) return null;
+    const range = await askRange();
+    if (!range) return null;
+    if (!(await loadEverything(range))) return null;
     const file = await gather();
+    file.days = restrictDays(file.days, range.from, range.to);
     const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = global.document.createElement('a');
@@ -168,7 +210,7 @@
     else wire();
   }
 
-  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, download, load, wire };
+  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, restrictDays, download, load, wire };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.EPCDataFile = api;
 })(typeof window !== 'undefined' ? window : globalThis);
