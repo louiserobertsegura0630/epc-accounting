@@ -5,8 +5,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Settings - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261120-offline2">
-  <script>try{if(localStorage.getItem('epc_offline')==='1')document.documentElement.dataset.offline='1'}catch(e){}</script>
+  <link rel="stylesheet" href="../assets/style.css?v=20261120-notices">
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -80,7 +79,7 @@
     <div class="card" style="max-width:760px;padding:22px;margin-top:18px">
       <h3 style="margin:0 0 6px">Your saved data</h3>
       <p style="margin:0 0 14px;font-size:0.9rem;color:var(--text-secondary)">
-        The site keeps a copy of the records on this browser so it reads only what changed. <strong>Switch to offline mode</strong> in the sidebar fills that copy if needed and then reads everything from it (0 database reads).
+        Reports and the Dashboard keep a copy of the records on this browser so they read only what changed.
         <strong>Download all data</strong> reads everything from the database once (the cost is shown first) and saves it as one file (a backup, and a way to move it to another computer).
         <strong>Load from file</strong> fills this browser's copy from such a file, so a new computer does not read everything from the database.
         The file holds real business data: keep it private.
@@ -97,13 +96,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/reads.js?v=20261120-back"></script>
+<script src="../assets/reads.js?v=20261120-notices"></script>
 
-<script src="../assets/app.js?v=20261120-back"></script>
-
-<script src="../assets/offline.js?v=20261120-back"></script>
-<script src="../assets/days.js?v=20261120-back"></script>
-<script src="../assets/datafile.js?v=20261120-back"></script>
+<script src="../assets/app.js?v=20261120-notices"></script>
+<script src="../assets/days.js?v=20261120-reads"></script>
+<script src="../assets/datafile.js?v=20261120-esc"></script>
 <script src="settings.js"></script>
 </body>
 </html>

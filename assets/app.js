@@ -381,7 +381,7 @@ window.EPCSaved = window.EPCSaved || (() => {
     }
     // Offline mode (Reports): the saved copy as it is, or a plain message.
     if (offline) {
-      if (!saved) throw new Error(`No saved copy of ${name} on this browser. Switch back online (sidebar), or Load from file on Settings.`);
+      if (!saved) throw new Error(`No saved copy of ${name} on this browser. Turn Offline off, or Load from file.`);
       memory[name] = saved;
       return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
     }
@@ -393,7 +393,7 @@ window.EPCSaved = window.EPCSaved || (() => {
     return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
   }
   // Every record of a collection, as [{ _firestoreId, ...fields }].
-  function rows(name, { force = false, offline = !!window.EPC_OFFLINE } = {}) {
+  function rows(name, { force = false, offline = false } = {}) {
     const key = offline ? `${name}|offline` : name;
     if (!inFlight[key]) {
       inFlight[key] = load(name, force, offline).finally(() => { delete inFlight[key]; });
@@ -1055,23 +1055,8 @@ function connectFirestoreEmulatorIfLocal(db) {
 function configureFirestoreDB(db) {
   if (!db) return null;
   if (!_firestoreSettingsApplied && typeof db.settings === 'function') {
-    // Unlimited local cache: Offline mode (EPCReads) answers every read from it.
-    const cacheSizeBytes = (firebase.firestore && firebase.firestore.CACHE_SIZE_UNLIMITED) || 1073741824;
-    db.settings({ experimentalAutoDetectLongPolling: true, cacheSizeBytes, merge: true });
+    db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
     _firestoreSettingsApplied = true;
-    connectFirestoreEmulatorIfLocal(db);   // must come before persistence: it changes the settings
-    // Keep the cache on disk between visits (shared across tabs). If the browser
-    // refuses (private window, old browser), the site still works online and
-    // Offline mode is limited to the saved copies.
-    // Only for a browser that chose Offline mode (EPC_PERSIST_WANTED, set by the
-    // sidebar switch): with persistence on, every read waits for the storage to
-    // open, and that must not hold up pages for everyone else.
-    if (typeof db.enablePersistence === 'function' && window.EPC_PERSIST_WANTED) {
-      window.EPC_PERSISTENCE_ON = true;
-      window.EPC_PERSISTENCE_READY = db.enablePersistence({ synchronizeTabs: true })
-        .then(() => { window.EPC_PERSISTENCE = true; return true; })
-        .catch((err) => { window.EPC_PERSISTENCE = false; console.warn('[Firestore] offline storage unavailable:', err && err.code); return false; });
-    }
   }
   connectFirestoreEmulatorIfLocal(db);
   return db;
@@ -1230,7 +1215,7 @@ async function _runAggregationRest(query, aggregations, label) {
 }
 
 async function firestoreCount(query, label = 'count') {
-  if (!query || window.EPC_OFFLINE) return null;   // offline: no network; callers treat null as "could not count"
+  if (!query) return null;
   try {
     const rows = await _runAggregationRest(query, [{ alias: 'c', count: {} }], label);
     const val = rows[0]?.result?.aggregateFields?.c?.integerValue
@@ -1243,7 +1228,7 @@ async function firestoreCount(query, label = 'count') {
 }
 
 async function firestoreSum(query, field, label = 'sum') {
-  if (!query || window.EPC_OFFLINE) return null;
+  if (!query) return null;
   try {
     const rows = await _runAggregationRest(
       query,
@@ -2063,7 +2048,6 @@ function hasEPCSession() {
 function logoutEPCUser() {
   logAudit('Logout', 'User Session', `${currentUserFullName()} logged out`);
   _currentEPCUser = null;
-  if (window.EPCReads && window.EPC_OFFLINE) EPCReads.setOffline(false);   // the next person starts online
   sessionStorage.setItem('epc_signed_out_at', String(Date.now()));
   const auth = getFirebaseAuth();
   const doRedirect = () => { location.replace('login.html'); };
@@ -2156,7 +2140,6 @@ function buildSidebar(activeKey) {
         </div>
       </div>
       <div class="sidebar-footer-actions">
-        <button class="btn-offline" id="epc-offline-btn" type="button">Switch to offline mode</button>
         <button class="btn-logout" onclick="logoutEPCUser()">Logout</button>
       </div>
     </div>
@@ -2208,9 +2191,7 @@ function initSidebar(activeKey) {
       const db = getFirestoreDB();
       if (db) {
         logLocalUserRoleSeedInfo(firebaseUser);
-        // Never keep the page blank: if this read does not answer in 8 seconds
-        // (slow storage, blocked connection), fall back to the viewer role below.
-        const profileRead = db.collection('users').doc(firebaseUser.uid).get()
+        const snap = await db.collection('users').doc(firebaseUser.uid).get()
           .then(result => {
             logFirestoreReadSuccess('user profile read');
             return result;
@@ -2219,10 +2200,6 @@ function initSidebar(activeKey) {
             logFirestoreReadFailure(err);
             throw err;
           });
-        const snap = await Promise.race([
-          profileRead,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('user profile read timed out')), 8000)),
-        ]);
         const data = snap.exists ? snap.data() : {};
         const normalizedRole = _normalizeRole(data.role);
         logLoadedUserRole(firebaseUser, snap, data, normalizedRole);
