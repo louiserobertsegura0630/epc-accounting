@@ -103,7 +103,7 @@ Last updated: 2026-11-18.
    - The owner hasn't picked yet: all pages at once, or Sales, Inventory and Product Master first.
 2. **Cut Firestore reads on the other pages: done (November 2026, branch `read-budget`).** No page reads the raw `salesData` or `underReviewData` collections anymore; Product Master, Potential Revenue and the Income Statement use the per-day sales summaries, the list pages use the saved copies, and every Generate button shows its read cost first (see CLAUDE.md "Read counter and cost lines"). Still open:
    - **Product Master "replace all" saves** (`syncProductMasterToFirestore`): read, delete and rewrite all ~4,700 products.
-   - The raw `salesData` (430,000+ records) and `underReviewData` collections, and the Under Review tab on the Sales page, are legacy: nothing reads them. They could be archived and deleted later (owner's call; the Sales page still shows and edits them).
+   - The raw `salesData` (430,000+ records) and `underReviewData` collections, and the Under Review tab on the Sales page, are legacy: only the Sales page itself still reads them (paged). They could be archived and deleted later (owner's call).
    - `FALLBACK` in `assets/reads.js` holds guessed record counts; run `node scripts/count-collections.js` after a 4 PM reset and paste the real ones.
 3. Phone layout: the sidebar keeps its width on small screens on every page. This was true before the redesign and hasn't been fixed yet.
 

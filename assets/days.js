@@ -148,11 +148,13 @@
     daysBetween(from, to).forEach((d) => { delete saved.days[d]; saved._covered.add(d); });
     snaps.forEach((snap) => snap.forEach((doc) => addDoc(saved, doc)));
   }
-  async function checkChanges(saved, collection, from, to) {
+  // Days changed since `stamp` (>=, so a day written in the same moment as the
+  // newest stamp, e.g. one batch commit, is not missed), then a count of the range.
+  async function checkChanges(saved, collection, from, to, stamp) {
     let touched = false;
-    if (saved.stamp) {
-      const since = new (fb().firestore.Timestamp)(saved.stamp.s, saved.stamp.n);
-      const changed = await db().collection(collection).where('lastUpdated', '>', since).get();
+    if (stamp) {
+      const since = new (fb().firestore.Timestamp)(stamp.s, stamp.n);
+      const changed = await db().collection(collection).where('lastUpdated', '>=', since).get();
       changed.forEach((doc) => { addDoc(saved, doc); touched = true; });
     }
     // Deleted days leave no trace: compare the number of days in the range.
@@ -180,13 +182,15 @@
     if (!db()) throw new Error('The database is not available.');
     let changed = false;
     if (opts.force) daysBetween(from, to).forEach((d) => saved._covered.delete(d));
+    const prior = saved.stamp;                 // newest stamp BEFORE this call: changes are checked from here
+    const hadDays = saved._covered.size > 0;
     const missing = missingDays(saved._covered, from, to);
     if (missing.length) {
       for (const [a, b] of runs(missing)) await fetchRange(saved, collection, a, b);
       changed = true;
-    } else if (await checkChanges(saved, collection, from, to)) {
-      changed = true;
     }
+    // Days held from before may have been re-uploaded or cost-matched since.
+    if (hadDays && await checkChanges(saved, collection, from, to, prior)) changed = true;
     if (changed) await save(collection, saved);
     return { days: pick(), missing: [] };
   }
@@ -200,6 +204,11 @@
     try { if (s) s.setItem(k, first); } catch (e) { /* storage off */ }
     return first;
   }
+  // The first day if this browser already knows it (no read), else null.
+  function firstDayKnown(collection) {
+    const s = ls();
+    return (s && s.getItem(`epc_first_day:${collection}`)) || null;
+  }
   async function all(collection, opts = {}) {
     return docs(collection, await firstDay(collection), isoToday(), opts);
   }
@@ -207,6 +216,12 @@
     try { return [...(await load(collection))._covered]; } catch (e) { return []; }
   }
   function estimateParts(collection, from, to) { return [{ days: collection, from, to }]; }
+  // Parts for "every day since the first upload" without reading the first day on page open.
+  function allParts(collection) {
+    const first = firstDayKnown(collection);
+    if (first) return estimateParts(collection, first, isoToday());
+    return [{ fixed: 600, label: collection, note: 'first load on this browser: every sales day, about 600' }];
+  }
 
   // ── row expanders (the shape the report pipeline and pages expect) ───────
   function salesRows(days) {
@@ -264,7 +279,7 @@
   }
 
   const api = {
-    docs, all, firstDay, cachedDates, estimateParts, salesRows, inventoryRows, exportAll, importAll,
+    docs, all, firstDay, firstDayKnown, cachedDates, estimateParts, allParts, salesRows, inventoryRows, exportAll, importAll,
     monthParts, missingDays, newestStamp, daysBetween, isoToday, _init,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

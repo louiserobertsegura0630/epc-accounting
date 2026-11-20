@@ -662,19 +662,8 @@ async function saveProduct() {
   logAudit(editId ? 'Edit' : 'Create', 'Product Master',
     `${editId ? 'Edited' : 'Added'} product ${code}${changedFields.length ? ' - ' + changedFields.join(', ') : ''}`);
 
-  // For new products only: re-match any Under Review items that now have a PM record
-  if (!editId) {
-    rematchUnderReview()
-      .then(({ moved }) => {
-        if (moved > 0) {
-          showPMToast(
-            `✅ ${moved} Under Review item${moved > 1 ? 's' : ''} matched and moved to Sales Data!`,
-            'success'
-          );
-        }
-      })
-      .catch(err => console.error('[rematchUnderReview] Error:', err));
-  }
+  // Under Review is legacy (see CLAUDE.md): no automatic re-match here, it read
+  // every product and every under-review record. The Sales page keeps its button.
 }
 
 function editProd(id) {
@@ -898,9 +887,9 @@ const pmGate = EPCReportGate.wire({
   popupLabel: 'Loading products…',
   refreshLabel: 'Refresh',
   costLine: 'pm-cost-line',
-  estimate: async () => [
+  estimate: () => [
     { saved: 'suppliers' }, { saved: 'productMaster' }, { saved: 'inventoryData' },
-    ...EPCDays.estimateParts('salesDaily', await EPCDays.firstDay('salesDaily').catch(() => EPCDays.isoToday()), EPCDays.isoToday()),
+    ...EPCDays.allParts('salesDaily'),
   ],
   load: loadProductMasterPage,
 });

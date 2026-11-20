@@ -57,8 +57,17 @@ function renderIS() {
 
   document.getElementById('is-period').textContent = `For the Month Ending ${monthLabel}`;
 
-  // Sales for the month from the day docs (the loaded month only).
-  const tot = period === _isPeriod ? isSalesTotals(_isDays) : isSalesTotals({});
+  // Only the loaded month can be shown; another month needs Generate again.
+  const emptyState = document.getElementById('is-empty-state');
+  const doc = document.getElementById('is-doc');
+  if (period !== _isPeriod) {
+    if (emptyState) { emptyState.style.display = ''; emptyState.innerHTML = `Click <strong>Generate Report</strong> to load ${monthLabel}.`; }
+    if (doc) doc.style.display = 'none';
+    return;
+  }
+  if (emptyState) emptyState.style.display = 'none';
+  if (doc) doc.style.display = '';
+  const tot = isSalesTotals(_isDays);
   const netRevenue    = tot.revenue;
   const cogs          = tot.cogs;
   const gross         = netRevenue - cogs;

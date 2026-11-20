@@ -783,9 +783,9 @@ EPCReportGate.wire({
   button: 'potential-generate-btn',
   status: 'potential-gen-status',
   costLine: 'potential-cost-line',
-  estimate: async () => [
+  estimate: () => [
     { saved: 'inventoryData' }, { saved: 'productMaster' },
-    ...EPCDays.estimateParts('salesDaily', await EPCDays.firstDay('salesDaily').catch(() => EPCDays.isoToday()), EPCDays.isoToday()),
+    ...EPCDays.allParts('salesDaily'),
   ],
   load: async () => {
     await Promise.all([

@@ -23,7 +23,7 @@ function fakeDb(data) {
       startAt: v => query(coll, { ...filters, from: v }),
       endAt: v => query(coll, { ...filters, to: v }),
       where: (field, op, v) => {
-        if (field === 'lastUpdated') return query(coll, { ...filters, changedAfter: v });
+        if (field === 'lastUpdated') return query(coll, { ...filters, changedAfter: v, changedOp: op });
         if (op === '>=') return query(coll, { ...filters, from: v });
         if (op === '<=') return query(coll, { ...filters, to: v });
         throw new Error(`unexpected where ${field} ${op}`);
@@ -36,7 +36,8 @@ function fakeDb(data) {
         if (filters.to) ids = ids.filter(id => id <= filters.to);
         if (filters.changedAfter) ids = ids.filter(id => {
           const ts = data[coll][id].lastUpdated;
-          return ts && (ts.seconds > filters.changedAfter.seconds);
+          if (!ts) return false;
+          return filters.changedOp === '>=' ? ts.seconds >= filters.changedAfter.seconds : ts.seconds > filters.changedAfter.seconds;
         });
         if (filters.order && filters.order.dir === 'desc') ids.reverse();
         if (filters.limit) ids = ids.slice(0, filters.limit);
@@ -150,4 +151,25 @@ test('firstDay asks once and remembers the answer', async () => {
   assert.equal(await EPCDays.firstDay('salesDaily'), '2026-03-05');
   assert.equal(await EPCDays.firstDay('salesDaily'), '2026-03-05');
   assert.equal(db.calls.length, 1);
+});
+
+test('a day changed before a new day was added is still picked up (regression)', async () => {
+  const data = { salesDaily: { '2026-11-01': day(10, 1), '2026-11-02': day(20, 2), '2026-11-03': day(30, 3) } };
+  setup(data);
+  await EPCDays.docs('salesDaily', '2026-11-01', '2026-11-03');
+  data.salesDaily['2026-11-02'] = day(99, 5);      // re-uploaded
+  data.salesDaily['2026-11-04'] = day(40, 6);      // a new day
+  const first = await EPCDays.docs('salesDaily', '2026-11-01', '2026-11-04');
+  assert.equal(first.days['2026-11-02'].totals.revenue, 99, 'first load after the change');
+  const second = await EPCDays.docs('salesDaily', '2026-11-01', '2026-11-04');
+  assert.equal(second.days['2026-11-02'].totals.revenue, 99, 'second load');
+});
+
+test('a day written in the same moment as the newest stamp is still picked up', async () => {
+  const data = { salesDaily: { '2026-11-01': day(10, 1), '2026-11-02': day(20, 2) } };
+  setup(data);
+  await EPCDays.docs('salesDaily', '2026-11-01', '2026-11-02');
+  data.salesDaily['2026-11-01'] = day(77, 2);      // same seconds as the newest stamp (one batch commit)
+  const r = await EPCDays.docs('salesDaily', '2026-11-01', '2026-11-02');
+  assert.equal(r.days['2026-11-01'].totals.revenue, 77);
 });

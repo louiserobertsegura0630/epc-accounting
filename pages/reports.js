@@ -311,6 +311,7 @@ async function fetchReportCollection(name, fallbackKey = '', reloadAll = false) 
   } else {
     const snapshot = await db.collection(name).get();
     rows = snapshot.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
+    EPCReads.rememberCount(name, rows.length);   // for the cost line next time
   }
   touchReportProgress();
   return rows.length ? rows : localRows;
@@ -2361,7 +2362,7 @@ initReports();
 (function prewarmReportsFirestore() {
   try {
     const db = getFirestoreDB();
-    if (!db) return;
+    if (!db || window.EPC_OFFLINE) return;
     db.collection('salesDaily')
       .orderBy(firebase.firestore.FieldPath.documentId())
       .limit(1).get()
@@ -2386,9 +2387,14 @@ function reportEstimateParts(reloadAll) {
   (REPORT_TAB_COLLECTIONS[activeReportTab] || []).forEach((key) => {
     const cfg = REPORT_COLLECTIONS[key];
     if (!cfg) return;
-    if (cfg.rollup) parts.push({ days: cfg.collection, from, to });
-    else if (reloadAll) parts.push({ fixed: (EPCReads.knownCounts()[cfg.collection] || EPCReads.FALLBACK[cfg.collection] || 1000), label: cfg.collection, note: 'reload all' });
-    else parts.push({ saved: cfg.collection });
+    const known = EPCReads.knownCounts()[cfg.collection];
+    if (cfg.rollup && reloadAll) {
+      const n = EPCReads.daysBetween(from, to).length;
+      parts.push({ fixed: n, label: cfg.collection, note: 'every day read again' });
+    } else if (cfg.rollup) parts.push({ days: cfg.collection, from, to });
+    else if (reloadAll) parts.push({ fixed: (known || EPCReads.FALLBACK[cfg.collection] || 1000), label: cfg.collection, note: 'reload all' });
+    else if (REPORT_SAVED_COLLECTIONS.has(cfg.collection)) parts.push({ saved: cfg.collection });
+    else parts.push({ fixed: known != null ? known : 100, label: cfg.collection, note: 'no saved copy for this one' });   // ewtRemittances
   });
   return parts;
 }
@@ -2397,7 +2403,7 @@ function wireReportLoadButton(button, label, reloadAll) {
     button,
     popup: false,   // this page shows its own loader
     status: 'rep-gen-status',
-    costLine: 'rep-cost-line',
+    costLine: reloadAll ? null : 'rep-cost-line',   // one owner of the line; Reload all data still confirms
     estimate: () => reportEstimateParts(reloadAll),
     idleLabel: label,
     refreshLabel: label,

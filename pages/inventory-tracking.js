@@ -661,6 +661,7 @@ async function generateInventory() {
   const to = dateF.to || '';
   if (!from && !to) { if (status) status.textContent = 'Set the Date filter (From / To) first.'; return; }
   if (from && to && from > to) { if (status) status.textContent = 'From date is after To date.'; return; }
+  if (!(await EPCReads.confirm(inventoryGenerateParts))) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (status) status.textContent = 'Loading…';
   try {
@@ -685,8 +686,25 @@ async function generateInventory() {
     if (status) status.textContent = 'Load failed: ' + (e && e.message ? e.message : 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
+    paintInventoryCost();
   }
 }
+// What Generate will read: one inventory day per day in the Date window, plus the
+// saved copies of suppliers and products the first time. Shown in the status
+// line beside the button until a load replaces it with the result.
+function inventoryGenerateParts() {
+  const dateF = (invTable.filters && invTable.filters.dateDelivered) || {};
+  const parts = [];
+  if (!_invReferenceLoaded) parts.push({ saved: 'suppliers' }, { saved: 'productMaster' });
+  const n = dateF.from && dateF.to ? EPCReads.daysBetween(dateF.from, dateF.to).length : 0;
+  parts.push({ fixed: n, label: 'inventoryDaily', note: `${n} day${n === 1 ? '' : 's'} in the Date window` });
+  return parts;
+}
+function paintInventoryCost() {
+  const status = document.getElementById('inv-query-status');
+  if (status && !inventoryHasGenerated) EPCReads.line(status, inventoryGenerateParts);
+}
+window.addEventListener('epc-cost-change', paintInventoryCost);
 
 // KPI totals computed from the currently-loaded rows (no history scan).
 function computeInventoryKpisFromLoaded() {
@@ -2780,7 +2798,7 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
         chunk.forEach(supplier => {
           batch.set(
             db.collection('suppliers').doc(supplierFirestoreDocId(supplier.name)),
-            supplier,
+            epcStamp(supplier),
             { merge: true }
           );
         });
@@ -2820,17 +2838,6 @@ document.getElementById('btn-confirm-mis').addEventListener('click', () => {
           showToast(msg, 'warning', 9000);
         } else { showToast(msg, 'success'); }
 
-        // Re-match any Under Review items that now have PM records from this import
-        rematchUnderReview()
-          .then(({ moved }) => {
-            if (moved > 0) {
-              showToast(
-                `✅ ${moved} Under Review item${moved > 1 ? 's' : ''} matched and moved to Sales Data!`,
-                'success'
-              );
-            }
-          })
-          .catch(err => console.error('[rematchUnderReview] Error:', err));
       } catch (err) {
         console.error('INCOMING import error:', err);
         const currentRow = Number(err.currentRow) || 0;
@@ -3150,7 +3157,6 @@ async function misImportMappedRows(mappedRows, onProgress) {
   try { logAudit('Import', 'MIS Inventory', `Imported ${inserted} raw rows, ${itemDays} item-days across ${importDates.length} dates, ${productsUpdated} products, ${supList.length} suppliers`); } catch (e) {}
   if (onProgress) onProgress(1, 1, 'Finishing up…');
   invTable.render(); renderSummary(); refreshInventoryAggregates();
-  try { rematchUnderReview().then(({ moved }) => { if (moved > 0) showToast(`✅ ${moved} Under Review item(s) matched and moved to Sales Data!`, 'success'); }); } catch (e) {}
 
   return { inserted, summary: `${mappedRows.length.toLocaleString()} file rows → ${itemDays.toLocaleString()} item-days across ${importDates.length} date(s); ${supList.length.toLocaleString()} new suppliers.${zeroCost ? ` (${zeroCost} zero-cost skipped)` : ''}` };
 }
@@ -3270,9 +3276,7 @@ async function watchInventoryProductMaster() {
   const db = getFirestoreDB();
   if (!db) return;
   try {
-    const snapshot = await db.collection('productMaster').get();
-    const rows = snapshot.docs.map(doc => normalizeProductCostData({ _firestoreId:doc.id, ...doc.data() }));
-    cacheProductMasterRows(rows);
+    // Already loaded from the saved copy by ensureInventoryReferenceData: no second read.
     invalidateInvSupplierMap();
     // Re-resolve supplier on already-loaded rollup rows now that PM is available.
     const movs = DB.get('inventory_movements') || [];
@@ -3338,5 +3342,6 @@ DB.set('inventory_movements', []);   // start empty; Generate fills it
 invTable.render();          // builds header + filter row + Generate button
 seedInventoryDateFilter();  // default the Date window to the current month
 renderSummary();            // shows blank KPIs until Generate
+paintInventoryCost();       // "≈ N reads · …" in the status line before the first Generate
 
 // (end of MIS import section)

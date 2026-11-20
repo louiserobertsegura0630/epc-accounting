@@ -33,8 +33,11 @@ window.EPCReportGate = window.EPCReportGate || (() => {
     const costLine = opts.costLine
       ? (typeof opts.costLine === 'string' ? document.getElementById(opts.costLine) : opts.costLine)
       : null;
-    function paintCost() {
-      if (costLine && estimate && window.EPCReads) EPCReads.line(costLine, estimate);
+    let paintTimer = null;
+    function paintCost() {   // debounced: every counted read fires epc-reads-change
+      if (!(costLine && estimate && window.EPCReads)) return;
+      clearTimeout(paintTimer);
+      paintTimer = setTimeout(() => EPCReads.line(costLine, estimate), 300);
     }
     if (costLine && estimate) {
       paintCost();
@@ -46,8 +49,13 @@ window.EPCReportGate = window.EPCReportGate || (() => {
 
     async function run() {
       if (running) return;              // guard against double-clicks (paid reads)
-      if (estimate && window.EPCReads && !(await EPCReads.confirm(estimate))) return;   // "Not now"
       running = true;
+      btn.disabled = true;
+      if (estimate && window.EPCReads && !(await EPCReads.confirm(estimate))) {   // "Not now"
+        running = false;
+        btn.disabled = false;
+        return;
+      }
       const prevLabel = btn.textContent;
       btn.disabled = true;
       btn.textContent = loadingLabel;
@@ -59,7 +67,7 @@ window.EPCReportGate = window.EPCReportGate || (() => {
         loaded = true;
         btn.textContent = refreshLabel;
         if (status) status.textContent = '';
-        EPCQuota.ok(startedAt);
+        if (!window.EPC_OFFLINE) EPCQuota.ok(startedAt);   // an offline load says nothing about the quota
         paintCost();
       } catch (err) {
         console.error('[EPCReportGate] load failed:', err);
@@ -308,6 +316,7 @@ window.EPCSaved = window.EPCSaved || (() => {
   async function writeSaved(name, saved) {
     try {
       await cacheStore('readwrite', (store) => store.put({ ...saved, docs: encode(saved.docs) }, `saved:${name}`));
+      metaCache[name] = { uid: saved.uid, at: saved.at, count: Object.keys(saved.docs).length };
     } catch (e) { console.warn('[EPCSaved] could not save', name, e); /* storage off: read again next time */ }
   }
   function signedIn() {
@@ -386,14 +395,20 @@ window.EPCSaved = window.EPCSaved || (() => {
   }
 
   // What is saved on this browser, for the cost estimate: { name: { uid, at, count } }.
+  // Read from IndexedDB once per page view (the copies can be large); kept
+  // current by writeSaved / importAll.
+  const metaCache = {};
   async function meta() {
     const out = {};
     for (const name of Object.keys(SOURCES)) {
-      let saved = memory[name];
-      if (!saved) {
-        try { saved = await cacheStore('readonly', (store) => store.get(`saved:${name}`)); } catch (e) { saved = null; }
+      if (!(name in metaCache)) {
+        let saved = memory[name];
+        if (!saved) {
+          try { saved = await cacheStore('readonly', (store) => store.get(`saved:${name}`)); } catch (e) { saved = null; }
+        }
+        metaCache[name] = saved && saved.v === VERSION && saved.docs ? { uid: saved.uid, at: saved.at, count: Object.keys(saved.docs).length } : null;
       }
-      if (saved && saved.v === VERSION && saved.docs) out[name] = { uid: saved.uid, at: saved.at, count: Object.keys(saved.docs).length };
+      if (metaCache[name]) out[name] = metaCache[name];
     }
     return out;
   }
@@ -415,6 +430,7 @@ window.EPCSaved = window.EPCSaved || (() => {
       const saved = { ...obj[name], v: VERSION, uid: user.uid };
       await cacheStore('readwrite', (store) => store.put(saved, `saved:${name}`));
       delete memory[name];
+      delete metaCache[name];
     }
   }
 
@@ -1787,7 +1803,7 @@ async function ensureSharedSupplier(name, storeKey = 'suppliers') {
 
   const supplier = { id:genId(), name:cleanName, category:'', status:'Active' };
   const db = getFirestoreDB();
-  if (db) await db.collection(storeKey).doc(supplier.id).set(supplier, { merge:true });
+  if (db) await db.collection(storeKey).doc(supplier.id).set(epcStamp(supplier), { merge:true });
   DB.push(storeKey, supplier);
   logAudit('Create', storeKey === 'suppliers' ? 'Supplier' : 'Purchase Supplier', `Added supplier ${cleanName}`);
   return supplier;
