@@ -2,7 +2,7 @@
 
 Internal accounting web app for EPC Commercial Corporation. Vanilla HTML/CSS/JS (no framework, no build step) backed by Firebase (Firestore + Auth).
 
-**Also read `PROJECT-NOTES.md`**: the decisions behind this setup (free Spark plan, the chat assistant on the Hostinger VPS, the design system, limits), lessons learned, ideas agreed but not built yet, and how the owner likes to work.
+**Also read `PROJECT-NOTES.md`**: the decisions behind this setup (Firebase plan: Blaze since November 2026, the chat assistant on the Hostinger VPS, the design system, limits), lessons learned, ideas agreed but not built yet, and how the owner likes to work.
 
 ## Links
 
@@ -36,7 +36,7 @@ The workflows deploy hosting only (the chat API runs on the Hostinger VPS, see A
 
 A floating "EPC Assistant" chat button appears on every signed-in page (`initChatWidget` in `assets/app.js`, styles at the end of `assets/style.css`). It stays hidden if `EPC_CHAT_URL` in `assets/app.js` is empty; it is set to `https://epc-chat.187-127-124-15.sslip.io/api/chat`.
 
-The chat API runs on the **Hostinger VPS**, not Firebase (the Firebase project stays on the free Spark plan):
+The chat API runs on the **Hostinger VPS**, not Firebase (chosen while the Firebase project was on the free Spark plan; it stays there):
 - Code: `chat-server/server.js` (Node, no framework). It verifies the user's Firebase ID token with Google's public keys, allows only the portal's own web addresses (CORS: the live site and `epc-inventory-system--*.web.app` previews), limits each user to 30 questions per 10 minutes, and calls Claude (`claude-haiku-5-5`, low effort; chosen for cost) with the Anthropic SDK.
 - **The Anthropic API key lives only on the VPS** in `/etc/epc-chat.env` (root-only). Never put it in the website code, git, or a chat.
 - Setup or update (as root on the VPS, from a copy of the `chat-server/` folder): `bash setup-vps.sh`. It asks for the key without echoing it and prints the chat API address to put in `EPC_CHAT_URL`.
@@ -108,7 +108,7 @@ The Sales tab in Reports has two views, switched by the **Overview / Sales analy
 
 ## Daily read limit warning
 
-`EPCQuota` in `assets/app.js` shows a warning bar on every page when Firebase's free daily reads (50,000, Spark plan) run out, with the reset time (midnight US Pacific, about 4 PM Philippine time). The hit is saved in `localStorage` (`epc_quota_hit`) until the reset, so the bar shows again on each page load without spending a read; a load that works again clears it. New code that catches a Firestore load error must pass it to `EPCQuota.report(err)`. The Purchases cards mark their totals "Only the N loaded rows" when the full-range totals could not be fetched.
+`EPCQuota` in `assets/app.js` shows a warning bar on every page when Firestore refuses reads with a quota error (on the Blaze plan this should no longer happen; reads beyond the free 50,000 a day are billed instead, and `EPCReads` warns about them), with the reset time (midnight US Pacific, about 4 PM Philippine time). The hit is saved in `localStorage` (`epc_quota_hit`) until the reset, so the bar shows again on each page load without spending a read; a load that works again clears it. New code that catches a Firestore load error must pass it to `EPCQuota.report(err)`. The Purchases cards mark their totals "Only the N loaded rows" when the full-range totals could not be fetched.
 
 ## Rule: adding a field means wiring it everywhere
 
@@ -128,7 +128,7 @@ When asked to connect to an outside app or service, follow this without being as
    - **The website needs the data**: add an endpoint on the VPS chat server (`chat-server/`, same pattern as `/api/chat`: verify the Firebase ID token, CORS for the portal only, rate limits). The key lives on the VPS in `/etc/epc-chat.env`, added there by hand, never via git.
    - **A one-off or scheduled job** (import, export, sync): a Node script in `scripts/` run from the owner's Mac (never deployed; reads `.env`).
    - **The service issues a public/browser key** meant for web pages (like the Firebase web config): it may go in website code.
-4. **Mind the costs.** The Firebase project is on the free Spark plan (50,000 Firestore reads per day for everything). Don't add anything that reads whole collections or polls in a loop; estimate reads and any third-party charges and tell the owner before building.
+4. **Mind the costs.** The Firebase project is on the Blaze plan: the first 50,000 Firestore reads per day are free for everything, beyond that about ₱0.35 per 10,000 reads. Don't add anything that reads whole collections or polls in a loop; estimate reads and any third-party charges and tell the owner before building.
 5. **Test locally**, then before any push run `git status` and `git diff --cached` and confirm no `.env`, key, token or credentials file or value is staged.
 6. **Pushing:** the owner pushes the branch from their Mac (`git push -u origin <branch>`), then asks the GitHub-connected Claude session to open the PR, check it and merge. Do not merge without the owner saying so.
 7. **Document it:** add the integration to this file (what it does, where the key lives: name only, never the value) and to `PROJECT-NOTES.md`.

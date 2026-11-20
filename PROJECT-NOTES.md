@@ -13,7 +13,7 @@ Last updated: 2026-11-18.
 | Code (master copy) | GitHub `louiserobertsegura0630/epc-accounting`, branch `main` |
 | Code (working copy) | Owner's Mac: `~/epc-accounting`. Run `git pull` first, every time |
 | Live website | https://epc-inventory-system.web.app (Firebase Hosting, auto-deployed from `main`) |
-| Database + login | Firebase project `inventory-system-1fb4d` (Firestore + Auth), **free Spark plan** |
+| Database + login | Firebase project `inventory-system-1fb4d` (Firestore + Auth), **Blaze (pay-as-you-go) plan since 2026-11-20**, budget alert set |
 | Chat assistant API | Hostinger VPS `187.127.124.15` (Coolify), Docker container `epc-chat`, https://epc-chat.187-127-124-15.sslip.io |
 | Anthropic API key | Only on the VPS in `/etc/epc-chat.env` (root-only). Never in code, git or chat |
 
@@ -25,10 +25,10 @@ Last updated: 2026-11-18.
 - **We stayed on Firebase** (not Hostinger) for the website and database. Moving data off Firestore would mean rewriting the backend, and Hostinger can't host Firestore.
 - **Auto-deploy:** merging into `main` deploys the site in about a minute (GitHub Actions). Every pull request gets a 7-day preview link. A collaborator only needs GitHub access.
 
-### Firebase plan: staying on free Spark, on purpose
-- The owner declined the **Blaze** (pay-as-you-go) plan. Billing budgets only send alerts; they don't stop charges.
-- On Spark, Firestore gives **50,000 reads per day** for the whole project. When they run out, reads fail until **midnight US Pacific (about 4:00 PM Philippine time)**. That works as a free hard cap. The Reports page shows "Daily Firestore read limit reached" when it happens.
-- **Consequence:** no Firebase Cloud Functions. Anything server-side runs on the Hostinger VPS.
+### Firebase plan: Blaze (pay-as-you-go) since 2026-11-20
+- Until 2026-11-20 the project stayed on the free Spark plan on purpose. That day the 50,000 free reads were used up before 9 AM by pages that still read the whole raw `salesData` collection, and the owner switched to **Blaze** so work could continue. Billing account "Firebase Payment", card on the owner's personal Google profile, budget alert set in the upgrade dialog (a few US dollars a month; alerts only, not a cap). Firebase also offers **spend caps** under Budgets that pause a service at the budget; the owner may set one.
+- Blaze keeps the **50,000 free reads per day**; beyond that Firestore charges about US$0.06 per 100,000 reads (about ₱0.35 per 10,000). The site shows the per-browser spend beside every Generate button, confirms big loads, and warns with the peso cost when a load goes beyond the free reads (see CLAUDE.md "Read counter and cost lines"). The same day's work (branch `read-budget`) removed every whole-collection read of raw sales, so a normal day is a few hundred reads.
+- The chat assistant stays on the Hostinger VPS (no Cloud Functions needed); nothing else moved to paid services.
 
 ### Reports and Generate buttons
 - Pages load **nothing** until **Generate Report** is clicked, because each load costs reads. Tabs and date presets never load by themselves.
