@@ -126,20 +126,20 @@ function applySalesOutgoing(sales) {
   renderPotentialRevenueTable();
 }
 
-// One-time reads (button-triggered). Formerly onSnapshot listeners that stayed
-// open and re-billed reads on every write — now fetched once per Generate click.
+// Button-triggered reads. Units sold and revenue per product come from every
+// salesDaily day (EPCDays: one read per day the first time on a browser, then
+// about 2), never from the raw salesData collection.
 async function watchSalesOutgoing() {
   const db = getFirestoreDB();
   if (!db) return;
-  const snap = await db.collection('salesData').get();
-  applySalesOutgoing(snap.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() })));
+  const sales = await EPCDays.all('salesDaily');
+  applySalesOutgoing(EPCDays.salesRows(sales.days));
 }
 
 async function watchPotentialProductMaster() {
   const db = getFirestoreDB();
   if (!db) return;
-  const snapshot = await db.collection('productMaster').get();
-  cacheProductMasterRows(snapshot.docs.map(doc => normalizeProductCostData({ _firestoreId: doc.id, ...doc.data() })));
+  await loadProductMasterFromFirestore();   // saved copy (EPCSaved)
   renderSummary();
   renderPotentialRevenueTable();
 }
@@ -782,6 +782,11 @@ document.getElementById('potential-category-select').addEventListener('change', 
 EPCReportGate.wire({
   button: 'potential-generate-btn',
   status: 'potential-gen-status',
+  costLine: 'potential-cost-line',
+  estimate: async () => [
+    { saved: 'inventoryData' }, { saved: 'productMaster' },
+    ...EPCDays.estimateParts('salesDaily', await EPCDays.firstDay('salesDaily').catch(() => EPCDays.isoToday()), EPCDays.isoToday()),
+  ],
   load: async () => {
     await Promise.all([
       loadInventoryFromFirestore(),
@@ -789,7 +794,6 @@ EPCReportGate.wire({
     ]);
     renderSummary();
     renderPotentialRevenueTable();
-    await watchPotentialProductMaster();
     await watchSalesOutgoing();
     const empty = document.getElementById('potential-empty-state');
     if (empty) empty.style.display = 'none';

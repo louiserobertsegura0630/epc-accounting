@@ -33,6 +33,7 @@
           <input type="month" class="form-input" id="period-select" style="width:180px">
         </div>
         <span id="is-gen-status" class="gen-status"></span>
+        <span id="is-cost-line" class="epc-cost-line"></span>
         <button class="btn btn-primary" id="is-generate-btn" type="button">Generate Report</button>
         <button class="btn btn-danger" onclick="window.print()">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -55,20 +56,8 @@
       <!-- Revenue -->
       <div class="is-section">
         <div class="is-section-label">Revenue</div>
-        <div class="is-line">
-          <span class="is-label">Gross Revenue</span>
-          <span class="is-amount" id="is-gross-revenue">₱0.00</span>
-        </div>
-        <div class="is-line indent">
-          <span class="is-label">Less: Discounts</span>
-          <span class="is-amount" id="is-discounts">₱0.00</span>
-        </div>
-        <div class="is-line indent">
-          <span class="is-label">Less: SR/PWD Discounts</span>
-          <span class="is-amount" id="is-srpwd-discounts">₱0.00</span>
-        </div>
         <div class="is-line is-subtotal">
-          <span class="is-label">Net Revenue</span>
+          <span class="is-label">Revenue</span>
           <span class="is-amount" id="is-net-revenue">₱0.00</span>
         </div>
       </div>
@@ -152,6 +141,6 @@
 <script src="../assets/app.js?v=20261120-reads"></script>
 
 <script src="../assets/days.js?v=20261120-reads"></script>
-<script src="income-statement.js?v=20260610-inventory-cost-margin4"></script>
+<script src="income-statement.js?v=20261120-reads"></script>
 </body>
 </html>
