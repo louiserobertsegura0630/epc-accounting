@@ -393,7 +393,7 @@ window.EPCSaved = window.EPCSaved || (() => {
     return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
   }
   // Every record of a collection, as [{ _firestoreId, ...fields }].
-  function rows(name, { force = false, offline = false } = {}) {
+  function rows(name, { force = false, offline = !!window.EPC_OFFLINE } = {}) {
     const key = offline ? `${name}|offline` : name;
     if (!inFlight[key]) {
       inFlight[key] = load(name, force, offline).finally(() => { delete inFlight[key]; });
@@ -1055,8 +1055,18 @@ function connectFirestoreEmulatorIfLocal(db) {
 function configureFirestoreDB(db) {
   if (!db) return null;
   if (!_firestoreSettingsApplied && typeof db.settings === 'function') {
-    db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
+    // Unlimited local cache: Offline mode (EPCReads) answers every read from it.
+    const cacheSizeBytes = (firebase.firestore && firebase.firestore.CACHE_SIZE_UNLIMITED) || 1073741824;
+    db.settings({ experimentalAutoDetectLongPolling: true, cacheSizeBytes, merge: true });
     _firestoreSettingsApplied = true;
+    // Keep the cache on disk between visits (shared across tabs). If the browser
+    // refuses (private window, old browser), the site still works online and
+    // Offline mode is limited to the saved copies.
+    if (typeof db.enablePersistence === 'function') {
+      db.enablePersistence({ synchronizeTabs: true })
+        .then(() => { window.EPC_PERSISTENCE = true; })
+        .catch((err) => { window.EPC_PERSISTENCE = false; console.warn('[Firestore] offline storage unavailable:', err && err.code); });
+    }
   }
   connectFirestoreEmulatorIfLocal(db);
   return db;
@@ -1215,7 +1225,7 @@ async function _runAggregationRest(query, aggregations, label) {
 }
 
 async function firestoreCount(query, label = 'count') {
-  if (!query) return null;
+  if (!query || window.EPC_OFFLINE) return null;   // offline: no network; callers treat null as "could not count"
   try {
     const rows = await _runAggregationRest(query, [{ alias: 'c', count: {} }], label);
     const val = rows[0]?.result?.aggregateFields?.c?.integerValue
@@ -1228,7 +1238,7 @@ async function firestoreCount(query, label = 'count') {
 }
 
 async function firestoreSum(query, field, label = 'sum') {
-  if (!query) return null;
+  if (!query || window.EPC_OFFLINE) return null;
   try {
     const rows = await _runAggregationRest(
       query,

@@ -167,6 +167,7 @@
 
   // Day docs for a range: { days: { date: data }, missing: [dates never loaded] }.
   async function docs(collection, from, to, opts = {}) {
+    if (opts.offline == null) opts = { ...opts, offline: !!global.EPC_OFFLINE };   // site-wide Offline mode
     const key = `${collection}|${from}|${to}|${opts.offline ? 'off' : 'on'}|${opts.force ? 'f' : ''}`;
     if (!inFlight[key]) inFlight[key] = run(collection, from, to, opts).finally(() => { delete inFlight[key]; });
     return inFlight[key];
