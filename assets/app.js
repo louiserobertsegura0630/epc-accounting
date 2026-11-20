@@ -1063,7 +1063,11 @@ function configureFirestoreDB(db) {
     // Keep the cache on disk between visits (shared across tabs). If the browser
     // refuses (private window, old browser), the site still works online and
     // Offline mode is limited to the saved copies.
-    if (typeof db.enablePersistence === 'function') {
+    // Only for a browser that chose Offline mode (EPC_PERSIST_WANTED, set by the
+    // sidebar switch): with persistence on, every read waits for the storage to
+    // open, and that must not hold up pages for everyone else.
+    if (typeof db.enablePersistence === 'function' && window.EPC_PERSIST_WANTED) {
+      window.EPC_PERSISTENCE_ON = true;
       window.EPC_PERSISTENCE_READY = db.enablePersistence({ synchronizeTabs: true })
         .then(() => { window.EPC_PERSISTENCE = true; return true; })
         .catch((err) => { window.EPC_PERSISTENCE = false; console.warn('[Firestore] offline storage unavailable:', err && err.code); return false; });
@@ -2204,7 +2208,9 @@ function initSidebar(activeKey) {
       const db = getFirestoreDB();
       if (db) {
         logLocalUserRoleSeedInfo(firebaseUser);
-        const snap = await db.collection('users').doc(firebaseUser.uid).get()
+        // Never keep the page blank: if this read does not answer in 8 seconds
+        // (slow storage, blocked connection), fall back to the viewer role below.
+        const profileRead = db.collection('users').doc(firebaseUser.uid).get()
           .then(result => {
             logFirestoreReadSuccess('user profile read');
             return result;
@@ -2213,6 +2219,10 @@ function initSidebar(activeKey) {
             logFirestoreReadFailure(err);
             throw err;
           });
+        const snap = await Promise.race([
+          profileRead,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('user profile read timed out')), 8000)),
+        ]);
         const data = snap.exists ? snap.data() : {};
         const normalizedRole = _normalizeRole(data.role);
         logLoadedUserRole(firebaseUser, snap, data, normalizedRole);

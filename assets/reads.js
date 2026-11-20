@@ -40,6 +40,19 @@
     if (on && global.document && global.document.documentElement) global.document.documentElement.dataset.offline = '1';
   })();
   function offline() { return deps.offline ? !!deps.offline() : !!global.EPC_OFFLINE; }
+  // Firebase's on-disk cache is turned on only for a browser that chose Offline
+  // mode (localStorage epc_persist = '1'): it makes every read wait for the
+  // storage to open, which must not hold up pages for everyone else.
+  const PERSIST_KEY = 'epc_persist';
+  (function readPersistFlag() {
+    let on = false;
+    try { on = global.localStorage && global.localStorage.getItem(PERSIST_KEY) === '1'; } catch (e) { on = false; }
+    global.EPC_PERSIST_WANTED = !!on || !!global.EPC_OFFLINE;
+  })();
+  function wantPersistence() {
+    global.EPC_PERSIST_WANTED = true;
+    try { global.localStorage.setItem(PERSIST_KEY, '1'); } catch (e) { /* storage off */ }
+  }
   function setOffline(on) {
     global.EPC_OFFLINE = !!on;
     try { global.localStorage.setItem(OFFLINE_KEY, on ? '1' : '0'); } catch (e) { /* storage off */ }
@@ -341,7 +354,7 @@
   const api = {
     LIMIT, CONFIRM_ABOVE, FALLBACK, MAX_AGE_MS,
     spent, countSnap, used, byLabel, rememberCount, knownCounts,
-    daysBetween, estimate, shouldConfirm, format, pesos, paidPart, paidBarDue, markPaidBarSeen, offline, setOffline, _init,
+    daysBetween, estimate, shouldConfirm, format, pesos, paidPart, paidBarDue, markPaidBarSeen, offline, setOffline, wantPersistence, _init,
     watchGet, watchFirestore, state, line, confirm, humanLabel,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
