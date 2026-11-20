@@ -67,3 +67,8 @@ test('restrictDays keeps only the chosen dates in the file', () => {
   assert.deepEqual(out.salesDaily.stamp, { s: 2, n: 0 });
   assert.deepEqual(out.inventoryDaily.days, {});
 });
+
+test('the module defines every helper its dialogs use (esc)', () => {
+  const src = require('fs').readFileSync(require.resolve('../assets/datafile.js'), 'utf8');
+  assert.match(src, /const esc = /);
+});
