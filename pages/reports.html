@@ -5,10 +5,9 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Reports - EPC Commercial Corporation</title>
-  <link rel="stylesheet" href="../assets/style.css?v=20261120-offline2">
-  <link rel="stylesheet" href="reports.css?v=20261120-offline">
+  <link rel="stylesheet" href="../assets/style.css?v=20261120-notices">
+  <link rel="stylesheet" href="reports.css?v=20261120-notices">
   <link rel="stylesheet" href="reports-sales.css?v=20261118-analysis">
-  <script>try{if(localStorage.getItem('epc_offline')==='1')document.documentElement.dataset.offline='1'}catch(e){}</script>
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -54,6 +53,14 @@
         <span id="rep-gen-status" class="gen-status"></span>
         <span id="rep-cost-line" class="epc-cost-line" title="How many database reads the next Generate will cost, and how many this browser has used today"></span>
         <div class="report-extra-filters" id="report-extra-filters"></div>
+      </div>
+      <!-- The copy saved on this browser: work from it, save it to a file, load a file. -->
+      <div class="report-saved-row">
+        <span class="report-saved-label">Saved copy</span>
+        <label class="epc-switch" title="Use only the copy saved on this browser. No database reads; days never loaded here are listed as missing."><input type="checkbox" id="rep-offline"> Offline (saved copy only)</label>
+        <button class="btn btn-outline-gray btn-sm" type="button" data-epc-download title="Reads everything from the database once (all sales days and records; the cost is shown first), then saves it as one file. In Offline mode it saves what this browser has.">Download all data</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" data-epc-load title="Fill this browser's saved copy from a downloaded file instead of reading everything from the database.">Load from file</button>
+        <span class="gen-status" data-epc-datafile-status></span>
       </div>
       <div class="report-loading" id="report-loading" aria-live="polite">
         <div class="report-loading-header">
@@ -207,16 +214,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 
-<script src="../assets/reads.js?v=20261120-safe"></script>
+<script src="../assets/reads.js?v=20261120-notices"></script>
 
-<script src="../assets/app.js?v=20261120-safe"></script>
+<script src="../assets/app.js?v=20261120-notices"></script>
 
-<script src="../assets/offline.js?v=20261120-nofreeze"></script>
-
-<script src="../assets/days.js?v=20261120-offline2"></script>
-<script src="../assets/datafile.js?v=20261120-offline2"></script>
+<script src="../assets/days.js?v=20261120-reads"></script>
+<script src="../assets/datafile.js?v=20261120-esc"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
-<script src="reports.js?v=20261120-offline"></script>
+<script src="reports.js?v=20261120-reads"></script>
 <script src="reports-sales.js?v=20261118-analysis"></script>
 </body>
 </html>

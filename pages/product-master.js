@@ -638,7 +638,7 @@ async function saveProduct() {
       const pmSnap = await fsdb.collection('productMaster')
         .where('itemCode', '==', String(code).trim())
         .limit(1)
-        .get({ source: 'server' });   // never the cache: a miss would create a duplicate
+        .get();
       const firestoreRecord = cleanFirestoreProduct(record);
       if (!pmSnap.empty) {
         await pmSnap.docs[0].ref.update(epcStamp(firestoreRecord));
