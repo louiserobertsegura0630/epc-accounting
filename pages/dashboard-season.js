@@ -25,9 +25,7 @@
     set(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* storage off */ } },
   };
 
-  // ── Today's date ────────────────────────────────────────────────────────────
-  const todayEl = document.getElementById('dash-today');
-  if (todayEl) todayEl.textContent = new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  // The date line above the greeting is painted by dashboard.js (the day under review).
 
   // ── Particles (snow, sparkles, hearts, rain) on a canvas ────────────────────
   function startParticles(canvas, kind, density) {

@@ -1594,6 +1594,12 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
 .epc-confirm-list li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 5px 0; border-top: 1px solid #eef2f1; }
 .epc-confirm-list li em { grid-column: 1 / -1; font-style: normal; color: var(--text-muted); font-size: 0.78rem; }
 .epc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Confirm and dates pop-ups: never taller than the window; the card scrolls inside. */
+.epc-confirm { align-items: flex-start; overflow-y: auto; padding: 24px 16px; }
+.epc-confirm-card { max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); overflow-y: auto; margin: auto 0; }
+.epc-confirm-list li { padding: 3px 0; }
+.epc-confirm-list li em { font-size: 0.72rem; }
+.epc-confirm-actions { position: sticky; bottom: 0; padding-top: 10px; background: #fff; }
 
 /* Offline switch and notice on Reports */
 .epc-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--text-secondary); cursor: pointer; margin-left: 8px; white-space: nowrap; }

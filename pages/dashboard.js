@@ -679,10 +679,23 @@ function generateDayReport() {
 }
 
 // ─── Date control ─────────────────────────────────────────────────────────────
+// True once the user picked a day (Today, Yesterday or the date box): the Sales
+// Pulse then leaves the date alone instead of jumping to the newest import.
+let snapTouched = false;
+window.EPC_SNAP_TOUCHED = () => snapTouched;
+// The line above the greeting names the day under review, not the calendar day.
+function paintSnapDateLine() {
+  const el = document.getElementById('dash-today');
+  if (!el) return;
+  const d = new Date(`${SNAP_DATE}T00:00:00`);
+  const tag = SNAP_DATE === today ? ' · today' : SNAP_DATE === defaultSnapDate ? ' · yesterday' : '';
+  el.textContent = `${d.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}${tag}`;
+}
 async function setSnapDate(date) {
   SNAP_DATE = date || today;
   const el = document.getElementById('snap-date');
   if (el) el.value = SNAP_DATE;
+  paintSnapDateLine();
   // Before the first Generate, just remember the date; the button loads it.
   if (!dailyGate || !dailyGate.hasLoaded()) return;
   await withLoadingPopup('Loading daily summary…', async () => {
@@ -692,10 +705,11 @@ async function setSnapDate(date) {
     buildDailyOperationsSummary();
   });
 }
-function setSnapToday() { setSnapDate(today); }
-function setSnapYesterday() { setSnapDate(defaultSnapDate); }
+function setSnapToday() { snapTouched = true; setSnapDate(today); }
+function setSnapYesterday() { snapTouched = true; setSnapDate(defaultSnapDate); }
 
 document.getElementById('snap-date').addEventListener('change', function() {
+  snapTouched = true;
   setSnapDate(this.value);
 });
 
@@ -895,6 +909,7 @@ function refreshProdIfLoaded() {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 document.getElementById('snap-date').value = defaultSnapDate;
+paintSnapDateLine();
 
 // Data is not loaded on page open — the user must click "Generate Report".
 // Each click = paid Firestore reads, so the buttons guard against double-clicks.
