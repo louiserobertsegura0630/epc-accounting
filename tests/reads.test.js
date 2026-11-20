@@ -149,3 +149,15 @@ test('confirm() resolves true without a pop-up for a small load', async () => {
 test('format says 0 reads (offline) in Offline mode', () => {
   assert.equal(EPCReads.format(123, 45, { offline: true }), '0 reads (offline)');
 });
+
+test('pesos estimates the paid cost of reads beyond the free allowance', () => {
+  assert.equal(EPCReads.pesos(10000), '₱0.35');
+  assert.equal(EPCReads.pesos(430000), '₱15.05');
+  assert.equal(EPCReads.pesos(0), '₱0.00');
+});
+
+test('paidPart says how many reads of a load fall beyond the free allowance', () => {
+  assert.equal(EPCReads.paidPart(300, 49900), 200);
+  assert.equal(EPCReads.paidPart(300, 10), 0);
+  assert.equal(EPCReads.paidPart(300, 60000), 300);
+});

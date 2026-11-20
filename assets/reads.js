@@ -132,6 +132,11 @@
   function shouldConfirm(reads, usedToday) {
     return reads > CONFIRM_ABOVE || (usedToday + reads) > LIMIT;
   }
+  // Beyond the free 50,000 a day, the Blaze plan charges about ₱0.35 per 10,000 reads
+  // (US$0.06 per 100,000 at about ₱58 to the dollar); on the free plan they fail.
+  const PESOS_PER_READ = 0.35 / 10000;
+  function pesos(reads) { return `₱${(Math.max(0, reads) * PESOS_PER_READ).toFixed(2)}`; }
+  function paidPart(reads, usedToday) { return Math.max(0, Math.min(reads, usedToday + reads - LIMIT)); }
   const fmt = n => Number(n || 0).toLocaleString('en-US');
   function format(reads, usedToday, opts = {}) {
     if (opts.offline) return '0 reads (offline)';
@@ -226,6 +231,7 @@
     const usedToday = used();
     const quotaHit = global.EPCQuota && typeof global.EPCQuota.active === 'function' && global.EPCQuota.active();
     if (!quotaHit && !shouldConfirm(est.reads, usedToday)) return true;
+    const paid = paidPart(est.reads, usedToday);
     return new Promise((resolve) => {
       const doc = global.document;
       const overlay = doc.createElement('div');
@@ -236,7 +242,8 @@
         <div class="epc-loading-msg">${quotaHit ? 'The daily read limit is used up' : 'This load is big'}</div>
         <p class="epc-confirm-sum">About <strong>${fmt(est.reads)}</strong> reads. This browser has used about <strong>${fmt(usedToday)}</strong> of the team's <strong>${fmt(LIMIT)}</strong> today.</p>
         <ul class="epc-confirm-list">${rows}</ul>
-        <p class="epc-confirm-reset">The limit resets at ${esc(resetText)}.</p>
+        ${paid > 0 ? `<p class="epc-confirm-paid"><strong>${fmt(paid)}</strong> of these reads are beyond today's free 50,000. On the pay-as-you-go (Blaze) plan that costs about <strong>${pesos(paid)}</strong>; on the free plan they fail. Tip: tick <strong>Offline</strong> on Reports to work from the saved copy, or <strong>Download all data</strong> once and load the file on this browser.</p>` : ''}
+        <p class="epc-confirm-reset">The free reads reset at ${esc(resetText)}.</p>
         <div class="epc-confirm-actions">
           ${quotaHit
             ? `<button type="button" class="btn btn-primary" data-act="wait">Wait until ${esc(resetText.replace(/^about /, ''))}</button>`
@@ -252,6 +259,34 @@
       doc.body.appendChild(overlay);
     });
   }
+  // A bar once this browser has passed the free reads for the day (Blaze: reads
+  // now cost money; free plan: they fail). Shown on every page, like the quota bar.
+  let paidBar = null;
+  function paintPaidBar() {
+    const doc = global.document;
+    if (!doc || !doc.body) return;
+    const over = used() - LIMIT;
+    if (over <= 0) { if (paidBar) paidBar.hidden = true; return; }
+    if (!paidBar) {
+      paidBar = doc.createElement('div');
+      paidBar.className = 'epc-quota epc-paid';
+      paidBar.innerHTML = '<span class="epc-quota-icon">💸</span><div class="epc-quota-text"><strong></strong><span></span></div><button type="button" class="epc-quota-hide">Hide</button>';
+      paidBar.querySelector('.epc-quota-hide').addEventListener('click', () => { paidBar.hidden = true; paidBar.dataset.hidden = '1'; });
+      doc.body.appendChild(paidBar);
+    }
+    if (paidBar.dataset.hidden) return;
+    const resetText = global.EPCQuota && global.EPCQuota.resetText ? global.EPCQuota.resetText() : 'the next reset';
+    paidBar.querySelector('strong').textContent = `This browser has passed today's free 50,000 reads (about ${fmt(over)} over, about ${pesos(over)} on the pay-as-you-go plan)`;
+    paidBar.querySelector('span').textContent = `Reads now cost money until ${resetText} (or fail on the free plan). Tick Offline on Reports to work from the saved copy, or Download all data once and load the file.`;
+    paidBar.hidden = false;
+  }
+  if (typeof global.addEventListener === 'function') {
+    global.addEventListener('epc-reads-change', paintPaidBar);
+    if (global.document) {
+      if (global.document.readyState === 'loading') global.document.addEventListener('DOMContentLoaded', paintPaidBar);
+      else paintPaidBar();
+    }
+  }
   const LABELS = {
     productMaster: 'Products', inventoryData: 'Inventory', itemCost: 'Item costs', purchases: 'Purchases',
     expenses: 'Expenses', suppliesData: 'Supplies', eSalesRecords: 'E-Sales', suppliers: 'Suppliers',
@@ -263,7 +298,7 @@
   const api = {
     LIMIT, CONFIRM_ABOVE, FALLBACK, MAX_AGE_MS,
     spent, countSnap, used, byLabel, rememberCount, knownCounts,
-    daysBetween, estimate, shouldConfirm, format, _init,
+    daysBetween, estimate, shouldConfirm, format, pesos, paidPart, _init,
     watchGet, watchFirestore, state, line, confirm, humanLabel,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
