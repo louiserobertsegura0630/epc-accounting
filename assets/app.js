@@ -356,26 +356,33 @@ window.EPCSaved = window.EPCSaved || (() => {
     if (!changed.empty) await writeSaved(name, saved);
     return saved;
   }
-  async function load(name, force) {
-    const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
-    if (!db) throw new Error('The database is not available.');
+  async function load(name, force, offline) {
     const user = await signedIn();
     let saved = null;
     if (!force) {
       saved = memory[name] && memory[name].uid === user.uid ? memory[name] : await readSaved(name, user.uid);
-      if (saved && Date.now() - saved.at > MAX_AGE_MS) saved = null;
+      if (saved && !offline && Date.now() - saved.at > MAX_AGE_MS) saved = null;
     }
+    // Offline mode (Reports): the saved copy as it is, or a plain message.
+    if (offline) {
+      if (!saved) throw new Error(`No saved copy of ${name} on this browser. Turn Offline off, or Load from file.`);
+      memory[name] = saved;
+      return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
+    }
+    const db = typeof getFirestoreDB === 'function' ? getFirestoreDB() : null;
+    if (!db) throw new Error('The database is not available.');
     saved = saved ? await sync(db, name, saved) : await fetchAll(db, name, user.uid);
     memory[name] = saved;
     // Fresh row objects each time, in document-id order like a plain .get().
     return Object.keys(saved.docs).sort().map((id) => ({ _firestoreId: id, ...saved.docs[id] }));
   }
   // Every record of a collection, as [{ _firestoreId, ...fields }].
-  function rows(name, { force = false } = {}) {
-    if (!inFlight[name]) {
-      inFlight[name] = load(name, force).finally(() => { delete inFlight[name]; });
+  function rows(name, { force = false, offline = false } = {}) {
+    const key = offline ? `${name}|offline` : name;
+    if (!inFlight[key]) {
+      inFlight[key] = load(name, force, offline).finally(() => { delete inFlight[key]; });
     }
-    return inFlight[name];
+    return inFlight[key];
   }
 
   // What is saved on this browser, for the cost estimate: { name: { uid, at, count } }.

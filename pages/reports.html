@@ -50,6 +50,7 @@
         <label>To <input type="date" class="form-input" id="report-end"></label>
         <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Generate Report</button>
         <button class="btn btn-outline-gray btn-sm" type="button" id="btn-reload-report-data" title="Reads every record again from the database. Use it only if a report looks out of date.">Reload all data</button>
+        <label class="epc-switch" title="Use only the copy saved on this browser. No database reads; days never loaded here are listed as missing."><input type="checkbox" id="rep-offline"> Offline (saved copy only)</label>
         <span id="rep-gen-status" class="gen-status"></span>
         <span id="rep-cost-line" class="epc-cost-line" title="How many database reads the next Generate will cost, and how many this browser has used today"></span>
         <div class="report-extra-filters" id="report-extra-filters"></div>
@@ -69,6 +70,7 @@
       Pick the dates above, then click <strong>Generate Report</strong>.
     </div>
 
+    <div class="report-offline-note" id="rep-offline-note" hidden></div>
     <main class="report-output" id="report-output">
       <div class="report-heading">
         <div>

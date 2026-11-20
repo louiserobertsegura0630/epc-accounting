@@ -98,7 +98,7 @@ async function runReportLoad(loadFn) {
     return true;
   } catch (err) {
     console.error('[Reports] load failed:', err);
-    EPCQuota.report(err);
+    if (!window.EPC_OFFLINE) EPCQuota.report(err);
     reportLoadError = reportLoadErrorMessage(err);
     return false;
   }
@@ -244,7 +244,7 @@ async function loadReportItemCostMap(reloadAll = false) {
   if (_reportItemCostMap) return _reportItemCostMap;
   const map = {};
   if (!getFirestoreDB()) { _reportItemCostMap = map; return map; }
-  (await EPCSaved.rows('itemCost', { force: reloadAll })).forEach(row => {
+  (await EPCSaved.rows('itemCost', { force: reloadAll, offline: !!window.EPC_OFFLINE })).forEach(row => {
     map[row._firestoreId] = row.unit_cost;
     map[String(row._firestoreId).toUpperCase()] = row.unit_cost;
   });
@@ -260,7 +260,7 @@ async function loadSalesPriorInflow(reloadAll = false) {
   const from = (document.getElementById('report-start') || {}).value || '';
   if (!from || !getFirestoreDB()) { salesPriorInflow = { before: from, total: 0, earliest: null }; return; }
   let total = 0; let earliest = null;
-  (await EPCSaved.rows('salesDayTotals', { force: reloadAll })).forEach(day => {
+  (await EPCSaved.rows('salesDayTotals', { force: reloadAll, offline: !!window.EPC_OFFLINE })).forEach(day => {
     if (day._firestoreId >= from) return;
     total += day.revenue;
     if (earliest === null) earliest = day._firestoreId;   // ordered by id asc → first is earliest
@@ -302,10 +302,12 @@ async function fetchReportCollection(name, fallbackKey = '', reloadAll = false) 
   if (name === 'salesDaily') return await fetchSalesRollupRows();
   if (name === 'inventoryDaily') return await fetchInventoryRollupRows();
   const db = getFirestoreDB();
-  if (!db) return localRows;
+  if (!db && !window.EPC_OFFLINE) return localRows;
   let rows;
   if (REPORT_SAVED_COLLECTIONS.has(name)) {
-    rows = await EPCSaved.rows(name, { force: reloadAll });
+    rows = await EPCSaved.rows(name, { force: reloadAll, offline: !!window.EPC_OFFLINE });
+  } else if (window.EPC_OFFLINE) {
+    rows = localRows;   // no saved copy for this one (ewtRemittances): whatever this browser last had
   } else {
     const snapshot = await db.collection(name).get();
     rows = snapshot.docs.map(doc => ({ _firestoreId: doc.id, ...doc.data() }));
@@ -477,6 +479,42 @@ async function setReportTab(tab) {
   const el = document.getElementById(id);
   if (el) el.addEventListener('change', () => window.dispatchEvent(new Event('epc-cost-change')));
 });
+
+// Offline mode: a switch beside Reload all data. While on, Generate makes no
+// Firebase call (saved copies and the day store only) and days never loaded on
+// this browser are listed above the report. Remembered in localStorage.
+const OFFLINE_KEY = 'epc_offline';
+window.EPC_OFFLINE = localStorage.getItem(OFFLINE_KEY) === '1';
+function applyOfflineSwitch() {
+  const box = document.getElementById('rep-offline');
+  if (box) box.checked = !!window.EPC_OFFLINE;
+  const reload = document.getElementById('btn-reload-report-data');
+  if (reload) {
+    reload.disabled = !!window.EPC_OFFLINE;
+    reload.title = window.EPC_OFFLINE ? 'Turn Offline off to read from the database.' : 'Reads every record again from the database. Use it only if a report looks out of date.';
+  }
+  window.dispatchEvent(new Event('epc-cost-change'));
+}
+document.getElementById('rep-offline')?.addEventListener('change', (e) => {
+  window.EPC_OFFLINE = !!e.target.checked;
+  try { localStorage.setItem(OFFLINE_KEY, window.EPC_OFFLINE ? '1' : '0'); } catch (err) { /* storage off */ }
+  applyOfflineSwitch();
+  markReportDataStale();   // the next Generate must load again, from the other source
+});
+applyOfflineSwitch();
+function shortDay(iso) {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+}
+function renderOfflineNote() {
+  const note = document.getElementById('rep-offline-note');
+  if (!note) return;
+  const keys = (REPORT_TAB_COLLECTIONS[activeReportTab] || []).map(k => (REPORT_COLLECTIONS[k] || {}).collection).filter(c => c === 'salesDaily' || c === 'inventoryDaily');
+  const missing = [...new Set(keys.flatMap(c => reportMissingDays[c] || []))].sort();
+  if (!window.EPC_OFFLINE || !missing.length) { note.hidden = true; note.textContent = ''; return; }
+  const shown = missing.slice(0, 10).map(shortDay).join(', ');
+  note.textContent = `Offline: ${missing.length} day${missing.length === 1 ? '' : 's'} not in the saved copy (${shown}${missing.length > 10 ? ', …' : ''}). Turn Offline off and Generate again to load them.`;
+  note.hidden = false;
+}
 
 // True when the active tab still needs data that hasn't been loaded yet.
 function activeTabNeedsLoad() {
@@ -2233,6 +2271,7 @@ function renderActiveReport() {
   }
   if (emptyState) emptyState.style.display = 'none';
   if (output) output.style.display = '';
+  renderOfflineNote();
 
   const rankedBarContainer = document.getElementById('sales-bar-container') ||
     document.getElementById('purchases-bar-container');

@@ -145,3 +145,7 @@ test('confirm() resolves true without a pop-up for a small load', async () => {
   assert.equal(await EPCReads.confirm([{ fixed: 5, label: 'x' }]), true);
   delete g.EPCSaved; delete g.firebase; delete g.document;
 });
+
+test('format says 0 reads (offline) in Offline mode', () => {
+  assert.equal(EPCReads.format(123, 45, { offline: true }), '0 reads (offline)');
+});
