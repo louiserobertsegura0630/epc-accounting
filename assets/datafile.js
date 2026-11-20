@@ -46,6 +46,21 @@
   function currentUid() {
     try { return global.firebase.auth().currentUser ? global.firebase.auth().currentUser.uid : null; } catch (e) { return null; }
   }
+  // Does this browser hold a usable copy for this user? Pure: meta is
+  // EPCSaved.meta() and days the sales days in the day store.
+  function isComplete(uid, meta, days) {
+    if (!uid) return false;
+    const mine = (m) => !!m && m.uid === uid;
+    return (days || []).length > 0 && mine((meta || {}).purchases) && mine((meta || {}).productMaster);
+  }
+  async function hasCopy() {
+    try {
+      const uid = currentUid();
+      const meta = global.EPCSaved && global.EPCSaved.meta ? await global.EPCSaved.meta() : {};
+      const days = global.EPCDays && global.EPCDays.cachedDates ? await global.EPCDays.cachedDates('salesDaily') : [];
+      return isComplete(uid, meta, days);
+    } catch (e) { return false; }
+  }
   async function gather() {
     const uid = currentUid();
     if (!uid) throw new Error('Please sign in first.');
@@ -108,31 +123,14 @@
   }
   // Read the chosen days (and the saved copies) once so the file is complete.
   // Returns false on "Not now".
-  // force: read every record again (fills Firebase's local cache for Offline
-  // mode, which answers pages that read Firebase directly). The cost shown is
-  // then the full size of each list, not the usual 2-read check.
-  async function loadEverything(range, { force = false } = {}) {
+  async function loadEverything(range) {
     if (global.EPC_OFFLINE) return true;
     const sources = Object.keys(global.EPCSaved.SOURCES || {});
-    const parts = force
-      ? [...sources.map((name) => ({ fixed: (global.EPCReads.knownCounts()[name] ?? global.EPCReads.FALLBACK[name] ?? 1000), label: name, note: 'read in full for offline use' })),
-         { fixed: global.EPCReads.daysBetween(range.from, range.to).length, label: 'salesDaily', note: 'read in full for offline use' },
-         { fixed: global.EPCReads.daysBetween(range.from, range.to).length, label: 'inventoryDaily', note: 'read in full for offline use' }]
-      : fullLoadParts(sources, range.from, range.to);
-    if (!(await global.EPCReads.confirm(parts))) return false;
-    for (const name of sources) await global.EPCSaved.rows(name, { force });
-    await global.EPCDays.docs('salesDaily', range.from, range.to, { force });
-    await global.EPCDays.docs('inventoryDaily', range.from, range.to, { force });
+    if (!(await global.EPCReads.confirm(fullLoadParts(sources, range.from, range.to)))) return false;
+    for (const name of sources) await global.EPCSaved.rows(name);
+    await global.EPCDays.docs('salesDaily', range.from, range.to);
+    await global.EPCDays.docs('inventoryDaily', range.from, range.to);
     return true;
-  }
-  // Stage 1 of "Switch to offline mode": ask the dates, show the cost, read
-  // everything into the copy on this browser. No file. False when cancelled.
-  async function fill() {
-    const range = await askRange();
-    if (!range) return false;
-    const ok = await loadEverything(range, { force: true });
-    if (ok && global.EPCOffline && global.EPCOffline.markPrimed) global.EPCOffline.markPrimed(currentUid());
-    return ok;
   }
   async function download() {
     const range = await askRange();
@@ -228,7 +226,7 @@
     else wire();
   }
 
-  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, restrictDays, fill, download, load, wire };
+  const api = { VERSION, build, describe, validate, importInto, fullLoadParts, restrictDays, isComplete, hasCopy, download, load, wire };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.EPCDataFile = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -100,7 +100,7 @@
     (await windowQuery(db, from).get()).forEach((doc) => addDay(pack, doc));
     // No stamps at all (old records): start from five minutes ago to allow for clock differences.
     if (!pack.stamp) pack.stamp = { s: Math.floor(Date.now() / 1000) - 300, n: 0 };
-    if (!window.EPC_OFFLINE) await writeCache(pack);   // offline: a cache answer may be partial; keep the saved pack
+    await writeCache(pack);
     return pack;
   }
   // Bring a saved pack up to date. Returns { pack, changed }.
@@ -141,9 +141,7 @@
   }
 
   // ── Analyse ─────────────────────────────────────────────────────────────────
-  // asOf: show that day (or the last day with sales on or before it) instead of
-  // the newest import, so the pulse follows the date picked for Generate.
-  function buildModel(pack, asOf) {
+  function buildModel(pack) {
     const totals = {}; // date -> { units, revenue, cost, profit }
     Object.keys(pack.days).forEach((date) => {
       // Profit counts only products that have a cost, so a day whose costs are
@@ -154,9 +152,7 @@
     });
     const dates = Object.keys(totals).sort();
     if (!dates.length) return null;
-    const upTo = asOf ? dates.filter((d) => d <= asOf) : dates;
-    const latest = upTo.length ? upTo[upTo.length - 1] : dates[dates.length - 1];
-    const newest = dates[dates.length - 1];
+    const latest = dates[dates.length - 1];
     const rangeDates = (from, to) => { const out = []; for (let d = from; d <= to; d = addDaysIso(d, 1)) out.push(d); return out; };
     const sumRange = (from, to, key = 'revenue') => rangeDates(from, to).reduce((s, d) => s + (totals[d] ? totals[d][key] : 0), 0);
     const productsIn = (from, to) => {
@@ -169,8 +165,7 @@
     };
 
     // 1. Latest day, vs the previous day with sales and vs the same weekday last week
-    const at = dates.indexOf(latest);
-    const prevDate = at > 0 ? dates[at - 1] : null;
+    const prevDate = dates.length > 1 ? dates[dates.length - 2] : null;
     const weekAgoDate = addDaysIso(latest, -7);
     const headline = {
       date: latest, day: totals[latest],
@@ -266,7 +261,7 @@
       sinceLatest: Math.max(0, Math.round((dObj(today) - dObj(latest)) / 864e5)),
     };
 
-    return { latest, newest, headline, trend, month, weekday, top, watch, movers, gaps, from30 };
+    return { latest, headline, trend, month, weekday, top, watch, movers, gaps, from30 };
   }
 
   // Lines and the weekday bars set __epcPastel so the shared chart theme (app.js)
@@ -460,8 +455,7 @@
       options: wdOpts,
     });
 
-    document.getElementById('sp-asof').textContent = `Sales data as of ${fmtDay(m.latest, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}` +
-      (m.newest !== m.latest ? ` (latest import: ${shortDay(m.newest)})` : '');
+    document.getElementById('sp-asof').textContent = `Sales data as of ${fmtDay(m.latest, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`;
   }
 
   function showState(kind, title, text) {
@@ -493,12 +487,9 @@
   }
 
   let shownOnce = false;
-  let lastPack = null;    // the pack on screen, so showDay() can redraw it for another day
-  let asOfDate = null;    // the day picked for Generate (null = newest import)
   function showPack(pack) {
-    lastPack = pack;
     shareWithDashboard(pack);
-    const model = buildModel(pack, asOfDate);
+    const model = buildModel(pack);
     if (!model) {
       showState('empty', 'No sales imports yet', `Nothing was imported in the last ${DAYS_BACK} days. <a href="pos-import.html">Import a sales file</a> to see it here.`);
       document.getElementById('sp-asof').textContent = 'No recent sales data';
@@ -513,13 +504,6 @@
     if (dateInput && dateInput.value === defaultSnapDate && typeof setSnapDate === 'function') setSnapDate(model.latest);
     if (typeof prodGate !== 'undefined' && prodGate && !prodGate.hasLoaded()) prodGate.run();
   }
-  // Called by dashboard.js when a day is generated: redraw the pulse for that day.
-  window.EPCSalesPulse = {
-    showDay(date) {
-      asOfDate = date || null;
-      if (lastPack) showPack(lastPack);
-    },
-  };
   const clock = (ms) => new Date(ms).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
   function setStatus(text) { const el = document.getElementById('sp-updated'); if (el) el.textContent = text; }
 
@@ -559,7 +543,6 @@
   }
 
   const refreshBtn = document.getElementById('sp-refresh');
-  if (refreshBtn && window.EPC_OFFLINE) { refreshBtn.disabled = true; refreshBtn.title = 'Switch back online (sidebar) to refresh.'; }
   if (refreshBtn) refreshBtn.addEventListener('click', () => load(true));
   load(false);
 })();

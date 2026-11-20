@@ -481,16 +481,62 @@ async function setReportTab(tab) {
   if (el) el.addEventListener('change', () => window.dispatchEvent(new Event('epc-cost-change')));
 });
 
-// Offline mode is site-wide (the sidebar button; flag window.EPC_OFFLINE set by
-// reads.js). Here it only disables Reload all data, and the notice above the
-// report lists the days not in the saved copy.
-(function applyOfflineToReports() {
+// Offline mode: a switch beside Reload all data. While on, Generate makes no
+// Firebase call (saved copies and the day store only) and days never loaded on
+// this browser are listed above the report. Remembered in localStorage.
+const OFFLINE_KEY = 'epc_offline';
+window.EPC_OFFLINE = localStorage.getItem(OFFLINE_KEY) === '1';
+function applyOfflineSwitch() {
+  const box = document.getElementById('rep-offline');
+  if (box) box.checked = !!window.EPC_OFFLINE;
   const reload = document.getElementById('btn-reload-report-data');
-  if (reload && window.EPC_OFFLINE) {
-    reload.disabled = true;
-    reload.title = 'Switch back online (sidebar) to read from the database.';
+  if (reload) {
+    reload.disabled = !!window.EPC_OFFLINE;
+    reload.title = window.EPC_OFFLINE ? 'Turn Offline off to read from the database.' : 'Reads every record again from the database. Use it only if a report looks out of date.';
   }
-})();
+  window.dispatchEvent(new Event('epc-cost-change'));
+}
+function setOffline(on) {
+  window.EPC_OFFLINE = !!on;
+  try { localStorage.setItem(OFFLINE_KEY, window.EPC_OFFLINE ? '1' : '0'); } catch (err) { /* storage off */ }
+  applyOfflineSwitch();
+  markReportDataStale();   // the next Generate must load again, from the other source
+}
+// Ticking Offline on a browser without a complete copy would only show empty
+// reports, so it first offers the download (same as Download all data: dates
+// box, read cost, one file) and switches only once that has finished.
+let offlineSwitching = false;
+document.getElementById('rep-offline')?.addEventListener('change', async (e) => {
+  const box = e.target;
+  if (!box.checked) { setOffline(false); return; }
+  if (offlineSwitching) { box.checked = false; return; }
+  offlineSwitching = true;
+  box.disabled = true;
+  const status = document.querySelector('[data-epc-datafile-status]');
+  const say = (t) => { if (status) status.textContent = t; };
+  try {
+    const ready = window.EPCDataFile && EPCDataFile.hasCopy ? await EPCDataFile.hasCopy() : false;
+    if (!ready) {
+      const go = confirm('Offline uses only the copy saved on this browser, and this browser has no complete copy yet.\n\n' +
+        'Download the data first? It reads everything from the database once (the cost is shown first) and saves one file. ' +
+        'Reports will then be generated from that copy.\n\nOK = download now, Cancel = stay online.');
+      if (!go) { box.checked = false; say(''); return; }
+      say('Reading everything from the database first…');
+      const d = await EPCDataFile.download();
+      if (!d) { box.checked = false; say(''); return; }   // "Not now" in the dates box or the cost pop-up
+      say(`Downloaded ${d.records.toLocaleString()} records and ${d.days.toLocaleString()} sales days. Offline is on.`);
+    }
+    setOffline(true);
+  } catch (err) {
+    console.error('[Reports] offline switch failed:', err);
+    box.checked = false;
+    say(err.message || 'Could not download the data.');
+  } finally {
+    box.disabled = false;
+    offlineSwitching = false;
+  }
+});
+applyOfflineSwitch();
 function shortDay(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 }

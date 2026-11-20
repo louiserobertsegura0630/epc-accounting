@@ -690,7 +690,6 @@ async function setSnapDate(date) {
     await loadWeekSales();                               // up to 6 more, for the 7-day charts
     await loadInventoryForDate(SNAP_DATE);               // that day's inventory rows (cached)
     buildDailyOperationsSummary();
-    if (window.EPCSalesPulse) EPCSalesPulse.showDay(SNAP_DATE);
   });
 }
 function setSnapToday() { setSnapDate(today); }
@@ -930,7 +929,6 @@ dailyGate = EPCReportGate.wire({
     if (blocks) blocks.style.display = '';
     // Show the section first so the charts can measure their size.
     buildDailyOperationsSummary();
-    if (window.EPCSalesPulse) EPCSalesPulse.showDay(SNAP_DATE);   // the pulse follows the generated day
   })
 });
 

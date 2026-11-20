@@ -26,41 +26,7 @@
     now: () => Date.now(),
     storage: null,         // { getItem, setItem }
     nextReset: null,       // ms -> ms
-    offline: null,         // () => boolean, for tests; the site uses window.EPC_OFFLINE
   };
-  // ── Offline mode flag ─────────────────────────────────────────────────────
-  // One flag for the whole site (localStorage epc_offline = '1'), read here at
-  // load because reads.js is the first site script on every page: the theme
-  // attribute is set before anything paints, and app.js sees the flag at once.
-  const OFFLINE_KEY = 'epc_offline';
-  (function readOfflineFlag() {
-    let on = false;
-    try { on = global.localStorage && global.localStorage.getItem(OFFLINE_KEY) === '1'; } catch (e) { on = false; }
-    global.EPC_OFFLINE = !!on;
-    if (on && global.document && global.document.documentElement) global.document.documentElement.dataset.offline = '1';
-  })();
-  function offline() { return deps.offline ? !!deps.offline() : !!global.EPC_OFFLINE; }
-  // Firebase's on-disk cache is turned on only for a browser that chose Offline
-  // mode (localStorage epc_persist = '1'): it makes every read wait for the
-  // storage to open, which must not hold up pages for everyone else.
-  const PERSIST_KEY = 'epc_persist';
-  (function readPersistFlag() {
-    let on = false;
-    try { on = global.localStorage && global.localStorage.getItem(PERSIST_KEY) === '1'; } catch (e) { on = false; }
-    global.EPC_PERSIST_WANTED = !!on || !!global.EPC_OFFLINE;
-  })();
-  function wantPersistence() {
-    global.EPC_PERSIST_WANTED = true;
-    try { global.localStorage.setItem(PERSIST_KEY, '1'); } catch (e) { /* storage off */ }
-  }
-  function setOffline(on) {
-    global.EPC_OFFLINE = !!on;
-    try { global.localStorage.setItem(OFFLINE_KEY, on ? '1' : '0'); } catch (e) { /* storage off */ }
-    if (global.document && global.document.documentElement) {
-      if (on) global.document.documentElement.dataset.offline = '1';
-      else delete global.document.documentElement.dataset.offline;
-    }
-  }
   function storage() {
     if (deps.storage) return deps.storage;
     try { return global.localStorage; } catch (e) { return null; }
@@ -197,13 +163,6 @@
     if (!proto || typeof proto.get !== 'function' || proto.get.__epcWatched) return;
     const original = proto.get;
     const wrapped = async function (...args) {
-      const given = args[0] && typeof args[0] === 'object' ? args[0] : null;
-      if (offline() && !(given && given.source)) {
-        // Offline mode: answer from Firebase's local cache on this computer. 0 reads.
-        // A caller that asks for the server on purpose (a lookup right before a
-        // write) gets the server, and that read is counted below.
-        return original.call(this, { ...(given || {}), source: 'cache' });
-      }
       const snap = await original.apply(this, args);
       let label = 'query';
       try { label = labelFn ? labelFn(this) : 'query'; } catch (e) { /* label is cosmetic */ }
@@ -354,7 +313,7 @@
   const api = {
     LIMIT, CONFIRM_ABOVE, FALLBACK, MAX_AGE_MS,
     spent, countSnap, used, byLabel, rememberCount, knownCounts,
-    daysBetween, estimate, shouldConfirm, format, pesos, paidPart, paidBarDue, markPaidBarSeen, offline, setOffline, wantPersistence, _init,
+    daysBetween, estimate, shouldConfirm, format, pesos, paidPart, paidBarDue, markPaidBarSeen, _init,
     watchGet, watchFirestore, state, line, confirm, humanLabel,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
