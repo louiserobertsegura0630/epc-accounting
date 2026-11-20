@@ -1600,3 +1600,5 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
 .epc-switch input { accent-color: var(--primary, #0d3b35); }
 .report-offline-note { margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; background: var(--warning-bg, #fffbeb); border: 1px solid #fcd34d; color: #7c2d12; font-size: 0.875rem; line-height: 1.45; }
 .report-offline-note[hidden] { display: none; }
+.epc-range-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; font-size: 0.85rem; color: var(--text-secondary); }
+.epc-range-row label { display: flex; flex-direction: column; gap: 4px; }
