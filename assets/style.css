@@ -1603,4 +1603,6 @@ body.sidebar-collapsed { --sidebar-w: 4.5rem; }
 .epc-range-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; font-size: 0.85rem; color: var(--text-secondary); }
 .epc-range-row label { display: flex; flex-direction: column; gap: 4px; }
 .epc-confirm-paid { font-size: 0.85rem; color: #7c2d12; background: var(--warning-bg, #fffbeb); border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; line-height: 1.45; }
-.epc-paid { top: calc(var(--space-3) + 7.5rem); }
+/* Paid-reads bar: same look as the quota bar, below it when both show. */
+.epc-paid { background: #fff7ed; border-color: #fdba74; }
+.epc-quota:not([hidden]) ~ .epc-paid .epc-quota-msg { display: block; }

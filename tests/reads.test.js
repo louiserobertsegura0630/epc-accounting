@@ -161,3 +161,9 @@ test('paidPart says how many reads of a load fall beyond the free allowance', ()
   assert.equal(EPCReads.paidPart(300, 10), 0);
   assert.equal(EPCReads.paidPart(300, 60000), 300);
 });
+
+test('the paid-reads bar writes its lines into its own text slots, not the icon', () => {
+  const src = require('fs').readFileSync(require.resolve('../assets/reads.js'), 'utf8');
+  assert.match(src, /epc-quota-msg/);
+  assert.doesNotMatch(src, /paidBar\.querySelector\('span'\)/);
+});

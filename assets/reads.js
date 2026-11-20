@@ -270,14 +270,14 @@
     if (!paidBar) {
       paidBar = doc.createElement('div');
       paidBar.className = 'epc-quota epc-paid';
-      paidBar.innerHTML = '<span class="epc-quota-icon">💸</span><div class="epc-quota-text"><strong></strong><span></span></div><button type="button" class="epc-quota-hide">Hide</button>';
+      paidBar.innerHTML = '<span class="epc-quota-icon">💸</span><div class="epc-quota-text"><strong class="epc-quota-title"></strong><span class="epc-quota-msg"></span></div><button type="button" class="epc-quota-hide">Hide</button>';
       paidBar.querySelector('.epc-quota-hide').addEventListener('click', () => { paidBar.hidden = true; paidBar.dataset.hidden = '1'; });
       doc.body.appendChild(paidBar);
     }
     if (paidBar.dataset.hidden) return;
     const resetText = global.EPCQuota && global.EPCQuota.resetText ? global.EPCQuota.resetText() : 'the next reset';
-    paidBar.querySelector('strong').textContent = `This browser has passed today's free 50,000 reads (about ${fmt(over)} over, about ${pesos(over)} on the pay-as-you-go plan)`;
-    paidBar.querySelector('span').textContent = `Reads now cost money until ${resetText} (or fail on the free plan). Tick Offline on Reports to work from the saved copy, or Download all data once and load the file.`;
+    paidBar.querySelector('.epc-quota-title').textContent = `Past today's free reads: ${fmt(over)} over, about ${pesos(over)} so far`;
+    paidBar.querySelector('.epc-quota-msg').textContent = `Reads are billed until ${resetText}. Tip: tick Offline on Reports to work from the saved copy, or Download all data once and load the file.`;
     paidBar.hidden = false;
   }
   if (typeof global.addEventListener === 'function') {
