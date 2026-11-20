@@ -398,7 +398,27 @@ window.EPCSaved = window.EPCSaved || (() => {
     return out;
   }
 
-  return { rows, meta, SOURCES, _codec: { encode, decode }, _cacheStore: cacheStore };
+  // Data file (assets/datafile.js): every saved copy as stored, and back.
+  async function exportAll() {
+    const out = {};
+    for (const name of Object.keys(SOURCES)) {
+      let saved = memory[name] ? { ...memory[name], docs: encode(memory[name].docs) } : null;
+      if (!saved) { try { saved = await cacheStore('readonly', (store) => store.get(`saved:${name}`)); } catch (e) { saved = null; } }
+      if (saved && saved.v === VERSION && saved.docs) out[name] = saved;
+    }
+    return out;
+  }
+  async function importAll(obj) {
+    const user = await signedIn();
+    for (const name of Object.keys(obj || {})) {
+      if (!SOURCES[name]) continue;
+      const saved = { ...obj[name], v: VERSION, uid: user.uid };
+      await cacheStore('readwrite', (store) => store.put(saved, `saved:${name}`));
+      delete memory[name];
+    }
+  }
+
+  return { rows, meta, exportAll, importAll, SOURCES, _codec: { encode, decode }, _cacheStore: cacheStore };
 })();
 
 // ─── Pastel 3D chart style (shared) ──────────────────────────────────────────

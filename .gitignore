@@ -39,3 +39,6 @@ serviceAccountKey.json
 backup/
 exports/
 new-project-web-config.txt
+
+# Data files downloaded from the portal (real business data, never commit)
+epc-data-*.json

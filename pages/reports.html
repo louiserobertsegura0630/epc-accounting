@@ -51,6 +51,9 @@
         <button class="btn btn-primary btn-sm" type="button" id="btn-apply-report-range">Generate Report</button>
         <button class="btn btn-outline-gray btn-sm" type="button" id="btn-reload-report-data" title="Reads every record again from the database. Use it only if a report looks out of date.">Reload all data</button>
         <label class="epc-switch" title="Use only the copy saved on this browser. No database reads; days never loaded here are listed as missing."><input type="checkbox" id="rep-offline"> Offline (saved copy only)</label>
+        <button class="btn btn-outline-gray btn-sm" type="button" data-epc-download title="Save everything this browser has loaded into one file (no database reads).">Download all data</button>
+        <button class="btn btn-outline-gray btn-sm" type="button" data-epc-load title="Fill this browser's saved copy from a downloaded file instead of reading everything from the database.">Load from file</button>
+        <span class="gen-status" data-epc-datafile-status></span>
         <span id="rep-gen-status" class="gen-status"></span>
         <span id="rep-cost-line" class="epc-cost-line" title="How many database reads the next Generate will cost, and how many this browser has used today"></span>
         <div class="report-extra-filters" id="report-extra-filters"></div>
@@ -212,6 +215,7 @@
 <script src="../assets/app.js?v=20261120-reads"></script>
 
 <script src="../assets/days.js?v=20261120-reads"></script>
+<script src="../assets/datafile.js?v=20261120-reads"></script>
 <script src="../assets/shared-utils.js?v=20260610-inventory-cost-margin4"></script>
 <script src="reports.js?v=20261120-reads"></script>
 <script src="reports-sales.js?v=20261118-analysis"></script>

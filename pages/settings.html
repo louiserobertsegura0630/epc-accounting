@@ -75,6 +75,21 @@
         <span id="password-status" style="font-size:0.875rem;color:var(--text-secondary)"></span>
       </div>
     </div>
+
+    <div class="card" style="max-width:760px;padding:22px;margin-top:18px">
+      <h3 style="margin:0 0 6px">Your saved data</h3>
+      <p style="margin:0 0 14px;font-size:0.9rem;color:var(--text-secondary)">
+        Reports and the Dashboard keep a copy of the records on this browser so they read only what changed.
+        <strong>Download all data</strong> saves that copy as one file (a backup, and a way to move it to another computer).
+        <strong>Load from file</strong> fills this browser's copy from such a file, so a new computer does not read everything from the database.
+        The file holds real business data: keep it private.
+      </p>
+      <div class="flex items-center gap-8" style="flex-wrap:wrap">
+        <button class="btn btn-outline-gray" type="button" data-epc-download>Download all data</button>
+        <button class="btn btn-outline-gray" type="button" data-epc-load>Load from file</button>
+        <span style="font-size:0.875rem;color:var(--text-secondary)" data-epc-datafile-status></span>
+      </div>
+    </div>
   </div>
 </div>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
@@ -84,6 +99,8 @@
 <script src="../assets/reads.js?v=20261120-reads"></script>
 
 <script src="../assets/app.js?v=20261120-reads"></script>
+<script src="../assets/days.js?v=20261120-reads"></script>
+<script src="../assets/datafile.js?v=20261120-reads"></script>
 <script src="settings.js"></script>
 </body>
 </html>
